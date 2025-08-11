@@ -103,7 +103,7 @@ Stardust Distro shares authentication with the DDEX Workbench app ecosystem:
 
 ```javascript
 // Shared auth configuration
-import { initializeAuth } from '@stardust/auth';
+import { initializeAuth } from '@stardust-distro/auth';
 
 const auth = initializeAuth({
   project: 'stardust-ecosystem',
@@ -143,7 +143,7 @@ stardust-distro/
 │   │   └── custom/                # Custom configurations ❌
 │   └── package.json               # CLI dependencies ✅
 ├── packages/                      # Core packages
-│   ├── @stardust/common/          # Common types and utilities ✅
+│   ├── @stardust-distro/common/   # Common types and utilities ✅
 │   │   ├── src/
 │   │   │   ├── types/             # TypeScript types ✅
 │   │   │   │   ├── index.ts       # Type exports ✅
@@ -159,7 +159,7 @@ stardust-distro/
 │   │   │   └── index.ts           # Main export ✅
 │   │   ├── package.json           # Package config ✅
 │   │   └── tsconfig.json          # TypeScript config ✅
-│   ├── @stardust/distro-core/     # Core distribution logic ❌
+│   ├── @stardust-distro/core/     # Core distribution logic ❌
 │   │   ├── src/
 │   │   │   ├── catalog/           # Catalog management
 │   │   │   ├── delivery/          # Delivery engine
@@ -167,13 +167,13 @@ stardust-distro/
 │   │   │   ├── validation/        # Workbench integration
 │   │   │   └── plugin-system/     # Plugin architecture
 │   │   └── package.json
-│   ├── @stardust/cms/             # Content management ❌
+│   ├── @stardust-distro/cms/      # Content management ❌
 │   │   ├── src/
 │   │   │   ├── components/        # Vue components
 │   │   │   ├── stores/            # Pinia stores
 │   │   │   └── views/             # Page components
 │   │   └── package.json
-│   └── @stardust/delivery-engine/   # Delivery workers ❌
+│   └── @stardust-distro/delivery-engine/   # Delivery workers ❌
 │       ├── src/
 │       │   ├── protocols/         # FTP, SFTP, S3, API
 │       │   ├── queue/             # Job queue management
@@ -847,7 +847,7 @@ class StardustPlugin {
     name: 'plugin-name',
     version: '1.0.0',
     author: 'Developer Name',
-    requires: ['@stardust/core@^2.0.0'],
+    requires: ['@stardust-distro/core@^2.0.0'],
     hooks: ['beforeRelease', 'afterRelease', 'beforeDelivery']
   };
   
@@ -908,7 +908,7 @@ export class DolbyAtmosPlugin extends StardustPlugin {
     name: 'dolby-atmos',
     version: '1.0.0',
     author: 'Audio Processing Inc.',
-    requires: ['@stardust/core@^2.0.0'],
+    requires: ['@stardust-distro/core@^2.0.0'],
     hooks: ['beforeAssetProcess', 'afterAssetProcess', 'beforeDelivery']
   };
   
@@ -1014,7 +1014,7 @@ class PluginMarketplace {
 ### Installation & Setup
 ```bash
 # Global installation
-npm install -g @stardust/distro-cli
+npm install -g @stardust-distro/cli
 
 # Create new project
 stardust-distro create my-label \
@@ -1171,7 +1171,7 @@ distro.registerProtocol('custom', CustomDeliveryProtocol);
 
 ```javascript
 // Complete release creation and delivery
-import { ReleaseCreator, DeliveryManager } from '@stardust/distro-core';
+import { ReleaseCreator, DeliveryManager } from '@stardust-distro/core';
 
 // Create release with full metadata
 const release = {
@@ -1257,8 +1257,8 @@ if (validation.valid) {
 
 ```javascript
 // Using plugins for specialized features
-import { ReleaseCreator, DeliveryManager } from '@stardust/distro-core';
-import { PluginLoader } from '@stardust/plugin-system';
+import { ReleaseCreator, DeliveryManager } from '@stardust-distro/core';
+import { PluginLoader } from '@stardust-distro/plugin-system';
 
 // Load plugins (if licensed)
 const plugins = new PluginLoader();
@@ -1458,7 +1458,7 @@ const results = await delivery.deliver(stardustRelease);
 ### Monitoring & Logging
 ```javascript
 // Comprehensive logging
-import { logger } from '@stardust/distro-core';
+import { logger } from '@stardust-distro/core';
 
 logger.info('Delivery started', {
   releaseId,
@@ -1469,7 +1469,7 @@ logger.info('Delivery started', {
 });
 
 // Performance monitoring
-import { performance } from '@stardust/monitoring';
+import { performance } from '@stardust-distro/monitoring';
 
 const timer = performance.startTimer('ern-generation');
 const ern = await generateERN(release);
