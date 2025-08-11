@@ -8,10 +8,9 @@ Stardust Distro is an open-source, npm-installable music distribution platform t
 Democratize music distribution by providing a complete, DDEX-compliant distribution platform that's truly free and open, with an optional marketplace for specialized plugins from both our team and third-party developers.
 
 ### Core Value Propositions
-- **100% Open Source**: Every line of core code is MIT licensed
-- **Complete Platform**: Full production-ready system, no limitations
-- **Open Plugin Marketplace**: Optional add-ons from any developer
-- **No Vendor Lock-in**: Core platform is complete without plugins
+- **Instant Distribution Platform**: Deploy a functional distribution system with one command
+- **Multi-Protocol Delivery**: Supports FTP, SFTP, Amazon S3, and Google Cloud methods
+- **No Vendor Lock-in**: Core platform is a full production-ready system
 - **Community Driven**: Open development, transparent roadmap
 - **Developer Ecosystem**: Anyone can build and sell plugins
 
