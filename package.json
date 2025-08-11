@@ -1,0 +1,52 @@
+{
+  "name": "stardust-distro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Open-source DDEX-compliant music distribution platform",
+  "workspaces": [
+    "packages/*",
+    "cli",
+    "template"
+  ],
+  "scripts": {
+    "bootstrap": "lerna bootstrap",
+    "build": "lerna run build --stream",
+    "build:packages": "lerna run build --scope=@stardust-distro/*",
+    "build:cli": "lerna run build --scope=@stardust-distro/distro-cli",
+    "build:template": "cd template && npm run build",
+    "dev": "cd template && npm run dev",
+    "dev:all": "lerna run dev --parallel",
+    "test": "lerna run test",
+    "clean": "lerna clean --yes && rm -rf node_modules",
+    "clean:full": "npm run clean && rm -rf template/node_modules cli/node_modules packages/*/node_modules",
+    "publish": "lerna publish",
+    "publish:canary": "lerna publish --canary",
+    "version": "lerna version",
+    "install:all": "npm install && lerna bootstrap",
+    "deploy": "cd template && npm run build && firebase deploy",
+    "cli": "node cli/bin/stardust-distro.js"
+  },
+  "devDependencies": {
+    "lerna": "^7.0.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stardust-distro/stardust-distro.git"
+  },
+  "keywords": [
+    "stardust",
+    "music",
+    "distribution",
+    "ern",
+    "dsps",
+    "firebase"
+  ],
+  "author": "Stardust Distro Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}

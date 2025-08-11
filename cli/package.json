@@ -1,0 +1,39 @@
+{
+  "name": "@stardust-distro/distro-cli",
+  "version": "1.0.0",
+  "description": "CLI for creating and managing Stardust Distro distribution platforms",
+  "type": "module",
+  "bin": {
+    "stardust-distro": "./bin/stardust-distro.js"
+  },
+  "scripts": {
+    "start": "node bin/stardust-distro.js",
+    "build": "echo 'No build required'",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^11.0.0",
+    "figlet": "^1.7.0",
+    "fs-extra": "^11.2.0",
+    "inquirer": "^9.2.0",
+    "ora": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "vitest": "^1.0.0"
+  },
+  "keywords": [
+    "stardust",
+    "music",
+    "distribution",
+    "cli",
+    "scaffolding"
+  ],
+  "author": "Stardust Distro Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stardust-distro/stardust-distro.git"
+  }
+}
