@@ -8,6 +8,15 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
     
+    // Allow anyone to read invite codes (needed for validation during signup)
+    // Only admins can create or delete invite codes
+    match /inviteCodes/{codeId} {
+      allow read: if true; // Public read for validation
+      allow create, delete: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      allow update: if false; // No updates needed for simple codes
+    }
+    
     // Allow authenticated users to read all releases (for now)
     // In production, this would be scoped to organization/tenant
     match /releases/{releaseId} {
