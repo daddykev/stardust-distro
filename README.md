@@ -292,15 +292,15 @@ stardust-distro/
 │   │   └── firebase.js  # Firebase config (✅ Complete)
 │   └── functions/       # Cloud Functions (📅 Phase 3)
 ├── cli/                 # CLI tool (✅ Complete)
-│   ├── bin/            # Executable scripts
-│   └── commands/       # All CLI commands
-├── packages/           # Shared packages
+│   ├── bin/             # Executable scripts
+│   └── commands/        # All CLI commands
+├── packages/            # Shared packages
 │   └── @stardust-distro/
-│       └── common/     # Types & utils (✅ Complete)
-├── firebase.json       # Firebase configuration (✅)
-├── firestore.rules     # Security rules (✅)
-├── lerna.json         # Monorepo config (✅)
-└── docs/              # Documentation (📅 Phase 6)
+│       └── common/      # Types & utils (✅ Complete)
+├── firebase.json        # Firebase configuration (✅)
+├── firestore.rules      # Security rules (✅)
+├── lerna.json           # Monorepo config (✅)
+└── docs/                # Documentation (📅 Phase 6)
 ```
 
 ## 🤝 Contributing
@@ -328,12 +328,12 @@ Start thinking about plugins you'd like to build! The Plugin SDK and marketplace
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-## 🔗 DDEX Ecosystem
+## 🔗 Stardust Ecosystem
 
-Stardust Distro is part of the larger DDEX open-source ecosystem:
+Stardust Distro is part of the larger Stardust ecosystem:
 
-- [DDEX Workbench](https://github.com/ddex/workbench) - Validation and testing tools
-- [DDEX DSP](https://github.com/stardust/dsp) - Reference streaming platform
+- [Stardust DSP](https://github.com/daddykev/stardust-dsp) - Streaming platform
+- [DDEX Workbench](https://github.com/daddykev/ddex-workbench) - Validation and testing tools
 
 All tools share unified authentication for seamless workflow integration.
 
