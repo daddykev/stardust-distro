@@ -50,7 +50,7 @@ const upcomingFeatures = [
 
 // Plugin marketplace examples
 const pluginExamples = [
-  'Immersive Audio Processing',
+  'Immersive Audio',
   'Apple Digital Masters',
   'Complex Rights Management',
   'Delivery Orchestration',
@@ -198,20 +198,20 @@ const copyCode = () => {
               Open Plugin Marketplace
             </h2>
             <p class="marketplace-subtitle">
-              <strong>Coming Phase 5:</strong> An open ecosystem where ANY developer can create and distribute plugins
+              <strong>Coming Phase 5:</strong> An open ecosystem where developers can create and distribute plugins
             </p>
             
             <div class="marketplace-benefits">
               <div class="benefit">
-                <h4>For Enterprise Users</h4>
+                <h4>For Advanced Users</h4>
                 <ul>
                   <li>
                     <font-awesome-icon icon="arrow-right" />
-                    Dolby Atmos & spatial audio processing
+                    Dolby Atmos Processing
                   </li>
                   <li>
                     <font-awesome-icon icon="arrow-right" />
-                    Complex rights & royalty management
+                    Complex rights and royalty management
                   </li>
                   <li>
                     <font-awesome-icon icon="arrow-right" />
@@ -219,7 +219,7 @@ const copyCode = () => {
                   </li>
                   <li>
                     <font-awesome-icon icon="arrow-right" />
-                    Custom integrations & workflows
+                    Custom integrations and workflows
                   </li>
                 </ul>
               </div>
@@ -240,7 +240,7 @@ const copyCode = () => {
                   </li>
                   <li>
                     <font-awesome-icon icon="arrow-right" />
-                    Set your own pricing and licensing
+                    Set your own pricing and terms
                   </li>
                 </ul>
               </div>
@@ -259,7 +259,7 @@ const copyCode = () => {
               <font-awesome-icon icon="info-circle" />
               <p>
                 The core platform includes everything needed for standard distribution. 
-                Plugins add specialized capabilities for specific industry needs.
+                Plugins add specialized capabilities for advanced industry needs.
               </p>
             </div>
           </div>
