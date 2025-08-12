@@ -54,7 +54,8 @@ import {
   faBug,
   faLightbulb,
   faBook,
-  faHardHat
+  faHardHat,
+  faLaptopCode
 } from '@fortawesome/free-solid-svg-icons'
 
 // Import brand icons
@@ -109,7 +110,8 @@ library.add(
   faBug,
   faLightbulb,
   faBook,
-  faHardHat
+  faHardHat,
+  faLaptopCode
 )
 
 // Add brand icons to the library

@@ -291,7 +291,7 @@ const copyCode = () => {
           
           <div class="roadmap-item roadmap-current">
             <div class="roadmap-marker">
-              <font-awesome-icon icon="hard-hat" />
+              <font-awesome-icon icon="laptop-code" />
             </div>
             <div class="roadmap-content">
               <h3>Phase 2: Core CMS</h3>
