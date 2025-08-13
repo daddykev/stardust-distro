@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
-// Current working features from Phase 2 and 3
+// Current working features from Phases 1-4
 const currentFeatures = [
   {
     icon: 'check-circle',
@@ -31,27 +31,21 @@ const currentFeatures = [
     status: 'live'
   },
   {
-    icon: 'server',
-    title: 'Delivery Targets',
-    description: 'DSP configuration with DDEX party IDs and protocol settings',
+    icon: 'truck',
+    title: 'Delivery Engine',
+    description: 'FTP, SFTP, S3, API, and Azure protocols with retry logic',
     status: 'live'
   },
   {
-    icon: 'paper-plane',
-    title: 'Delivery Management',
-    description: 'Real-time monitoring, scheduling, and queue management',
+    icon: 'chart-line',
+    title: 'Real-time Monitoring',
+    description: 'Live delivery tracking, analytics, and notification system',
     status: 'live'
   }
 ]
 
 // Coming soon features
 const upcomingFeatures = [
-  {
-    icon: 'truck',
-    title: 'Delivery Engine',
-    description: 'FTP, SFTP, S3, API, and Azure protocol implementation',
-    phase: 'Phase 4'
-  },
   {
     icon: 'plug',
     title: 'Plugin Marketplace',
@@ -68,21 +62,23 @@ const upcomingFeatures = [
 
 // Plugin marketplace examples
 const pluginExamples = [
-  'Immersive Audio',
+  'Dolby Atmos Processing',
   'Apple Digital Masters',
   'Complex Rights Management',
   'Delivery Orchestration',
   'Advanced Analytics'
 ]
 
-const codeExample = ref(`# Clone and explore the development progress
+const codeExample = ref(`# Install and deploy your distribution platform
+npx create-stardust-distro my-label
+cd my-label
+npm run deploy
+
+# Or clone the repo to explore the complete platform
 git clone https://github.com/daddykev/stardust-distro.git
 cd stardust-distro/template
 npm install
-npm run dev
-
-# Full CLI coming with release
-npx create-stardust-distro my-label`)
+npm run dev`)
 
 const handleViewProgress = () => {
   router.push('/signup')
@@ -127,10 +123,10 @@ const copyCode = () => {
 
           <div class="development-status">
             <div class="status-bar">
-              <div class="status-progress" style="width: 50%"></div>
+              <div class="status-progress" style="width: 67%"></div>
             </div>
             <p class="status-text">
-              <strong>Development Progress:</strong> Phase 4 of 6 (Delivery Engine Starting)
+              <strong>Development Progress:</strong> Phase 5 of 6 (Plugin Marketplace Starting)
             </p>
           </div>
           
@@ -185,7 +181,7 @@ const copyCode = () => {
         <div class="text-center mb-xl">
           <h2 class="section-title">What's Working Now</h2>
           <p class="section-description">
-            Phases 1-3 complete - these features are implemented and functional
+            Phases 1-4 complete - these features are implemented and functional
           </p>
         </div>
         
@@ -216,7 +212,7 @@ const copyCode = () => {
               Open Plugin Marketplace
             </h2>
             <p class="marketplace-subtitle">
-              <strong>Coming Phase 5:</strong> An open ecosystem where developers can create and distribute plugins
+              <strong>Now in Development:</strong> An open ecosystem where developers can create and distribute plugins
             </p>
             
             <div class="marketplace-benefits">
@@ -329,24 +325,35 @@ const copyCode = () => {
             </div>
           </div>
           
+          <div class="roadmap-item roadmap-complete">
+            <div class="roadmap-marker">
+              <font-awesome-icon icon="check" />
+            </div>
+            <div class="roadmap-content">
+              <h3>Phase 4: Delivery Engine</h3>
+              <p>FTP, SFTP, S3, API, and Azure protocol implementation</p>
+              <span class="roadmap-status">COMPLETE</span>
+            </div>
+          </div>
+          
           <div class="roadmap-item roadmap-current">
             <div class="roadmap-marker">
               <font-awesome-icon icon="laptop-code" />
             </div>
             <div class="roadmap-content">
-              <h3>Phase 4: Delivery Engine</h3>
-              <p>FTP, SFTP, S3, API, and Azure protocol implementation</p>
-              <span class="roadmap-status">STARTING</span>
+              <h3>Phase 5: Plugin Marketplace</h3>
+              <p>Plugin architecture, SDK, developer portal, initial plugins</p>
+              <span class="roadmap-status">IN PROGRESS</span>
             </div>
           </div>
           
-          <div v-for="feature in upcomingFeatures.slice(1)" :key="feature.title" class="roadmap-item">
+          <div class="roadmap-item">
             <div class="roadmap-marker">
               <font-awesome-icon icon="calendar" />
             </div>
             <div class="roadmap-content">
-              <h3>{{ feature.phase }}: {{ feature.title }}</h3>
-              <p>{{ feature.description }}</p>
+              <h3>Phase 6: Testing & Launch</h3>
+              <p>Comprehensive testing, optimization, npm package publication</p>
               <span class="roadmap-status">UPCOMING</span>
             </div>
           </div>
@@ -359,9 +366,9 @@ const copyCode = () => {
       <div class="container">
         <div class="quick-start">
           <div class="quick-start-content">
-            <h2 class="section-title">Explore the Code</h2>
+            <h2 class="section-title">Try the Platform</h2>
             <p class="section-description">
-              Clone the repo to see the development progress
+              The core platform is fully functional - start distributing today!
             </p>
           </div>
           <div class="code-block">
@@ -380,29 +387,29 @@ const copyCode = () => {
         <div class="cta-section">
           <h2 class="cta-title">Join the Revolution</h2>
           <p class="cta-description">
-            Help us build the future of music distribution. Every contribution matters!
+            Help us build the plugin ecosystem and prepare for launch!
           </p>
           
           <div class="contribution-options">
             <div class="contribution-card">
-              <font-awesome-icon icon="code" />
-              <h3>Contribute Code</h3>
-              <p>Help implement Phase 4 delivery protocols</p>
-            </div>
-            <div class="contribution-card">
-              <font-awesome-icon icon="bug" />
-              <h3>Test & Report</h3>
-              <p>Test ERN generation and delivery features</p>
-            </div>
-            <div class="contribution-card">
-              <font-awesome-icon icon="lightbulb" />
+              <font-awesome-icon icon="plug" />
               <h3>Design Plugins</h3>
               <p>Start planning plugins for the marketplace</p>
             </div>
             <div class="contribution-card">
+              <font-awesome-icon icon="bug" />
+              <h3>Test Platform</h3>
+              <p>Test the complete distribution workflow</p>
+            </div>
+            <div class="contribution-card">
+              <font-awesome-icon icon="code" />
+              <h3>Contribute Code</h3>
+              <p>Help build the plugin architecture</p>
+            </div>
+            <div class="contribution-card">
               <font-awesome-icon icon="book" />
               <h3>Write Docs</h3>
-              <p>Help document features and create guides</p>
+              <p>Document features and create guides</p>
             </div>
           </div>
           
