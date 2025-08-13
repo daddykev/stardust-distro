@@ -10,6 +10,7 @@ const {
   releases, 
   loadReleases, 
   deleteRelease,
+  updateRelease,
   isLoading,
   error,
   draftReleases,
@@ -24,6 +25,13 @@ const selectedType = ref('all')
 const showDeleteConfirm = ref(false)
 const releaseToDelete = ref(null)
 const isDeleting = ref(false)
+
+// Bulk operations state
+const selectedReleases = ref([])
+const showBulkStatusModal = ref(false)
+const bulkNewStatus = ref('ready')
+const showBulkDeleteConfirm = ref(false)
+const isBulkProcessing = ref(false)
 
 // Filtered releases
 const filteredReleases = computed(() => {
@@ -68,6 +76,23 @@ const stats = computed(() => {
   }
 })
 
+// Bulk operations computed
+const isAllSelected = computed(() => {
+  return filteredReleases.value.length > 0 && 
+         selectedReleases.value.length === filteredReleases.value.length
+})
+
+const canBulkDeliver = computed(() => {
+  return selectedReleases.value.every(id => {
+    const release = releases.value.find(r => r.id === id)
+    return release?.status === 'ready'
+  })
+})
+
+const selectedReleasesData = computed(() => {
+  return releases.value.filter(r => selectedReleases.value.includes(r.id))
+})
+
 // Load releases on mount
 onMounted(async () => {
   await loadReleases()
@@ -78,6 +103,11 @@ watch(user, async (newUser) => {
   if (newUser) {
     await loadReleases()
   }
+})
+
+// Clear selection when filters change
+watch([searchQuery, selectedStatus, selectedType], () => {
+  selectedReleases.value = []
 })
 
 // Methods
@@ -181,7 +211,105 @@ const hasActiveFilters = computed(() => {
 
 // Refresh releases
 const refreshReleases = async () => {
+  selectedReleases.value = []
   await loadReleases()
+}
+
+// Bulk operations methods
+const toggleSelectAll = () => {
+  if (isAllSelected.value) {
+    selectedReleases.value = []
+  } else {
+    selectedReleases.value = filteredReleases.value.map(r => r.id)
+  }
+}
+
+const clearSelection = () => {
+  selectedReleases.value = []
+}
+
+const toggleReleaseSelection = (releaseId) => {
+  const index = selectedReleases.value.indexOf(releaseId)
+  if (index > -1) {
+    selectedReleases.value.splice(index, 1)
+  } else {
+    selectedReleases.value.push(releaseId)
+  }
+}
+
+const bulkUpdateStatus = () => {
+  showBulkStatusModal.value = true
+}
+
+const cancelBulkStatus = () => {
+  showBulkStatusModal.value = false
+  bulkNewStatus.value = 'ready'
+}
+
+const executeBulkStatusUpdate = async () => {
+  isBulkProcessing.value = true
+  try {
+    for (const id of selectedReleases.value) {
+      await updateRelease(id, { status: bulkNewStatus.value })
+    }
+    selectedReleases.value = []
+    showBulkStatusModal.value = false
+    await loadReleases()
+    console.log('✅ Status updated for all selected releases')
+  } catch (err) {
+    console.error('❌ Failed to update status:', err)
+    alert('Failed to update some releases. Please try again.')
+  } finally {
+    isBulkProcessing.value = false
+  }
+}
+
+const bulkDeliver = () => {
+  // Navigate to delivery with multiple releases
+  const releaseIds = selectedReleases.value.join(',')
+  router.push(`/deliveries/new?releaseIds=${releaseIds}`)
+}
+
+const bulkExport = () => {
+  // Export selected releases as JSON
+  const releasesToExport = releases.value.filter(r => selectedReleases.value.includes(r.id))
+  const json = JSON.stringify(releasesToExport, null, 2)
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `releases_${new Date().toISOString().split('T')[0]}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  console.log('✅ Exported', releasesToExport.length, 'releases')
+}
+
+const confirmBulkDelete = () => {
+  showBulkDeleteConfirm.value = true
+}
+
+const cancelBulkDelete = () => {
+  showBulkDeleteConfirm.value = false
+}
+
+const executeBulkDelete = async () => {
+  isBulkProcessing.value = true
+  try {
+    for (const id of selectedReleases.value) {
+      await deleteRelease(id)
+    }
+    selectedReleases.value = []
+    showBulkDeleteConfirm.value = false
+    await loadReleases()
+    console.log('✅ Deleted all selected releases')
+  } catch (err) {
+    console.error('❌ Failed to delete releases:', err)
+    alert('Failed to delete some releases. Please try again.')
+  } finally {
+    isBulkProcessing.value = false
+  }
 }
 </script>
 
@@ -269,6 +397,39 @@ const refreshReleases = async () => {
         </div>
       </div>
 
+      <!-- Bulk Actions Bar -->
+      <div v-if="selectedReleases.length > 0" class="bulk-actions-bar card">
+        <div class="card-body">
+          <div class="bulk-content">
+            <div class="bulk-info">
+              <span class="bulk-count">
+                <font-awesome-icon icon="check-square" />
+                {{ selectedReleases.length }} {{ selectedReleases.length === 1 ? 'release' : 'releases' }} selected
+              </span>
+              <button @click="clearSelection" class="btn-link">Clear selection</button>
+            </div>
+            <div class="bulk-actions">
+              <button @click="bulkUpdateStatus" class="btn btn-secondary btn-sm">
+                <font-awesome-icon icon="edit" />
+                Update Status
+              </button>
+              <button @click="bulkDeliver" class="btn btn-secondary btn-sm" :disabled="!canBulkDeliver">
+                <font-awesome-icon icon="truck" />
+                Deliver
+              </button>
+              <button @click="bulkExport" class="btn btn-secondary btn-sm">
+                <font-awesome-icon icon="download" />
+                Export
+              </button>
+              <button @click="confirmBulkDelete" class="btn btn-secondary btn-sm text-error">
+                <font-awesome-icon icon="trash" />
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Error Message -->
       <div v-if="error" class="error-banner">
         <font-awesome-icon icon="exclamation-triangle" />
@@ -287,6 +448,14 @@ const refreshReleases = async () => {
           <table class="table">
             <thead>
               <tr>
+                <th class="checkbox-column">
+                  <input 
+                    type="checkbox" 
+                    :checked="isAllSelected"
+                    @change="toggleSelectAll"
+                    class="checkbox"
+                  />
+                </th>
                 <th>Cover</th>
                 <th>Title</th>
                 <th>Artist</th>
@@ -299,6 +468,15 @@ const refreshReleases = async () => {
             </thead>
             <tbody>
               <tr v-for="release in filteredReleases" :key="release.id">
+                <td class="checkbox-column">
+                  <input 
+                    type="checkbox"
+                    :value="release.id"
+                    :checked="selectedReleases.includes(release.id)"
+                    @change="toggleReleaseSelection(release.id)"
+                    class="checkbox"
+                  />
+                </td>
                 <td>
                   <div class="cover-thumbnail">
                     <img 
@@ -432,6 +610,98 @@ const refreshReleases = async () => {
           </div>
         </div>
       </div>
+
+      <!-- Bulk Status Update Modal -->
+      <div v-if="showBulkStatusModal" class="modal-overlay" @click.self="cancelBulkStatus">
+        <div class="modal">
+          <div class="modal-header">
+            <h3>Update Status</h3>
+            <button @click="cancelBulkStatus" class="btn-icon">
+              <font-awesome-icon icon="times" />
+            </button>
+          </div>
+          <div class="modal-body">
+            <p>Update status for {{ selectedReleases.length }} selected {{ selectedReleases.length === 1 ? 'release' : 'releases' }}:</p>
+            
+            <div class="form-group">
+              <label class="form-label">New Status</label>
+              <select v-model="bulkNewStatus" class="form-select">
+                <option value="draft">Draft</option>
+                <option value="ready">Ready</option>
+                <option value="delivered">Delivered</option>
+              </select>
+            </div>
+            
+            <div class="selected-releases-list">
+              <div v-for="release in selectedReleasesData" :key="release.id" class="selected-release-item">
+                <span>{{ release.basic?.title || 'Untitled' }}</span>
+                <span class="badge" :class="getStatusClass(release.status)">
+                  {{ getStatusLabel(release.status) }}
+                </span>
+                <font-awesome-icon icon="arrow-right" />
+                <span class="badge" :class="getStatusClass(bulkNewStatus)">
+                  {{ getStatusLabel(bulkNewStatus) }}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button @click="cancelBulkStatus" class="btn btn-secondary">
+              Cancel
+            </button>
+            <button 
+              @click="executeBulkStatusUpdate" 
+              class="btn btn-primary"
+              :disabled="isBulkProcessing"
+            >
+              <font-awesome-icon v-if="isBulkProcessing" icon="spinner" class="fa-spin" />
+              <font-awesome-icon v-else icon="edit" />
+              {{ isBulkProcessing ? 'Updating...' : 'Update Status' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bulk Delete Confirmation Modal -->
+      <div v-if="showBulkDeleteConfirm" class="modal-overlay" @click.self="cancelBulkDelete">
+        <div class="modal">
+          <div class="modal-header">
+            <h3>Confirm Bulk Delete</h3>
+            <button @click="cancelBulkDelete" class="btn-icon">
+              <font-awesome-icon icon="times" />
+            </button>
+          </div>
+          <div class="modal-body">
+            <p>Are you sure you want to delete {{ selectedReleases.length }} {{ selectedReleases.length === 1 ? 'release' : 'releases' }}?</p>
+            
+            <div class="selected-releases-list">
+              <div v-for="release in selectedReleasesData" :key="release.id" class="selected-release-item">
+                <strong>{{ release.basic?.title || 'Untitled' }}</strong>
+                <span>by {{ release.basic?.displayArtist || 'Unknown Artist' }}</span>
+              </div>
+            </div>
+            
+            <p class="warning-text">
+              <font-awesome-icon icon="exclamation-triangle" />
+              This action cannot be undone. All associated data will be permanently deleted.
+            </p>
+          </div>
+          <div class="modal-footer">
+            <button @click="cancelBulkDelete" class="btn btn-secondary">
+              Cancel
+            </button>
+            <button 
+              @click="executeBulkDelete" 
+              class="btn btn-error"
+              :disabled="isBulkProcessing"
+            >
+              <font-awesome-icon v-if="isBulkProcessing" icon="spinner" class="fa-spin" />
+              <font-awesome-icon v-else icon="trash" />
+              {{ isBulkProcessing ? 'Deleting...' : `Delete ${selectedReleases.length} ${selectedReleases.length === 1 ? 'Release' : 'Releases'}` }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -495,7 +765,7 @@ const refreshReleases = async () => {
 
 /* Filters */
 .filters-section {
-  margin-bottom: var(--space-xl);
+  margin-bottom: var(--space-lg);
 }
 
 .filters-row {
@@ -526,6 +796,54 @@ const refreshReleases = async () => {
 
 .form-select {
   min-width: 150px;
+}
+
+/* Bulk Actions Bar */
+.bulk-actions-bar {
+  margin-bottom: var(--space-lg);
+  background-color: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+
+.bulk-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+}
+
+.bulk-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.bulk-count {
+  font-weight: var(--font-semibold);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+
+.btn-link:hover {
+  text-decoration: none;
+}
+
+.bulk-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
 }
 
 /* Loading State */
@@ -599,6 +917,16 @@ const refreshReleases = async () => {
 
 .table tbody tr:hover {
   background-color: var(--color-bg-secondary);
+}
+
+.checkbox-column {
+  width: 40px;
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
 }
 
 /* Cover Thumbnail */
@@ -748,6 +1076,9 @@ const refreshReleases = async () => {
   border-radius: var(--radius-lg);
   max-width: 500px;
   width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
   box-shadow: var(--shadow-lg);
 }
 
@@ -767,6 +1098,19 @@ const refreshReleases = async () => {
 
 .modal-body {
   padding: var(--space-lg);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.form-group {
+  margin-bottom: var(--space-md);
+}
+
+.form-label {
+  display: block;
+  margin-bottom: var(--space-xs);
+  font-weight: var(--font-medium);
+  color: var(--color-text);
 }
 
 .release-info {
@@ -785,6 +1129,31 @@ const refreshReleases = async () => {
 .release-info span {
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
+}
+
+.selected-releases-list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin: var(--space-md) 0;
+  padding: var(--space-md);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.selected-release-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.selected-release-item:last-child {
+  border-bottom: none;
+}
+
+.selected-release-item strong {
+  flex: 1;
 }
 
 .warning-text {
@@ -817,6 +1186,10 @@ const refreshReleases = async () => {
   transform: translateY(-1px);
 }
 
+.text-error {
+  color: var(--color-error);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .filters-row {
@@ -830,6 +1203,19 @@ const refreshReleases = async () => {
   
   .form-select {
     width: 100%;
+  }
+  
+  .bulk-content {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .bulk-actions {
+    justify-content: stretch;
+  }
+  
+  .bulk-actions .btn {
+    flex: 1;
   }
   
   .table {
@@ -847,6 +1233,11 @@ const refreshReleases = async () => {
   
   .modal {
     margin: var(--space-md);
+  }
+  
+  .selected-release-item {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
