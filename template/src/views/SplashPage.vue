@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
-// Current working features from Phase 2
+// Current working features from Phase 2 and 3
 const currentFeatures = [
   {
     icon: 'check-circle',
@@ -23,21 +23,33 @@ const currentFeatures = [
     title: 'Track Management',
     description: 'Complete CRUD operations with sequencing and metadata',
     status: 'live'
+  },
+  {
+    icon: 'file-code',
+    title: 'ERN 4.3 Generation',
+    description: 'Full DDEX-compliant ERN generation with XML formatting',
+    status: 'live'
+  },
+  {
+    icon: 'server',
+    title: 'Delivery Targets',
+    description: 'DSP configuration with DDEX party IDs and protocol settings',
+    status: 'live'
+  },
+  {
+    icon: 'paper-plane',
+    title: 'Delivery Management',
+    description: 'Real-time monitoring, scheduling, and queue management',
+    status: 'live'
   }
 ]
 
 // Coming soon features
 const upcomingFeatures = [
   {
-    icon: 'cube',
-    title: 'ERN Generation',
-    description: 'DDEX ERN 3.8.2, 4.2, and 4.3 with Workbench validation',
-    phase: 'Phase 3'
-  },
-  {
     icon: 'truck',
     title: 'Delivery Engine',
-    description: 'FTP, SFTP, S3, API, and Azure protocols included',
+    description: 'FTP, SFTP, S3, API, and Azure protocol implementation',
     phase: 'Phase 4'
   },
   {
@@ -45,6 +57,12 @@ const upcomingFeatures = [
     title: 'Plugin Marketplace',
     description: 'Open ecosystem for community and commercial plugins',
     phase: 'Phase 5'
+  },
+  {
+    icon: 'rocket',
+    title: 'Testing & Launch',
+    description: 'Comprehensive testing and npm package publication',
+    phase: 'Phase 6'
   }
 ]
 
@@ -109,10 +127,10 @@ const copyCode = () => {
 
           <div class="development-status">
             <div class="status-bar">
-              <div class="status-progress" style="width: 40%"></div>
+              <div class="status-progress" style="width: 50%"></div>
             </div>
             <p class="status-text">
-              <strong>Development Progress:</strong> Phase 2 of 6 (Core CMS 80% Complete)
+              <strong>Development Progress:</strong> Phase 4 of 6 (Delivery Engine Starting)
             </p>
           </div>
           
@@ -167,7 +185,7 @@ const copyCode = () => {
         <div class="text-center mb-xl">
           <h2 class="section-title">What's Working Now</h2>
           <p class="section-description">
-            Phase 2 is 80% complete - these features are implemented and functional
+            Phases 1-3 complete - these features are implemented and functional
           </p>
         </div>
         
@@ -289,18 +307,40 @@ const copyCode = () => {
             </div>
           </div>
           
+          <div class="roadmap-item roadmap-complete">
+            <div class="roadmap-marker">
+              <font-awesome-icon icon="check" />
+            </div>
+            <div class="roadmap-content">
+              <h3>Phase 2: Core CMS</h3>
+              <p>Release creation, asset management, catalog</p>
+              <span class="roadmap-status">COMPLETE</span>
+            </div>
+          </div>
+          
+          <div class="roadmap-item roadmap-complete">
+            <div class="roadmap-marker">
+              <font-awesome-icon icon="check" />
+            </div>
+            <div class="roadmap-content">
+              <h3>Phase 3: ERN Generation</h3>
+              <p>DDEX ERN 4.3, delivery targets, queue management</p>
+              <span class="roadmap-status">COMPLETE</span>
+            </div>
+          </div>
+          
           <div class="roadmap-item roadmap-current">
             <div class="roadmap-marker">
               <font-awesome-icon icon="laptop-code" />
             </div>
             <div class="roadmap-content">
-              <h3>Phase 2: Core CMS</h3>
-              <p>Release creation, asset management, catalog</p>
-              <span class="roadmap-status">80% COMPLETE</span>
+              <h3>Phase 4: Delivery Engine</h3>
+              <p>FTP, SFTP, S3, API, and Azure protocol implementation</p>
+              <span class="roadmap-status">STARTING</span>
             </div>
           </div>
           
-          <div v-for="feature in upcomingFeatures" :key="feature.title" class="roadmap-item">
+          <div v-for="feature in upcomingFeatures.slice(1)" :key="feature.title" class="roadmap-item">
             <div class="roadmap-marker">
               <font-awesome-icon icon="calendar" />
             </div>
@@ -347,12 +387,12 @@ const copyCode = () => {
             <div class="contribution-card">
               <font-awesome-icon icon="code" />
               <h3>Contribute Code</h3>
-              <p>Help complete Phase 2 or start on Phase 3</p>
+              <p>Help implement Phase 4 delivery protocols</p>
             </div>
             <div class="contribution-card">
               <font-awesome-icon icon="bug" />
               <h3>Test & Report</h3>
-              <p>Review code and report issues</p>
+              <p>Test ERN generation and delivery features</p>
             </div>
             <div class="contribution-card">
               <font-awesome-icon icon="lightbulb" />
