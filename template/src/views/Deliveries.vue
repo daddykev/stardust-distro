@@ -1,67 +1,38 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuth } from '../composables/useAuth'
+import deliveryTargetService from '../services/deliveryTargets'
+import { db } from '../firebase'
+import { 
+  collection, 
+  query, 
+  where, 
+  orderBy, 
+  onSnapshot,
+  doc,
+  updateDoc,
+  deleteDoc,
+  limit,
+  Timestamp
+} from 'firebase/firestore'
 
 const router = useRouter()
+const { user } = useAuth()
 
 // State
 const deliveries = ref([])
+const deliveryTargets = ref([])
 const filterStatus = ref('all')
 const selectedTarget = ref('all')
 const isLoading = ref(true)
 const showTargetModal = ref(false)
+const showDeliveryDetails = ref(false)
+const selectedDelivery = ref(null)
+const isProcessingAction = ref(false)
 
-// Mock delivery data
-const mockDeliveries = [
-  {
-    id: '1',
-    releaseTitle: 'Summer Vibes EP',
-    target: 'Spotify',
-    status: 'completed',
-    scheduledAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-    completedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000 + 15 * 60 * 1000),
-    fileCount: 5,
-    totalSize: '125 MB'
-  },
-  {
-    id: '2',
-    releaseTitle: 'Midnight Dreams',
-    target: 'Apple Music',
-    status: 'processing',
-    scheduledAt: new Date(),
-    progress: 65,
-    fileCount: 13,
-    totalSize: '380 MB'
-  },
-  {
-    id: '3',
-    releaseTitle: 'Electric Pulse',
-    target: 'YouTube Music',
-    status: 'queued',
-    scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
-    fileCount: 2,
-    totalSize: '45 MB'
-  },
-  {
-    id: '4',
-    releaseTitle: 'Summer Vibes EP',
-    target: 'Deezer',
-    status: 'failed',
-    scheduledAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
-    failedAt: new Date(Date.now() - 24 * 60 * 60 * 1000 + 5 * 60 * 1000),
-    error: 'Connection timeout',
-    fileCount: 5,
-    totalSize: '125 MB'
-  }
-]
-
-const deliveryTargets = ref([
-  { id: '1', name: 'Spotify', type: 'DSP', protocol: 'SFTP', active: true },
-  { id: '2', name: 'Apple Music', type: 'DSP', protocol: 'API', active: true },
-  { id: '3', name: 'YouTube Music', type: 'DSP', protocol: 'FTP', active: true },
-  { id: '4', name: 'Deezer', type: 'DSP', protocol: 'SFTP', active: true },
-  { id: '5', name: 'Amazon Music', type: 'DSP', protocol: 'S3', active: false }
-])
+// Real-time listener
+let unsubscribeDeliveries = null
 
 // Computed
 const filteredDeliveries = computed(() => {
@@ -72,8 +43,15 @@ const filteredDeliveries = computed(() => {
   }
   
   if (selectedTarget.value !== 'all') {
-    filtered = filtered.filter(d => d.target === selectedTarget.value)
+    filtered = filtered.filter(d => d.targetName === selectedTarget.value)
   }
+  
+  // Sort by scheduled time (most recent first)
+  filtered.sort((a, b) => {
+    const dateA = a.scheduledAt?.toDate ? a.scheduledAt.toDate() : new Date(a.scheduledAt)
+    const dateB = b.scheduledAt?.toDate ? b.scheduledAt.toDate() : new Date(b.scheduledAt)
+    return dateB - dateA
+  })
   
   return filtered
 })
@@ -100,37 +78,193 @@ const activeTargets = computed(() => {
   return deliveryTargets.value.filter(t => t.active)
 })
 
+const todaysDeliveries = computed(() => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  
+  return deliveries.value.filter(d => {
+    const deliveryDate = d.completedAt?.toDate ? d.completedAt.toDate() : 
+                        d.completedAt ? new Date(d.completedAt) : null
+    return deliveryDate && deliveryDate >= today
+  })
+})
+
 // Methods
-const loadDeliveries = async () => {
-  isLoading.value = true
-  try {
-    await new Promise(resolve => setTimeout(resolve, 500))
-    deliveries.value = mockDeliveries
-  } catch (error) {
-    console.error('Error loading deliveries:', error)
-  } finally {
+const loadDeliveries = () => {
+  if (!user.value) return
+  
+  // Set up real-time listener for deliveries
+  const q = query(
+    collection(db, 'deliveries'),
+    where('tenantId', '==', user.value.uid),
+    orderBy('scheduledAt', 'desc'),
+    limit(100)
+  )
+  
+  unsubscribeDeliveries = onSnapshot(q, (snapshot) => {
+    const deliveriesData = []
+    snapshot.forEach((doc) => {
+      deliveriesData.push({ id: doc.id, ...doc.data() })
+    })
+    deliveries.value = deliveriesData
     isLoading.value = false
+  }, (error) => {
+    console.error('Error loading deliveries:', error)
+    isLoading.value = false
+  })
+}
+
+const loadDeliveryTargets = async () => {
+  try {
+    deliveryTargets.value = await deliveryTargetService.getTenantTargets(user.value.uid)
+  } catch (error) {
+    console.error('Error loading delivery targets:', error)
   }
 }
 
-const retryDelivery = (delivery) => {
-  console.log('Retrying delivery:', delivery.id)
-  // TODO: Implement retry logic
+const retryDelivery = async (delivery) => {
+  if (!confirm(`Retry delivery to ${delivery.targetName}?`)) return
+  
+  isProcessingAction.value = true
+  try {
+    // Update delivery status back to queued
+    await updateDoc(doc(db, 'deliveries', delivery.id), {
+      status: 'queued',
+      retryCount: (delivery.retryCount || 0) + 1,
+      lastRetryAt: Timestamp.now(),
+      scheduledAt: Timestamp.now(), // Reschedule for immediate processing
+      error: null,
+      failedAt: null
+    })
+    
+    console.log('✅ Delivery queued for retry')
+    
+    // In production, this would trigger a Cloud Function to process the delivery
+    simulateDeliveryProcessing(delivery.id)
+  } catch (error) {
+    console.error('Error retrying delivery:', error)
+    alert('Failed to retry delivery')
+  } finally {
+    isProcessingAction.value = false
+  }
 }
 
-const cancelDelivery = (delivery) => {
-  console.log('Cancelling delivery:', delivery.id)
-  // TODO: Implement cancel logic
+const cancelDelivery = async (delivery) => {
+  if (!confirm(`Cancel delivery to ${delivery.targetName}?`)) return
+  
+  isProcessingAction.value = true
+  try {
+    await updateDoc(doc(db, 'deliveries', delivery.id), {
+      status: 'cancelled',
+      cancelledAt: Timestamp.now()
+    })
+    console.log('✅ Delivery cancelled')
+  } catch (error) {
+    console.error('Error cancelling delivery:', error)
+    alert('Failed to cancel delivery')
+  } finally {
+    isProcessingAction.value = false
+  }
 }
 
-const viewLogs = (delivery) => {
-  console.log('Viewing logs for:', delivery.id)
-  // TODO: Show logs modal
+const deleteDelivery = async (delivery) => {
+  if (!confirm(`Delete this delivery record? This action cannot be undone.`)) return
+  
+  isProcessingAction.value = true
+  try {
+    await deleteDoc(doc(db, 'deliveries', delivery.id))
+    console.log('✅ Delivery record deleted')
+  } catch (error) {
+    console.error('Error deleting delivery:', error)
+    alert('Failed to delete delivery')
+  } finally {
+    isProcessingAction.value = false
+  }
+}
+
+const viewDeliveryDetails = (delivery) => {
+  selectedDelivery.value = delivery
+  showDeliveryDetails.value = true
+}
+
+const downloadERN = (delivery) => {
+  if (!delivery.ernXml) {
+    alert('ERN not available for this delivery')
+    return
+  }
+  
+  const blob = new Blob([delivery.ernXml], { type: 'text/xml' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${delivery.releaseTitle}_${delivery.targetName}_${delivery.ernMessageId}.xml`.replace(/[^a-z0-9]/gi, '_')
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 const downloadReceipt = (delivery) => {
-  console.log('Downloading receipt for:', delivery.id)
-  // TODO: Download receipt
+  // Generate a delivery receipt
+  const receipt = {
+    deliveryId: delivery.id,
+    releaseTitle: delivery.releaseTitle,
+    targetName: delivery.targetName,
+    status: delivery.status,
+    completedAt: delivery.completedAt,
+    messageId: delivery.ernMessageId,
+    acknowledgment: delivery.receipt?.acknowledgment || 'Delivered successfully'
+  }
+  
+  const blob = new Blob([JSON.stringify(receipt, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `delivery_receipt_${delivery.id}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+// Simulate delivery processing (in production, this would be a Cloud Function)
+const simulateDeliveryProcessing = async (deliveryId) => {
+  // Simulate processing after a delay
+  setTimeout(async () => {
+    try {
+      // Update to processing
+      await updateDoc(doc(db, 'deliveries', deliveryId), {
+        status: 'processing',
+        startedAt: Timestamp.now()
+      })
+      
+      // Simulate processing time
+      setTimeout(async () => {
+        // Randomly succeed or fail for demo
+        const success = Math.random() > 0.2 // 80% success rate
+        
+        if (success) {
+          await updateDoc(doc(db, 'deliveries', deliveryId), {
+            status: 'completed',
+            completedAt: Timestamp.now(),
+            receipt: {
+              acknowledgment: 'Delivery accepted by DSP',
+              dspMessageId: `DSP_${Date.now()}`,
+              timestamp: Timestamp.now()
+            }
+          })
+        } else {
+          await updateDoc(doc(db, 'deliveries', deliveryId), {
+            status: 'failed',
+            failedAt: Timestamp.now(),
+            error: 'Connection timeout (simulated error)'
+          })
+        }
+      }, 5000)
+    } catch (error) {
+      console.error('Error simulating delivery:', error)
+    }
+  }, 2000)
 }
 
 const getStatusColor = (status) => {
@@ -143,6 +277,8 @@ const getStatusColor = (status) => {
       return 'status-completed'
     case 'failed':
       return 'status-failed'
+    case 'cancelled':
+      return 'status-cancelled'
     default:
       return ''
   }
@@ -158,18 +294,27 @@ const getStatusIcon = (status) => {
       return 'check-circle'
     case 'failed':
       return 'times-circle'
+    case 'cancelled':
+      return 'ban'
     default:
       return 'truck'
   }
 }
 
 const formatTime = (date) => {
+  if (!date) return 'N/A'
+  
+  // Handle Firestore Timestamp
+  const d = date?.toDate ? date.toDate() : 
+           date?.seconds ? new Date(date.seconds * 1000) : 
+           new Date(date)
+  
   const now = new Date()
-  const diff = Math.abs(now - date)
+  const diff = Math.abs(now - d)
   const hours = Math.floor(diff / (1000 * 60 * 60))
   const days = Math.floor(hours / 24)
   
-  if (date > now) {
+  if (d > now) {
     if (hours < 1) return 'In a few minutes'
     if (hours < 24) return `In ${hours} hour${hours > 1 ? 's' : ''}`
     return `In ${days} day${days > 1 ? 's' : ''}`
@@ -180,14 +325,85 @@ const formatTime = (date) => {
   }
 }
 
-const getDuration = (start, end) => {
-  const diff = end - start
-  const minutes = Math.floor(diff / (1000 * 60))
-  return `${minutes} min`
+const formatDateTime = (date) => {
+  if (!date) return 'N/A'
+  
+  const d = date?.toDate ? date.toDate() : 
+           date?.seconds ? new Date(date.seconds * 1000) : 
+           new Date(date)
+  
+  return d.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
+const getDuration = (start, end) => {
+  if (!start || !end) return 'N/A'
+  
+  const startDate = start?.toDate ? start.toDate() : new Date(start)
+  const endDate = end?.toDate ? end.toDate() : new Date(end)
+  
+  const diff = endDate - startDate
+  const minutes = Math.floor(diff / (1000 * 60))
+  const seconds = Math.floor((diff % (1000 * 60)) / 1000)
+  
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`
+  }
+  return `${seconds}s`
+}
+
+const getProgressPercentage = (delivery) => {
+  // Simulate progress based on time elapsed
+  if (delivery.status !== 'processing') return 0
+  
+  const start = delivery.startedAt?.toDate ? delivery.startedAt.toDate() : new Date(delivery.startedAt)
+  const now = new Date()
+  const elapsed = now - start
+  const estimatedDuration = 30000 // 30 seconds estimated
+  
+  return Math.min(Math.round((elapsed / estimatedDuration) * 100), 95)
+}
+
+const navigateToNewDelivery = () => {
+  router.push('/deliveries/new')
+}
+
+const navigateToTargetSettings = () => {
+  router.push('/settings?tab=delivery')
+}
+
+// Process queued deliveries automatically (in production, this would be a Cloud Function)
+const processQueuedDeliveries = () => {
+  deliveries.value
+    .filter(d => d.status === 'queued')
+    .forEach(delivery => {
+      const scheduledTime = delivery.scheduledAt?.toDate ? delivery.scheduledAt.toDate() : new Date(delivery.scheduledAt)
+      if (scheduledTime <= new Date()) {
+        simulateDeliveryProcessing(delivery.id)
+      }
+    })
+}
+
+// Cleanup on unmount
 onMounted(() => {
   loadDeliveries()
+  loadDeliveryTargets()
+  
+  // Process queued deliveries every 10 seconds (for demo)
+  const interval = setInterval(processQueuedDeliveries, 10000)
+  
+  // Cleanup
+  return () => {
+    if (unsubscribeDeliveries) {
+      unsubscribeDeliveries()
+    }
+    clearInterval(interval)
+  }
 })
 </script>
 
@@ -200,36 +416,62 @@ onMounted(() => {
           <h1 class="page-title">Deliveries</h1>
           <p class="page-subtitle">Monitor and manage your release deliveries</p>
         </div>
-        <button @click="showTargetModal = true" class="btn btn-primary">
-          <font-awesome-icon icon="plus" />
-          Add Target
-        </button>
+        <div class="header-actions">
+          <button @click="navigateToTargetSettings" class="btn btn-secondary">
+            <font-awesome-icon icon="cog" />
+            Manage Targets
+          </button>
+          <button @click="navigateToNewDelivery" class="btn btn-primary">
+            <font-awesome-icon icon="plus" />
+            New Delivery
+          </button>
+        </div>
       </div>
 
       <!-- Stats Cards -->
       <div class="stats-row">
         <div class="stat-card card">
           <div class="card-body">
-            <div class="stat-value">{{ statusCounts.completed }}</div>
-            <div class="stat-label">Completed Today</div>
+            <div class="stat-icon success">
+              <font-awesome-icon icon="check-circle" />
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">{{ todaysDeliveries.length }}</div>
+              <div class="stat-label">Completed Today</div>
+            </div>
           </div>
         </div>
         <div class="stat-card card">
           <div class="card-body">
-            <div class="stat-value">{{ statusCounts.processing }}</div>
-            <div class="stat-label">In Progress</div>
+            <div class="stat-icon processing">
+              <font-awesome-icon icon="spinner" spin />
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">{{ statusCounts.processing }}</div>
+              <div class="stat-label">In Progress</div>
+            </div>
           </div>
         </div>
         <div class="stat-card card">
           <div class="card-body">
-            <div class="stat-value">{{ statusCounts.queued }}</div>
-            <div class="stat-label">Queued</div>
+            <div class="stat-icon queued">
+              <font-awesome-icon icon="clock" />
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">{{ statusCounts.queued }}</div>
+              <div class="stat-label">Queued</div>
+            </div>
           </div>
         </div>
         <div class="stat-card card">
           <div class="card-body">
-            <div class="stat-value">{{ statusCounts.failed }}</div>
-            <div class="stat-label">Failed</div>
+            <div class="stat-icon error">
+              <font-awesome-icon icon="times-circle" />
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">{{ statusCounts.failed }}</div>
+              <div class="stat-label">Failed</div>
+            </div>
           </div>
         </div>
       </div>
@@ -271,6 +513,9 @@ onMounted(() => {
           <p class="empty-description">
             {{ filterStatus === 'all' ? 'No deliveries scheduled yet' : `No ${filterStatus} deliveries` }}
           </p>
+          <button @click="navigateToNewDelivery" class="btn btn-primary">
+            Create Your First Delivery
+          </button>
         </div>
       </div>
 
@@ -280,18 +525,26 @@ onMounted(() => {
           v-for="delivery in filteredDeliveries" 
           :key="delivery.id"
           class="delivery-card card"
+          :class="{ 'test-mode': delivery.testMode }"
         >
           <div class="card-body">
             <div class="delivery-header">
               <div class="delivery-info">
                 <h3 class="delivery-title">{{ delivery.releaseTitle }}</h3>
+                <p class="delivery-artist">{{ delivery.releaseArtist }}</p>
                 <div class="delivery-meta">
                   <span class="delivery-target">
-                    <font-awesome-icon :icon="['fab', 'spotify']" />
-                    {{ delivery.target }}
+                    <font-awesome-icon icon="truck" />
+                    {{ delivery.targetName }}
                   </span>
-                  <span class="delivery-files">
-                    {{ delivery.fileCount }} files · {{ delivery.totalSize }}
+                  <span class="delivery-protocol">
+                    {{ delivery.targetProtocol }}
+                  </span>
+                  <span v-if="delivery.testMode" class="test-badge">
+                    TEST
+                  </span>
+                  <span v-if="delivery.retryCount" class="retry-badge">
+                    Retry #{{ delivery.retryCount }}
                   </span>
                 </div>
               </div>
@@ -308,15 +561,24 @@ onMounted(() => {
             <!-- Progress Bar for Processing -->
             <div v-if="delivery.status === 'processing'" class="delivery-progress">
               <div class="progress-bar">
-                <div class="progress-fill" :style="{ width: `${delivery.progress}%` }"></div>
+                <div 
+                  class="progress-fill" 
+                  :style="{ width: `${getProgressPercentage(delivery)}%` }"
+                ></div>
               </div>
-              <span class="progress-text">{{ delivery.progress }}% complete</span>
+              <span class="progress-text">{{ getProgressPercentage(delivery) }}% complete</span>
             </div>
 
             <!-- Error Message for Failed -->
-            <div v-if="delivery.status === 'failed'" class="delivery-error">
+            <div v-if="delivery.status === 'failed' && delivery.error" class="delivery-error">
               <font-awesome-icon icon="exclamation-triangle" />
               {{ delivery.error }}
+            </div>
+
+            <!-- Success Message for Completed -->
+            <div v-if="delivery.status === 'completed' && delivery.receipt" class="delivery-success">
+              <font-awesome-icon icon="check-circle" />
+              {{ delivery.receipt.acknowledgment }}
             </div>
 
             <div class="delivery-footer">
@@ -325,16 +587,19 @@ onMounted(() => {
                   Scheduled {{ formatTime(delivery.scheduledAt) }}
                 </span>
                 <span v-else-if="delivery.status === 'processing'">
-                  Started {{ formatTime(delivery.scheduledAt) }}
+                  Started {{ formatTime(delivery.startedAt) }}
                 </span>
                 <span v-else-if="delivery.status === 'completed'">
                   Completed {{ formatTime(delivery.completedAt) }}
                   <span class="time-duration">
-                    ({{ getDuration(delivery.scheduledAt, delivery.completedAt) }})
+                    ({{ getDuration(delivery.startedAt, delivery.completedAt) }})
                   </span>
                 </span>
                 <span v-else-if="delivery.status === 'failed'">
                   Failed {{ formatTime(delivery.failedAt) }}
+                </span>
+                <span v-else-if="delivery.status === 'cancelled'">
+                  Cancelled {{ formatTime(delivery.cancelledAt) }}
                 </span>
               </div>
               
@@ -343,6 +608,7 @@ onMounted(() => {
                   v-if="delivery.status === 'queued'"
                   @click="cancelDelivery(delivery)"
                   class="btn btn-secondary btn-sm"
+                  :disabled="isProcessingAction"
                 >
                   Cancel
                 </button>
@@ -350,16 +616,24 @@ onMounted(() => {
                   v-if="delivery.status === 'failed'"
                   @click="retryDelivery(delivery)"
                   class="btn btn-primary btn-sm"
+                  :disabled="isProcessingAction"
                 >
                   <font-awesome-icon icon="redo" />
                   Retry
                 </button>
                 <button 
-                  @click="viewLogs(delivery)"
+                  @click="viewDeliveryDetails(delivery)"
                   class="btn-icon"
-                  title="View Logs"
+                  title="View Details"
                 >
-                  <font-awesome-icon icon="file-alt" />
+                  <font-awesome-icon icon="eye" />
+                </button>
+                <button 
+                  @click="downloadERN(delivery)"
+                  class="btn-icon"
+                  title="Download ERN"
+                >
+                  <font-awesome-icon icon="file-code" />
                 </button>
                 <button 
                   v-if="delivery.status === 'completed'"
@@ -369,6 +643,15 @@ onMounted(() => {
                 >
                   <font-awesome-icon icon="download" />
                 </button>
+                <button 
+                  v-if="delivery.status === 'failed' || delivery.status === 'cancelled'"
+                  @click="deleteDelivery(delivery)"
+                  class="btn-icon text-error"
+                  title="Delete"
+                  :disabled="isProcessingAction"
+                >
+                  <font-awesome-icon icon="trash" />
+                </button>
               </div>
             </div>
           </div>
@@ -377,37 +660,142 @@ onMounted(() => {
 
       <!-- Delivery Targets Section -->
       <div class="targets-section">
-        <h2 class="section-title">Delivery Targets</h2>
-        <div class="targets-grid">
+        <div class="section-header">
+          <h2 class="section-title">Active Delivery Targets</h2>
+          <router-link to="/settings?tab=delivery" class="btn btn-secondary btn-sm">
+            Manage Targets
+          </router-link>
+        </div>
+        
+        <div v-if="activeTargets.length === 0" class="empty-targets">
+          <p>No active delivery targets configured</p>
+          <button @click="navigateToTargetSettings" class="btn btn-primary">
+            Configure Targets
+          </button>
+        </div>
+        
+        <div v-else class="targets-grid">
           <div 
-            v-for="target in deliveryTargets" 
+            v-for="target in activeTargets" 
             :key="target.id"
             class="target-card card"
-            :class="{ inactive: !target.active }"
           >
             <div class="card-body">
               <div class="target-header">
                 <h3 class="target-name">{{ target.name }}</h3>
-                <span class="target-status" :class="{ active: target.active }">
-                  {{ target.active ? 'Active' : 'Inactive' }}
-                </span>
+                <span class="target-status active">Active</span>
               </div>
               <div class="target-info">
                 <span class="target-type">{{ target.type }}</span>
                 <span class="target-protocol">{{ target.protocol }}</span>
+                <span class="target-ern">ERN {{ target.ernVersion }}</span>
+                <span v-if="target.testMode" class="target-mode">Test Mode</span>
               </div>
-              <div class="target-actions">
-                <button class="btn-icon" title="Edit">
-                  <font-awesome-icon icon="edit" />
-                </button>
-                <button class="btn-icon" title="Test Connection">
-                  <font-awesome-icon icon="plug" />
-                </button>
-                <button class="btn-icon" title="Delete">
-                  <font-awesome-icon icon="trash" />
-                </button>
+              <div class="target-stats">
+                <span>
+                  {{ deliveries.filter(d => d.targetName === target.name && d.status === 'completed').length }}
+                  delivered
+                </span>
+                <span>
+                  {{ deliveries.filter(d => d.targetName === target.name && d.status === 'queued').length }}
+                  queued
+                </span>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Delivery Details Modal -->
+    <div v-if="showDeliveryDetails" class="modal-overlay" @click.self="showDeliveryDetails = false">
+      <div class="modal modal-large">
+        <div class="modal-header">
+          <h3>Delivery Details</h3>
+          <button @click="showDeliveryDetails = false" class="btn-icon">
+            <font-awesome-icon icon="times" />
+          </button>
+        </div>
+        <div v-if="selectedDelivery" class="modal-body">
+          <div class="detail-section">
+            <h4>Release Information</h4>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <span class="detail-label">Title:</span>
+                <span>{{ selectedDelivery.releaseTitle }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Artist:</span>
+                <span>{{ selectedDelivery.releaseArtist }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Release ID:</span>
+                <span class="mono-text">{{ selectedDelivery.releaseId }}</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="detail-section">
+            <h4>Target Information</h4>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <span class="detail-label">Target:</span>
+                <span>{{ selectedDelivery.targetName }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Protocol:</span>
+                <span>{{ selectedDelivery.targetProtocol }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">ERN Version:</span>
+                <span>{{ selectedDelivery.ernVersion }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Message ID:</span>
+                <span class="mono-text">{{ selectedDelivery.ernMessageId }}</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="detail-section">
+            <h4>Delivery Timeline</h4>
+            <div class="timeline">
+              <div class="timeline-item">
+                <span class="timeline-label">Created:</span>
+                <span>{{ formatDateTime(selectedDelivery.createdAt) }}</span>
+              </div>
+              <div class="timeline-item">
+                <span class="timeline-label">Scheduled:</span>
+                <span>{{ formatDateTime(selectedDelivery.scheduledAt) }}</span>
+              </div>
+              <div v-if="selectedDelivery.startedAt" class="timeline-item">
+                <span class="timeline-label">Started:</span>
+                <span>{{ formatDateTime(selectedDelivery.startedAt) }}</span>
+              </div>
+              <div v-if="selectedDelivery.completedAt" class="timeline-item">
+                <span class="timeline-label">Completed:</span>
+                <span>{{ formatDateTime(selectedDelivery.completedAt) }}</span>
+              </div>
+              <div v-if="selectedDelivery.failedAt" class="timeline-item">
+                <span class="timeline-label">Failed:</span>
+                <span>{{ formatDateTime(selectedDelivery.failedAt) }}</span>
+              </div>
+            </div>
+          </div>
+          
+          <div v-if="selectedDelivery.package" class="detail-section">
+            <h4>Package Contents</h4>
+            <div class="package-info">
+              <p>ERN File: {{ selectedDelivery.package.ernFile }}</p>
+              <p>Audio Files: {{ selectedDelivery.package.audioFiles?.length || 0 }}</p>
+              <p>Image Files: {{ selectedDelivery.package.imageFiles?.length || 0 }}</p>
+              <p>Total Size: {{ selectedDelivery.package.totalSize }}</p>
+            </div>
+          </div>
+          
+          <div v-if="selectedDelivery.notes" class="detail-section">
+            <h4>Notes</h4>
+            <p>{{ selectedDelivery.notes }}</p>
           </div>
         </div>
       </div>
@@ -442,6 +830,11 @@ onMounted(() => {
   color: var(--color-text-secondary);
 }
 
+.header-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
 /* Stats Row */
 .stats-row {
   display: grid;
@@ -451,7 +844,44 @@ onMounted(() => {
 }
 
 .stat-card .card-body {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.stat-icon.success {
+  background-color: rgba(52, 168, 83, 0.1);
+  color: var(--color-success);
+}
+
+.stat-icon.processing {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.stat-icon.queued {
+  background-color: rgba(128, 134, 139, 0.1);
+  color: var(--color-text-secondary);
+}
+
+.stat-icon.error {
+  background-color: rgba(234, 67, 53, 0.1);
+  color: var(--color-error);
+}
+
+.stat-content {
+  flex: 1;
 }
 
 .stat-value {
@@ -562,6 +992,7 @@ onMounted(() => {
 
 .empty-description {
   color: var(--color-text-secondary);
+  margin-bottom: var(--space-xl);
 }
 
 /* Deliveries List */
@@ -578,6 +1009,10 @@ onMounted(() => {
 
 .delivery-card:hover {
   box-shadow: var(--shadow-md);
+}
+
+.delivery-card.test-mode {
+  border-left: 4px solid var(--color-warning);
 }
 
 .delivery-header {
@@ -598,17 +1033,42 @@ onMounted(() => {
   margin-bottom: var(--space-xs);
 }
 
+.delivery-artist {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-sm);
+}
+
 .delivery-meta {
   display: flex;
-  gap: var(--space-lg);
+  gap: var(--space-md);
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
+  align-items: center;
 }
 
 .delivery-meta span {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
+}
+
+.test-badge,
+.retry-badge {
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+}
+
+.test-badge {
+  background-color: rgba(251, 188, 4, 0.1);
+  color: var(--color-warning);
+}
+
+.retry-badge {
+  background-color: rgba(66, 133, 244, 0.1);
+  color: var(--color-info);
 }
 
 .delivery-status {
@@ -642,6 +1102,11 @@ onMounted(() => {
   color: white;
 }
 
+.status-cancelled {
+  background-color: rgba(128, 134, 139, 0.3);
+  color: var(--color-text-secondary);
+}
+
 /* Progress Bar */
 .delivery-progress {
   margin: var(--space-md) 0;
@@ -666,17 +1131,26 @@ onMounted(() => {
   color: var(--color-text-secondary);
 }
 
-/* Error Message */
-.delivery-error {
+/* Error/Success Messages */
+.delivery-error,
+.delivery-success {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-md);
-  background-color: rgba(234, 67, 53, 0.1);
   border-radius: var(--radius-md);
-  color: var(--color-error);
   font-size: var(--text-sm);
   margin: var(--space-md) 0;
+}
+
+.delivery-error {
+  background-color: rgba(234, 67, 53, 0.1);
+  color: var(--color-error);
+}
+
+.delivery-success {
+  background-color: rgba(52, 168, 83, 0.1);
+  color: var(--color-success);
 }
 
 /* Delivery Footer */
@@ -721,16 +1195,38 @@ onMounted(() => {
   color: var(--color-text);
 }
 
+.btn-icon.text-error:hover {
+  color: var(--color-error);
+}
+
 /* Delivery Targets Section */
 .targets-section {
   margin-top: var(--space-2xl);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-lg);
 }
 
 .section-title {
   font-size: var(--text-2xl);
   font-weight: var(--font-semibold);
   color: var(--color-heading);
-  margin-bottom: var(--space-lg);
+}
+
+.empty-targets {
+  text-align: center;
+  padding: var(--space-xl);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-secondary);
+}
+
+.empty-targets p {
+  margin-bottom: var(--space-md);
 }
 
 .targets-grid {
@@ -741,10 +1237,6 @@ onMounted(() => {
 
 .target-card {
   transition: all var(--transition-base);
-}
-
-.target-card.inactive {
-  opacity: 0.6;
 }
 
 .target-card:hover {
@@ -771,8 +1263,6 @@ onMounted(() => {
   font-size: var(--text-xs);
   font-weight: var(--font-semibold);
   text-transform: uppercase;
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-tertiary);
 }
 
 .target-status.active {
@@ -788,15 +1278,154 @@ onMounted(() => {
   font-size: var(--text-sm);
 }
 
-.target-actions {
+.target-stats {
   display: flex;
-  gap: var(--space-xs);
+  justify-content: space-between;
   padding-top: var(--space-md);
   border-top: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  padding: var(--space-lg);
+}
+
+.modal {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-lg);
+  max-width: 500px;
+  width: 100%;
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-large {
+  max-width: 700px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-header h3 {
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  color: var(--color-heading);
+}
+
+.modal-body {
+  padding: var(--space-lg);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.detail-section {
+  margin-bottom: var(--space-xl);
+}
+
+.detail-section h4 {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-md);
+  color: var(--color-heading);
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.detail-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.mono-text {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.timeline-item {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+  border-left: 2px solid var(--color-border);
+  padding-left: var(--space-md);
+  position: relative;
+}
+
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-primary);
+}
+
+.timeline-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  min-width: 80px;
+}
+
+.package-info {
+  background-color: var(--color-bg-secondary);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.package-info p {
+  margin-bottom: var(--space-xs);
 }
 
 /* Responsive */
 @media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .header-actions {
+    flex-direction: column;
+  }
+  
+  .header-actions .btn {
+    width: 100%;
+  }
+  
   .stats-row {
     grid-template-columns: 1fr 1fr;
   }
@@ -812,6 +1441,10 @@ onMounted(() => {
   }
   
   .targets-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 }
