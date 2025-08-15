@@ -164,7 +164,7 @@ exports.deliverS3 = onCall({
 })
 
 /**
- * API Delivery Handler
+ * API Delivery Handler - Updated for DSP Authentication
  */
 exports.deliverAPI = onCall({
   timeoutSeconds: 300,
@@ -183,12 +183,90 @@ exports.deliverAPI = onCall({
   }
   
   try {
-    return await deliverViaAPI(target, deliveryPackage)
+    // Check if this is a DSP delivery that needs special handling
+    if (target.type === 'DSP' && deliveryPackage.distributorId) {
+      return await deliverToDSP(target, deliveryPackage)
+    } else {
+      return await deliverViaAPI(target, deliveryPackage)
+    }
   } catch (error) {
     console.error('API delivery error:', error)
     throw new HttpsError('internal', error.message)
   }
 })
+
+/**
+ * Specialized DSP Delivery Implementation
+ */
+async function deliverToDSP(target, deliveryPackage) {
+  try {
+    // Prepare the DSP-specific payload
+    const payload = {
+      distributorId: deliveryPackage.distributorId,
+      messageId: deliveryPackage.metadata?.messageId || deliveryPackage.messageId,
+      releaseTitle: deliveryPackage.releaseTitle,
+      releaseArtist: deliveryPackage.releaseArtist,
+      ernXml: deliveryPackage.ernXml || deliveryPackage.files?.find(f => f.isERN)?.content,
+      testMode: deliveryPackage.metadata?.testMode || false,
+      priority: deliveryPackage.metadata?.priority || 'normal',
+      timestamp: new Date().toISOString(),
+      // ADD THESE for DSP Ingestion.vue compatibility:
+      ern: {
+        messageId: deliveryPackage.metadata?.messageId || deliveryPackage.messageId,
+        releaseCount: 1 // Or calculate from actual releases
+      },
+      processing: {
+        status: 'received',
+        receivedAt: new Date().toISOString()
+      }
+    }
+    
+    // Prepare headers with authentication
+    const headers = {
+      'Content-Type': 'application/json'
+    }
+    
+    // Add Bearer token if API key is provided
+    if (target.headers?.Authorization) {
+      headers.Authorization = target.headers.Authorization
+    }
+    
+    console.log(`Delivering to DSP: ${target.endpoint}`)
+    console.log(`Distributor ID: ${payload.distributorId}`)
+    
+    // Make the API request
+    const response = await axios({
+      method: 'POST',
+      url: target.endpoint,
+      headers,
+      data: payload,
+      timeout: 30000
+    })
+    
+    console.log('DSP Response:', response.data)
+    
+    return {
+      success: true,
+      protocol: 'API',
+      response: response.data,
+      statusCode: response.status,
+      messageId: payload.messageId,
+      files: [{
+        name: 'manifest.xml',
+        status: 'completed',
+        uploadedAt: new Date().toISOString()
+      }],
+      acknowledgment: response.data.acknowledgment || response.data.message || 'Delivery accepted by DSP'
+    }
+  } catch (error) {
+    console.error('DSP Delivery Error:', error.response?.data || error.message)
+    
+    if (error.response) {
+      throw new Error(`DSP rejected delivery: ${error.response.data?.error || error.response.statusText}`)
+    }
+    throw error
+  }
+}
 
 /**
  * Azure Delivery Handler
@@ -724,7 +802,7 @@ async function deliverViaS3(target, deliveryPackage) {
 }
 
 /**
- * API Delivery Implementation
+ * Standard API Delivery Implementation
  */
 async function deliverViaAPI(target, deliveryPackage) {
   const formData = new FormData()
@@ -782,6 +860,68 @@ async function deliverViaAPI(target, deliveryPackage) {
     messageId: deliveryPackage.metadata.messageId
   }
 }
+
+/**
+ * Storage Delivery Handler for DSP
+ */
+exports.deliverStorage = onCall({
+  timeoutSeconds: 300,
+  memory: '512MB',
+  maxInstances: 5,
+  cors: true
+}, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'User must be authenticated')
+  }
+  
+  const { target, package: deliveryPackage } = request.data
+  
+  try {
+    const bucket = admin.storage().bucket(target.bucket || 'stardust-dsp.firebasestorage.app')
+    const uploadedFiles = []
+    
+    for (const upload of target.uploads) {
+      let fileBuffer
+      
+      if (upload.needsDownload && upload.url) {
+        // Download file from URL
+        const response = await axios.get(upload.url, { responseType: 'arraybuffer' })
+        fileBuffer = Buffer.from(response.data)
+      } else if (upload.content) {
+        // Use provided content
+        fileBuffer = Buffer.from(upload.content)
+      }
+      
+      if (fileBuffer) {
+        const file = bucket.file(upload.path)
+        await file.save(fileBuffer, {
+          metadata: {
+            contentType: upload.contentType || 'application/octet-stream',
+            metadata: upload.metadata || {}
+          }
+        })
+        
+        uploadedFiles.push({
+          name: upload.path,
+          size: fileBuffer.length,
+          uploadedAt: new Date().toISOString()
+        })
+      }
+    }
+    
+    return {
+      success: true,
+      protocol: 'Storage',
+      files: uploadedFiles,
+      messageId: deliveryPackage.metadata?.messageId,
+      bucket: target.bucket,
+      distributorId: target.distributorId
+    }
+  } catch (error) {
+    console.error('Storage delivery error:', error)
+    throw new HttpsError('internal', error.message)
+  }
+})
 
 /**
  * Azure Blob Storage Implementation

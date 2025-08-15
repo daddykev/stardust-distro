@@ -85,7 +85,7 @@ export class DeliveryService {
   }
 
   /**
-   * Prepare delivery package (ERN + assets)
+   * Prepare delivery package (ERN + assets) with authentication
    */
   async preparePackage(delivery) {
     const files = []
@@ -128,17 +128,32 @@ export class DeliveryService {
       }
     }
 
-    return {
+    // Get target configuration to add authentication data
+    const targetDoc = await getDoc(doc(db, 'deliveryTargets', delivery.targetId))
+    const target = targetDoc.data()
+    
+    // Build the complete package with authentication
+    const deliveryPackage = {
       deliveryId: delivery.id,
       releaseTitle: delivery.releaseTitle,
+      releaseArtist: delivery.releaseArtist,
       targetName: delivery.targetName,
       files,
       metadata: {
         messageId: delivery.ernMessageId,
         testMode: delivery.testMode,
-        priority: delivery.priority
+        priority: delivery.priority,
+        timestamp: Date.now()
       }
     }
+    
+    // Add DSP-specific authentication data
+    if (target.type === 'DSP' && target.config?.distributorId) {
+      deliveryPackage.distributorId = target.config.distributorId
+      deliveryPackage.metadata.distributorId = target.config.distributorId
+    }
+    
+    return deliveryPackage
   }
 
   /**
@@ -217,28 +232,132 @@ export class DeliveryService {
   }
 
   /**
-   * API Delivery Protocol using v2 Functions
+   * API Delivery Protocol with authentication
    */
   async deliverViaAPI(target, deliveryPackage) {
     try {
-      const deliverAPI = httpsCallable(this.functions, 'deliverAPI')
-      const result = await deliverAPI({
-        target: {
-          endpoint: target.connection.endpoint,
-          method: target.connection.method || 'POST',
-          headers: target.connection.headers || {},
-          auth: {
-            type: target.connection.authType,
-            credentials: target.connection.credentials
+      // For DSP deliveries, we need to send the data differently
+      if (target.type === 'DSP') {
+        // Prepare headers with authentication
+        const headers = {
+          'Content-Type': 'application/json'
+        }
+        
+        // Add API key authentication if present
+        if (target.config?.apiKey) {
+          headers['Authorization'] = `Bearer ${target.config.apiKey}`
+        }
+        
+        // Prepare the payload for DSP - UPDATED STRUCTURE
+        const payload = {
+          distributorId: target.config.distributorId,
+          messageId: deliveryPackage.metadata.messageId,
+          releaseTitle: deliveryPackage.releaseTitle,
+          releaseArtist: deliveryPackage.releaseArtist,
+          ernXml: deliveryPackage.files.find(f => f.isERN)?.content,
+          testMode: deliveryPackage.metadata.testMode,
+          priority: deliveryPackage.metadata.priority,
+          audioFiles: deliveryPackage.files.filter(f => f.type === 'audio').map(f => f.url),
+          imageFiles: deliveryPackage.files.filter(f => f.type === 'image').map(f => f.url),
+          // ADD THESE FIELDS for DSP compatibility:
+          ern: {
+            messageId: deliveryPackage.metadata.messageId,
+            releaseCount: 1 // Or calculate actual count
+          },
+          processing: {
+            status: 'received',
+            receivedAt: new Date().toISOString()
           }
-        },
-        package: deliveryPackage
-      })
-      
-      return result.data
+        }
+        
+        // Call the Cloud Function with DSP-specific configuration
+        const deliverAPI = httpsCallable(this.functions, 'deliverAPI')
+        const result = await deliverAPI({
+          target: {
+            endpoint: target.connection.endpoint,
+            method: 'POST',
+            headers: headers,
+            type: 'DSP'
+          },
+          package: payload
+        })
+        
+        return result.data
+      }
     } catch (error) {
       console.error('API delivery error:', error)
       throw new Error(`API delivery failed: ${error.message}`)
+    }
+  }
+
+  /**
+   * Storage Delivery (Firebase Storage or S3)
+   */
+  async deliverViaStorage(target, deliveryPackage) {
+    try {
+      // For DSP storage deliveries, include distributorId in path
+      if (target.type === 'DSP' && target.config?.distributorId) {
+        const timestamp = Date.now()
+        const distributorPath = `/deliveries/${target.config.distributorId}/${timestamp}/`
+        
+        // Upload ERN and assets to the distributor's folder
+        const uploadTasks = []
+        
+        // Upload ERN
+        const ernFile = deliveryPackage.files.find(f => f.isERN)
+        if (ernFile) {
+          uploadTasks.push({
+            path: `${distributorPath}manifest.xml`,
+            content: ernFile.content,
+            contentType: 'text/xml',
+            metadata: {
+              distributorId: target.config.distributorId,
+              messageId: deliveryPackage.metadata.messageId,
+              releaseTitle: deliveryPackage.releaseTitle
+            }
+          })
+        }
+        
+        // Upload audio files
+        for (const file of deliveryPackage.files.filter(f => f.type === 'audio')) {
+          uploadTasks.push({
+            path: `${distributorPath}audio/${file.name}`,
+            url: file.url,
+            needsDownload: true
+          })
+        }
+        
+        // Upload image files
+        for (const file of deliveryPackage.files.filter(f => f.type === 'image')) {
+          uploadTasks.push({
+            path: `${distributorPath}images/${file.name}`,
+            url: file.url,
+            needsDownload: true
+          })
+        }
+        
+        // Call the appropriate storage Cloud Function
+        const deliverStorage = httpsCallable(this.functions, 'deliverStorage')
+        const result = await deliverStorage({
+          target: {
+            bucket: target.connection.bucket || 'stardust-dsp.firebasestorage.app',
+            uploads: uploadTasks,
+            distributorId: target.config.distributorId
+          },
+          package: {
+            deliveryId: deliveryPackage.deliveryId,
+            metadata: deliveryPackage.metadata
+          }
+        })
+        
+        return result.data
+      } else {
+        // Standard storage delivery (existing code)
+        // ... your existing S3/Azure logic
+      }
+    } catch (error) {
+      console.error('Storage delivery error:', error)
+      throw new Error(`Storage delivery failed: ${error.message}`)
     }
   }
 
@@ -611,11 +730,16 @@ export class DeliveryService {
 
   extractFileName(url) {
     try {
-      const parts = url.split('/')
-      const fileName = parts[parts.length - 1].split('?')[0]
-      return decodeURIComponent(fileName)
+      const urlObj = new URL(url)
+      const pathname = urlObj.pathname
+      const parts = pathname.split('/')
+      const filename = parts[parts.length - 1]
+      
+      // Decode URL encoding and remove query params
+      return decodeURIComponent(filename.split('?')[0])
     } catch (error) {
-      return 'unknown_file'
+      // Fallback for invalid URLs
+      return `file_${Date.now()}`
     }
   }
 

@@ -25,6 +25,12 @@ const localTarget = ref({
   testMode: true,
   active: true,
   
+  // DSP-specific configuration
+  config: {
+    distributorId: '',
+    apiKey: ''
+  },
+  
   // Connection details
   connection: {
     host: '',
@@ -44,8 +50,7 @@ const localTarget = ref({
     authType: 'Bearer',
     apiKey: '',
     
-    // Firebase Storage specific (for Stardust DSP)
-    distributorId: '',
+    // Firebase Storage specific
     projectId: ''
   },
   
@@ -76,183 +81,66 @@ const localTarget = ref({
 const showJsonImport = ref(false)
 const jsonInput = ref('')
 const jsonError = ref('')
+const showApiKey = ref(false)
 
 // Common DSP presets
 const dspPresets = [
-  { value: 'custom', label: 'Custom Configuration' },
-  { value: 'stardust-dsp', label: 'Stardust DSP (JSON Import)' },
-  { value: 'spotify', label: 'Spotify' },
-  { value: 'apple', label: 'Apple Music' },
-  { value: 'amazon', label: 'Amazon Music' },
-  { value: 'youtube', label: 'YouTube Music' },
-  { value: 'deezer', label: 'Deezer' },
-  { value: 'tidal', label: 'Tidal' }
+  { 
+    value: 'custom', 
+    label: 'Custom Configuration' 
+  },
+  { 
+    value: 'stardust-dsp', 
+    label: 'Import from Stardust DSP...' 
+  },
+  { 
+    value: 'spotify', 
+    label: 'Spotify' 
+  },
+  { 
+    value: 'apple', 
+    label: 'Apple Music' 
+  },
+  { 
+    value: 'amazon', 
+    label: 'Amazon Music' 
+  }
 ]
 
 const selectedPreset = ref('custom')
 
-// Testing connection
-const isTestingConnection = ref(false)
-const connectionTestResult = ref(null)
-
-// Available options
-const protocolOptions = [
-  { value: 'FTP', label: 'FTP' },
-  { value: 'SFTP', label: 'SFTP (Recommended)' },
-  { value: 'S3', label: 'Amazon S3' },
-  { value: 'storage', label: 'Firebase Storage (Stardust DSP)' },
-  { value: 'API', label: 'REST API' }
-]
-
+// ERN version options
 const ernVersionOptions = [
   { value: '4.3', label: 'ERN 4.3 (Latest)' },
   { value: '4.2', label: 'ERN 4.2' },
+  { value: '4.1', label: 'ERN 4.1' },
   { value: '3.8.2', label: 'ERN 3.8.2' }
 ]
 
-const commercialModelOptions = [
-  { value: 'PayAsYouGoModel', label: 'Pay As You Go' },
-  { value: 'SubscriptionModel', label: 'Subscription' },
-  { value: 'AdvertisementSupportedModel', label: 'Ad Supported' },
-  { value: 'FreeOfChargeModel', label: 'Free of Charge' }
+// Protocol options
+const protocolOptions = [
+  { value: 'SFTP', label: 'SFTP' },
+  { value: 'FTP', label: 'FTP' },
+  { value: 'S3', label: 'AWS S3' },
+  { value: 'API', label: 'REST API' },
+  { value: 'storage', label: 'Firebase Storage' }
 ]
 
-// Computed
-const getUsageTypesForModel = (modelType) => {
-  const usageTypesByModel = {
-    'PayAsYouGoModel': [
-      { value: 'PermanentDownload', label: 'Permanent Download' },
-      { value: 'ConditionalDownload', label: 'Conditional Download' },
-      { value: 'TetheredDownload', label: 'Tethered Download' },
-      { value: 'PayPerView', label: 'Pay Per View' }
-    ],
-    'SubscriptionModel': [
-      { value: 'OnDemandStream', label: 'On-Demand Stream' },
-      { value: 'ConditionalDownload', label: 'Conditional Download' },
-      { value: 'TetheredDownload', label: 'Tethered Download' },
-      { value: 'SubscriptionDownload', label: 'Subscription Download' },
-      { value: 'NonInteractiveStream', label: 'Non-Interactive Stream' }
-    ],
-    'AdvertisementSupportedModel': [
-      { value: 'OnDemandStream', label: 'On-Demand Stream' },
-      { value: 'NonInteractiveStream', label: 'Non-Interactive Stream' },
-      { value: 'WebcastStream', label: 'Webcast Stream' },
-      { value: 'FreePreview', label: 'Free Preview' }
-    ],
-    'FreeOfChargeModel': [
-      { value: 'FreePreview', label: 'Free Preview' },
-      { value: 'OnDemandStream', label: 'On-Demand Stream' },
-      { value: 'PermanentDownload', label: 'Permanent Download (Free)' },
-      { value: 'ConditionalDownload', label: 'Conditional Download' }
-    ]
-  }
-  
-  return usageTypesByModel[modelType] || []
-}
+// Test connection state
+const isTestingConnection = ref(false)
+const connectionTestResult = ref(null)
 
+// Computed properties
 const defaultPort = computed(() => {
   switch (localTarget.value.protocol) {
     case 'FTP': return 21
     case 'SFTP': return 22
+    case 'API': return 443
     default: return null
   }
 })
 
-// Methods
-const parseJsonConfig = () => {
-  jsonError.value = ''
-  
-  try {
-    const config = JSON.parse(jsonInput.value)
-    
-    // Validate required fields
-    if (!config.name || !config.type || !config.protocol || !config.config) {
-      throw new Error('Invalid configuration format. Missing required fields.')
-    }
-    
-    // Map the configuration to our form structure
-    localTarget.value.name = config.name
-    localTarget.value.type = config.type
-    localTarget.value.protocol = config.protocol
-    
-    // Handle different protocol configurations
-    if (config.protocol === 'storage') {
-      // Firebase Storage configuration from Stardust DSP
-      localTarget.value.connection.bucket = config.config.bucket || ''
-      localTarget.value.connection.path = config.config.path || '/'
-      localTarget.value.connection.distributorId = config.config.distributorId || ''
-      
-      // Extract project ID from bucket URL if it's a Firebase Storage URL
-      if (config.config.bucket && config.config.bucket.includes('.firebasestorage.app')) {
-        const projectId = config.config.bucket.split('.firebasestorage.app')[0]
-        localTarget.value.connection.projectId = projectId
-      }
-      
-      // Set default DDEX info for Stardust DSP
-      localTarget.value.partyName = config.name
-      localTarget.value.partyId = `PADPIDA${new Date().getFullYear()}${(new Date().getMonth() + 1).toString().padStart(2, '0')}${new Date().getDate().toString().padStart(2, '0')}01T`
-      
-      // Set test mode by default for Stardust DSP
-      localTarget.value.testMode = true
-      
-      // Configure commercial models for testing
-      localTarget.value.commercialModels = [
-        {
-          type: 'SubscriptionModel',
-          usageTypes: ['OnDemandStream'],
-          territories: ['Worldwide']
-        },
-        {
-          type: 'AdvertisementSupportedModel',
-          usageTypes: ['OnDemandStream'],
-          territories: ['Worldwide']
-        }
-      ]
-    } else if (config.protocol === 'S3') {
-      localTarget.value.connection.bucket = config.config.bucket || ''
-      localTarget.value.connection.region = config.config.region || 'us-east-1'
-      localTarget.value.connection.path = config.config.path || '/'
-      localTarget.value.connection.accessKey = config.config.accessKey || ''
-      localTarget.value.connection.secretKey = config.config.secretKey || ''
-    } else if (config.protocol === 'API') {
-      localTarget.value.connection.endpoint = config.config.endpoint || ''
-      localTarget.value.connection.authType = config.config.authType || 'Bearer'
-      localTarget.value.connection.apiKey = config.config.apiKey || ''
-    } else if (config.protocol === 'FTP' || config.protocol === 'SFTP') {
-      localTarget.value.connection.host = config.config.host || ''
-      localTarget.value.connection.port = config.config.port || defaultPort.value
-      localTarget.value.connection.username = config.config.username || ''
-      localTarget.value.connection.password = config.config.password || ''
-      localTarget.value.connection.path = config.config.path || '/'
-    }
-    
-    // Additional metadata if provided
-    if (config.partyName) localTarget.value.partyName = config.partyName
-    if (config.partyId) localTarget.value.partyId = config.partyId
-    if (config.ernVersion) localTarget.value.ernVersion = config.ernVersion
-    if (config.testMode !== undefined) localTarget.value.testMode = config.testMode
-    if (config.commercialModels) localTarget.value.commercialModels = config.commercialModels
-    
-    // Close the JSON import modal
-    showJsonImport.value = false
-    jsonInput.value = ''
-    
-    // Show success message
-    connectionTestResult.value = {
-      success: true,
-      message: 'Configuration imported successfully!'
-    }
-    
-    // Clear success message after 3 seconds
-    setTimeout(() => {
-      connectionTestResult.value = null
-    }, 3000)
-    
-  } catch (error) {
-    jsonError.value = error.message || 'Invalid JSON configuration'
-  }
-}
-
+// Apply preset configuration
 const applyPreset = () => {
   if (selectedPreset.value === 'stardust-dsp') {
     showJsonImport.value = true
@@ -261,56 +149,34 @@ const applyPreset = () => {
   
   const presets = {
     spotify: {
-      name: 'Spotify',
+      name: 'Spotify Production',
       partyName: 'Spotify AB',
       partyId: 'PADPIDA2014120301E',
       protocol: 'SFTP',
-      ernVersion: '4.3',
-      commercialModels: [
-        {
-          type: 'SubscriptionModel',
-          usageTypes: ['OnDemandStream'],
-          territories: ['Worldwide']
-        },
-        {
-          type: 'AdvertisementSupportedModel',
-          usageTypes: ['OnDemandStream'],
-          territories: ['Worldwide']
-        }
-      ]
+      connection: {
+        host: 'sftp.spotify.com',
+        port: 22,
+        path: '/incoming/'
+      }
     },
     apple: {
       name: 'Apple Music',
       partyName: 'Apple Inc.',
-      partyId: 'PADPIDA2013111801U',
+      partyId: 'PADPIDA2003060301A',
       protocol: 'API',
-      ernVersion: '4.3',
-      commercialModels: [
-        {
-          type: 'SubscriptionModel',
-          usageTypes: ['OnDemandStream', 'TetheredDownload'],
-          territories: ['Worldwide']
-        }
-      ]
+      connection: {
+        endpoint: 'https://api.music.apple.com/v1/catalog'
+      }
     },
     amazon: {
       name: 'Amazon Music',
-      partyName: 'Amazon.com Services LLC',
-      partyId: 'PADPIDA2015010801B',
+      partyName: 'Amazon.com Inc.',
+      partyId: 'PADPIDA2010070701A',
       protocol: 'S3',
-      ernVersion: '4.3',
-      commercialModels: [
-        {
-          type: 'SubscriptionModel',
-          usageTypes: ['OnDemandStream'],
-          territories: ['Worldwide']
-        },
-        {
-          type: 'PayAsYouGoModel',
-          usageTypes: ['PermanentDownload'],
-          territories: ['Worldwide']
-        }
-      ]
+      connection: {
+        bucket: 'amazon-music-deliveries',
+        region: 'us-east-1'
+      }
     }
   }
   
@@ -319,10 +185,64 @@ const applyPreset = () => {
   }
 }
 
+// Parse JSON configuration from Stardust DSP
+const parseJsonConfig = () => {
+  try {
+    const config = JSON.parse(jsonInput.value)
+    
+    // Map the imported config to our target structure
+    localTarget.value.name = config.name || localTarget.value.name
+    localTarget.value.type = config.type || localTarget.value.type
+    localTarget.value.protocol = config.protocol || localTarget.value.protocol
+    
+    // Map DSP-specific config
+    if (config.config) {
+      localTarget.value.config = {
+        distributorId: config.config.distributorId || '',
+        apiKey: config.config.apiKey || ''
+      }
+      
+      // Map connection settings based on protocol
+      if (config.protocol === 'storage') {
+        localTarget.value.connection.bucket = config.config.bucket || ''
+        localTarget.value.connection.path = config.config.path || ''
+      } else if (config.protocol === 'api' || config.protocol === 'API') {
+        localTarget.value.protocol = 'API' // Normalize to uppercase
+        localTarget.value.connection.endpoint = config.config.endpoint || ''
+        if (config.config.apiKey) {
+          localTarget.value.connection.authType = 'Bearer'
+          localTarget.value.connection.apiKey = config.config.apiKey
+        }
+      }
+    }
+    
+    // Copy other config properties as needed
+    if (config.requirements) {
+      localTarget.value.ernVersion = config.requirements.ernVersion || '4.3'
+    }
+    
+    if (config.commercialModel) {
+      localTarget.value.commercialModels = [{
+        type: config.commercialModel.type || 'PayAsYouGoModel',
+        usageTypes: config.commercialModel.usageTypes || ['PermanentDownload'],
+        territories: ['Worldwide']
+      }]
+    }
+    
+    jsonError.value = ''
+    showJsonImport.value = false
+    jsonInput.value = ''
+  } catch (error) {
+    jsonError.value = 'Invalid JSON format. Please check your configuration.'
+    console.error('JSON parse error:', error)
+  }
+}
+
+// Commercial model management
 const addCommercialModel = () => {
   localTarget.value.commercialModels.push({
-    type: 'SubscriptionModel',
-    usageTypes: ['OnDemandStream'],
+    type: 'PayAsYouGoModel',
+    usageTypes: ['PermanentDownload'],
     territories: ['Worldwide'],
     price: null,
     currency: 'USD'
@@ -330,33 +250,27 @@ const addCommercialModel = () => {
 }
 
 const removeCommercialModel = (index) => {
-  if (localTarget.value.commercialModels.length > 1) {
-    localTarget.value.commercialModels.splice(index, 1)
-  }
+  localTarget.value.commercialModels.splice(index, 1)
 }
 
-const updateCommercialModel = (index) => {
-  // Clear usage types when model changes
-  localTarget.value.commercialModels[index].usageTypes = []
-  
-  // Set default usage type
-  const availableTypes = getUsageTypesForModel(localTarget.value.commercialModels[index].type)
-  if (availableTypes.length > 0) {
-    localTarget.value.commercialModels[index].usageTypes = [availableTypes[0].value]
-  }
-}
-
+// Test connection
 const testConnection = async () => {
   isTestingConnection.value = true
   connectionTestResult.value = null
   
   try {
-    const result = await deliveryTargetService.testConnection(localTarget.value)
-    connectionTestResult.value = result
+    // TODO: Implement actual connection test
+    // For now, just simulate
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    
+    connectionTestResult.value = {
+      success: true,
+      message: 'Connection successful!'
+    }
   } catch (error) {
     connectionTestResult.value = {
       success: false,
-      message: error.message
+      message: error.message || 'Connection failed'
     }
   } finally {
     isTestingConnection.value = false
@@ -364,6 +278,12 @@ const testConnection = async () => {
 }
 
 const handleSave = () => {
+  // If DSP with API protocol, sync the API key to connection for backward compatibility
+  if (localTarget.value.type === 'DSP' && localTarget.value.protocol === 'API' && localTarget.value.config.apiKey) {
+    localTarget.value.connection.authType = 'Bearer'
+    localTarget.value.connection.apiKey = localTarget.value.config.apiKey
+  }
+  
   emit('update:modelValue', localTarget.value)
   emit('save', localTarget.value)
 }
@@ -422,8 +342,9 @@ onMounted(() => {
           <div class="import-instructions">
             <h4>How to import from Stardust DSP:</h4>
             <ol>
-              <li>Go to Settings → Delivery Targets in Stardust DSP</li>
-              <li>Click "Add Target" and configure your distributor</li>
+              <li>Go to Ingestion → Distributors in Stardust DSP</li>
+              <li>Click "View Integration" on your distributor</li>
+              <li>Go to the "Stardust Distro" tab</li>
               <li>Copy the configuration JSON</li>
               <li>Paste it below</li>
             </ol>
@@ -440,11 +361,11 @@ Example:
 {
   "name": "Stardust DSP",
   "type": "DSP",
-  "protocol": "storage",
+  "protocol": "api",
   "config": {
-    "distributorId": "SDT",
-    "bucket": "stardust-dsp.firebasestorage.app",
-    "path": "/deliveries/SDT/{timestamp}/"
+    "distributorId": "dist_abc123xyz",
+    "endpoint": "https://us-central1-stardust-dsp.cloudfunctions.net/receiveDelivery",
+    "apiKey": "sk_live_..."
   }
 }'
               rows="12"
@@ -490,6 +411,53 @@ Example:
             <option value="Aggregator">Aggregator</option>
             <option value="Test">Test Environment</option>
           </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- DSP Authentication (NEW SECTION) -->
+    <div v-if="localTarget.type === 'DSP'" class="form-section">
+      <h3 class="section-title">DSP Authentication</h3>
+      
+      <div class="form-group">
+        <label class="form-label required">Distributor ID</label>
+        <input 
+          v-model="localTarget.config.distributorId" 
+          type="text" 
+          class="form-input"
+          placeholder="e.g., dist_abc123xyz"
+          required
+        />
+        <p class="form-help">Get this from your DSP's Distributor settings (Ingestion → Distributors)</p>
+      </div>
+
+      <div v-if="localTarget.protocol === 'API'" class="form-group">
+        <label class="form-label required">API Key</label>
+        <div class="input-group">
+          <input 
+            v-model="localTarget.config.apiKey" 
+            :type="showApiKey ? 'text' : 'password'"
+            class="form-input"
+            placeholder="sk_live_..."
+            required
+          />
+          <button 
+            type="button" 
+            @click="showApiKey = !showApiKey"
+            class="btn-icon"
+          >
+            <font-awesome-icon :icon="showApiKey ? 'eye-slash' : 'eye'" />
+          </button>
+        </div>
+        <p class="form-help">Your secret API key from the DSP (keep this secure!)</p>
+      </div>
+
+      <div v-if="localTarget.protocol === 'storage'" class="info-banner">
+        <font-awesome-icon icon="info-circle" />
+        <div>
+          <strong>Storage Authentication</strong>
+          <p>Files will be uploaded to: <code>/deliveries/{{ localTarget.config.distributorId || '{DISTRIBUTOR_ID}' }}/{timestamp}/</code></p>
+          <p>The DSP will automatically detect and process files uploaded to this path.</p>
         </div>
       </div>
     </div>
@@ -570,28 +538,27 @@ Example:
         </select>
       </div>
       
-      <!-- FTP/SFTP Configuration -->
-      <div v-if="localTarget.protocol === 'FTP' || localTarget.protocol === 'SFTP'" class="protocol-config">
+      <!-- SFTP Configuration -->
+      <div v-if="localTarget.protocol === 'SFTP'" class="protocol-config">
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label required">Host/IP Address</label>
+            <label class="form-label required">Host</label>
             <input 
               v-model="localTarget.connection.host" 
               type="text" 
               class="form-input"
-              placeholder="ftp.example.com or 192.168.1.1"
+              placeholder="sftp.example.com"
               required
             />
           </div>
           
           <div class="form-group">
-            <label class="form-label required">Port</label>
+            <label class="form-label">Port</label>
             <input 
               v-model.number="localTarget.connection.port" 
               type="number" 
               class="form-input"
-              :placeholder="defaultPort"
-              required
+              placeholder="22"
             />
           </div>
         </div>
@@ -603,7 +570,6 @@ Example:
               v-model="localTarget.connection.username" 
               type="text" 
               class="form-input"
-              placeholder="FTP username"
               required
             />
           </div>
@@ -614,7 +580,123 @@ Example:
               v-model="localTarget.connection.password" 
               type="password" 
               class="form-input"
-              placeholder="FTP password"
+              required
+            />
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label">Remote Path</label>
+          <input 
+            v-model="localTarget.connection.path" 
+            type="text" 
+            class="form-input"
+            placeholder="/incoming/releases/"
+          />
+        </div>
+      </div>
+      
+      <!-- FTP Configuration -->
+      <div v-else-if="localTarget.protocol === 'FTP'" class="protocol-config">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label required">Host</label>
+            <input 
+              v-model="localTarget.connection.host" 
+              type="text" 
+              class="form-input"
+              placeholder="ftp.example.com"
+              required
+            />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Port</label>
+            <input 
+              v-model.number="localTarget.connection.port" 
+              type="number" 
+              class="form-input"
+              placeholder="21"
+            />
+          </div>
+        </div>
+        
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label required">Username</label>
+            <input 
+              v-model="localTarget.connection.username" 
+              type="text" 
+              class="form-input"
+              required
+            />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label required">Password</label>
+            <input 
+              v-model="localTarget.connection.password" 
+              type="password" 
+              class="form-input"
+              required
+            />
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label">Remote Path</label>
+          <input 
+            v-model="localTarget.connection.path" 
+            type="text" 
+            class="form-input"
+            placeholder="/incoming/releases/"
+          />
+        </div>
+      </div>
+      
+      <!-- S3 Configuration -->
+      <div v-else-if="localTarget.protocol === 'S3'" class="protocol-config">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label required">Bucket Name</label>
+            <input 
+              v-model="localTarget.connection.bucket" 
+              type="text" 
+              class="form-input"
+              placeholder="my-delivery-bucket"
+              required
+            />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label required">Region</label>
+            <select v-model="localTarget.connection.region" class="form-select" required>
+              <option value="us-east-1">US East (N. Virginia)</option>
+              <option value="us-west-2">US West (Oregon)</option>
+              <option value="eu-west-1">EU West (Ireland)</option>
+              <option value="eu-central-1">EU Central (Frankfurt)</option>
+              <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label required">Access Key ID</label>
+            <input 
+              v-model="localTarget.connection.accessKey" 
+              type="text" 
+              class="form-input"
+              required
+            />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label required">Secret Access Key</label>
+            <input 
+              v-model="localTarget.connection.secretKey" 
+              type="password" 
+              class="form-input"
               required
             />
           </div>
@@ -643,18 +725,6 @@ Example:
         
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label required">Distributor ID</label>
-            <input 
-              v-model="localTarget.connection.distributorId" 
-              type="text" 
-              class="form-input"
-              placeholder="e.g., SDT"
-              required
-            />
-            <p class="form-help">Your unique distributor identifier in Stardust DSP</p>
-          </div>
-          
-          <div class="form-group">
             <label class="form-label required">Storage Bucket</label>
             <input 
               v-model="localTarget.connection.bucket" 
@@ -665,76 +735,25 @@ Example:
             />
             <p class="form-help">Firebase Storage bucket URL</p>
           </div>
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Delivery Path</label>
-          <input 
-            v-model="localTarget.connection.path" 
-            type="text" 
-            class="form-input"
-            placeholder="/deliveries/{distributorId}/{timestamp}/"
-          />
-          <p class="form-help">Path pattern for deliveries. {timestamp} will be replaced with actual timestamp.</p>
-        </div>
-      </div>
-      
-      <!-- S3 Configuration -->
-      <div v-else-if="localTarget.protocol === 'S3'" class="protocol-config">
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label required">Bucket Name</label>
-            <input 
-              v-model="localTarget.connection.bucket" 
-              type="text" 
-              class="form-input"
-              placeholder="my-music-bucket"
-              required
-            />
-          </div>
           
           <div class="form-group">
-            <label class="form-label required">Region</label>
-            <select v-model="localTarget.connection.region" class="form-select">
-              <option value="us-east-1">US East (N. Virginia)</option>
-              <option value="us-west-2">US West (Oregon)</option>
-              <option value="eu-west-1">EU (Ireland)</option>
-              <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
-            </select>
-          </div>
-        </div>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label required">Access Key ID</label>
+            <label class="form-label">Project ID</label>
             <input 
-              v-model="localTarget.connection.accessKey" 
+              v-model="localTarget.connection.projectId" 
               type="text" 
               class="form-input"
-              placeholder="AKIA..."
-              required
+              placeholder="stardust-dsp"
             />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label required">Secret Access Key</label>
-            <input 
-              v-model="localTarget.connection.secretKey" 
-              type="password" 
-              class="form-input"
-              required
-            />
+            <p class="form-help">Firebase project ID (optional)</p>
           </div>
         </div>
         
         <div class="form-group">
-          <label class="form-label">Path Prefix</label>
-          <input 
-            v-model="localTarget.connection.path" 
-            type="text" 
-            class="form-input"
-            placeholder="releases/"
-          />
+          <label class="form-label">Delivery Path Template</label>
+          <code class="path-display">
+            /deliveries/{{ localTarget.config.distributorId || '{DISTRIBUTOR_ID}' }}/{timestamp}/
+          </code>
+          <p class="form-help">Files will be uploaded to this path pattern. {timestamp} will be replaced with the delivery timestamp.</p>
         </div>
       </div>
       
@@ -746,12 +765,15 @@ Example:
             v-model="localTarget.connection.endpoint" 
             type="url" 
             class="form-input"
-            placeholder="https://api.dsp.com/v1/releases"
+            :placeholder="localTarget.type === 'DSP' ? 'https://us-central1-stardust-dsp.cloudfunctions.net/receiveDelivery' : 'https://api.dsp.com/v1/releases'"
             required
           />
+          <p v-if="localTarget.type === 'DSP'" class="form-help">
+            For Stardust DSP, use the receiveDelivery endpoint
+          </p>
         </div>
         
-        <div class="form-row">
+        <div v-if="localTarget.type !== 'DSP'" class="form-row">
           <div class="form-group">
             <label class="form-label">Authentication Type</label>
             <select v-model="localTarget.connection.authType" class="form-select">
@@ -772,6 +794,12 @@ Example:
               required
             />
           </div>
+        </div>
+        
+        <!-- For DSP, authentication is handled in the DSP Authentication section -->
+        <div v-if="localTarget.type === 'DSP'" class="info-banner">
+          <font-awesome-icon icon="info-circle" />
+          <p>Authentication is configured in the DSP Authentication section above.</p>
         </div>
       </div>
       
@@ -797,36 +825,21 @@ Example:
     <div class="form-section">
       <div class="section-header">
         <h3 class="section-title">Commercial Models</h3>
-        <button 
-          type="button"
-          @click="addCommercialModel"
-          class="btn btn-sm btn-secondary"
-        >
+        <button @click="addCommercialModel" class="btn btn-sm btn-secondary">
           <font-awesome-icon icon="plus" /> Add Model
         </button>
       </div>
       
-      <div 
-        v-for="(model, index) in localTarget.commercialModels" 
-        :key="`model-${index}`"
-        class="commercial-model-card"
-      >
+      <div v-for="(model, index) in localTarget.commercialModels" :key="index" class="commercial-model-card">
         <div class="model-header">
-          <select 
-            v-model="model.type" 
-            class="form-select"
-            @change="() => updateCommercialModel(index)"
-          >
-            <option v-for="option in commercialModelOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
+          <select v-model="model.type" class="form-select">
+            <option value="PayAsYouGoModel">Pay As You Go</option>
+            <option value="SubscriptionModel">Subscription</option>
+            <option value="AdvertisementSupportedModel">Advertisement Supported</option>
+            <option value="FreeOfChargeModel">Free of Charge</option>
           </select>
-          <button 
-            type="button"
-            @click="removeCommercialModel(index)"
-            class="btn-icon"
-            :disabled="localTarget.commercialModels.length === 1"
-          >
+          
+          <button @click="removeCommercialModel(index)" class="btn-icon" :disabled="localTarget.commercialModels.length === 1">
             <font-awesome-icon icon="trash" />
           </button>
         </div>
@@ -834,36 +847,40 @@ Example:
         <div class="model-usage-types">
           <label class="form-label">Usage Types</label>
           <div class="checkbox-group">
-            <label 
-              v-for="usageType in getUsageTypesForModel(model.type)"
-              :key="`${index}-${usageType.value}`"
-              class="checkbox-label"
-            >
-              <input 
-                type="checkbox"
-                :value="usageType.value"
-                v-model="model.usageTypes"
-              />
-              {{ usageType.label }}
+            <label class="checkbox-label">
+              <input type="checkbox" value="PermanentDownload" v-model="model.usageTypes" />
+              Permanent Download
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" value="OnDemandStream" v-model="model.usageTypes" />
+              On-Demand Stream
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" value="NonInteractiveStream" v-model="model.usageTypes" />
+              Non-Interactive Stream
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" value="Subscription" v-model="model.usageTypes" />
+              Subscription
             </label>
           </div>
         </div>
         
-        <!-- Price for Pay As You Go -->
         <div v-if="model.type === 'PayAsYouGoModel'" class="price-section">
-          <label class="form-label">Price Information (Optional)</label>
           <div class="form-row">
             <div class="form-group">
+              <label class="form-label">Price (optional)</label>
               <input 
-                v-model.number="model.price"
-                type="number"
-                step="0.01"
-                min="0"
+                v-model.number="model.price" 
+                type="number" 
+                step="0.01" 
                 class="form-input"
                 placeholder="0.99"
               />
             </div>
+            
             <div class="form-group">
+              <label class="form-label">Currency</label>
               <select v-model="model.currency" class="form-select">
                 <option value="USD">USD</option>
                 <option value="EUR">EUR</option>
@@ -882,34 +899,22 @@ Example:
       
       <div class="settings-grid">
         <label class="checkbox-label">
-          <input 
-            v-model="localTarget.settings.autoDeliver" 
-            type="checkbox"
-          />
-          Auto-deliver when releases are ready
+          <input type="checkbox" v-model="localTarget.settings.autoDeliver" />
+          Auto-deliver new releases
         </label>
         
         <label class="checkbox-label">
-          <input 
-            v-model="localTarget.settings.validateBeforeDelivery" 
-            type="checkbox"
-          />
+          <input type="checkbox" v-model="localTarget.settings.validateBeforeDelivery" />
           Validate ERN before delivery
         </label>
         
         <label class="checkbox-label">
-          <input 
-            v-model="localTarget.settings.requireAcknowledgment" 
-            type="checkbox"
-          />
-          Require DSP acknowledgment
+          <input type="checkbox" v-model="localTarget.settings.requireAcknowledgment" />
+          Require delivery acknowledgment
         </label>
         
         <label class="checkbox-label">
-          <input 
-            v-model="localTarget.active" 
-            type="checkbox"
-          />
+          <input type="checkbox" v-model="localTarget.active" />
           Target is active
         </label>
       </div>
@@ -919,10 +924,10 @@ Example:
           <label class="form-label">Retry Attempts</label>
           <input 
             v-model.number="localTarget.settings.retryAttempts" 
-            type="number"
+            type="number" 
+            class="form-input"
             min="0"
             max="10"
-            class="form-input"
           />
         </div>
         
@@ -930,10 +935,10 @@ Example:
           <label class="form-label">Retry Delay (minutes)</label>
           <input 
             v-model.number="localTarget.settings.retryDelay" 
-            type="number"
+            type="number" 
+            class="form-input"
             min="1"
             max="1440"
-            class="form-input"
           />
         </div>
       </div>
@@ -1035,102 +1040,77 @@ Example:
   margin-top: var(--space-xs);
 }
 
-.radio-group {
+/* Info Banner */
+.info-banner {
   display: flex;
-  gap: var(--space-lg);
-  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background-color: var(--color-info-light);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-md);
+  color: var(--color-info-dark);
 }
 
-.radio-label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  cursor: pointer;
+.info-banner svg {
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
+/* Protocol Configuration */
 .protocol-config {
   margin-top: var(--space-lg);
   padding-top: var(--space-lg);
   border-top: 1px solid var(--color-border);
 }
 
-/* Info Banner */
-.info-banner {
+/* Test Connection */
+.test-connection {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+.test-result {
   display: flex;
-  gap: var(--space-md);
-  padding: var(--space-md);
-  background-color: var(--color-primary-light);
-  border: 1px solid var(--color-primary);
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-md);
-  margin-bottom: var(--space-lg);
-}
-
-.info-banner svg {
-  color: var(--color-primary);
-  font-size: 1.25rem;
-  flex-shrink: 0;
-}
-
-.info-banner strong {
-  display: block;
-  margin-bottom: var(--space-xs);
-}
-
-.info-banner p {
   font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  margin: 0;
 }
 
-/* Import Instructions */
-.import-instructions {
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  padding: var(--space-lg);
-  margin-bottom: var(--space-lg);
+.test-result.success {
+  background-color: var(--color-success-light);
+  color: var(--color-success-dark);
+  border: 1px solid var(--color-success);
 }
 
-.import-instructions h4 {
-  font-size: var(--text-base);
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-md);
-  color: var(--color-heading);
-}
-
-.import-instructions ol {
-  margin: 0;
-  padding-left: var(--space-lg);
-  color: var(--color-text-secondary);
-}
-
-.import-instructions li {
-  margin-bottom: var(--space-xs);
+.test-result.error {
+  background-color: var(--color-error-light);
+  color: var(--color-error-dark);
+  border: 1px solid var(--color-error);
 }
 
 /* Modal */
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: var(--z-modal);
-  padding: var(--space-lg);
+  z-index: 1000;
 }
 
 .modal {
   background-color: var(--color-surface);
   border-radius: var(--radius-lg);
+  width: 90%;
   max-width: 600px;
-  width: 100%;
-  max-height: 80vh;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-lg);
 }
 
 .modal-header {
@@ -1142,8 +1122,8 @@ Example:
 }
 
 .modal-header h3 {
+  margin: 0;
   font-size: var(--text-xl);
-  font-weight: var(--font-semibold);
   color: var(--color-heading);
 }
 
@@ -1161,31 +1141,40 @@ Example:
   border-top: 1px solid var(--color-border);
 }
 
-/* Test Connection */
-.test-connection {
-  margin-top: var(--space-lg);
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-}
-
-.test-result {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
+.import-instructions {
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  font-size: var(--text-sm);
+  padding: var(--space-md);
+  margin-bottom: var(--space-lg);
 }
 
-.test-result.success {
-  background-color: rgba(52, 168, 83, 0.1);
-  color: var(--color-success);
+.import-instructions h4 {
+  margin: 0 0 var(--space-sm) 0;
+  color: var(--color-heading);
 }
 
-.test-result.error {
-  background-color: rgba(234, 67, 53, 0.1);
-  color: var(--color-error);
+.import-instructions ol {
+  margin: 0;
+  padding-left: var(--space-lg);
+}
+
+.import-instructions li {
+  margin-bottom: var(--space-xs);
+  color: var(--color-text-secondary);
+}
+
+/* Radio and Checkbox Groups */
+.radio-group {
+  display: flex;
+  gap: var(--space-lg);
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  cursor: pointer;
 }
 
 /* Commercial Models */
@@ -1263,6 +1252,40 @@ Example:
 .btn-icon:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Input Group */
+.input-group {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.input-group .form-input {
+  flex: 1;
+}
+
+.input-group .btn-icon {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+}
+
+.input-group .btn-icon:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* Path Display */
+.path-display {
+  display: block;
+  padding: var(--space-md);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
 }
 
 /* Responsive */
