@@ -42,7 +42,11 @@ const localTarget = ref({
     // API specific
     endpoint: '',
     authType: 'Bearer',
-    apiKey: ''
+    apiKey: '',
+    
+    // Firebase Storage specific (for Stardust DSP)
+    distributorId: '',
+    projectId: ''
   },
   
   // DDEX Deal configuration
@@ -68,9 +72,15 @@ const localTarget = ref({
   ...props.modelValue
 })
 
+// JSON import state
+const showJsonImport = ref(false)
+const jsonInput = ref('')
+const jsonError = ref('')
+
 // Common DSP presets
 const dspPresets = [
   { value: 'custom', label: 'Custom Configuration' },
+  { value: 'stardust-dsp', label: 'Stardust DSP (JSON Import)' },
   { value: 'spotify', label: 'Spotify' },
   { value: 'apple', label: 'Apple Music' },
   { value: 'amazon', label: 'Amazon Music' },
@@ -90,6 +100,7 @@ const protocolOptions = [
   { value: 'FTP', label: 'FTP' },
   { value: 'SFTP', label: 'SFTP (Recommended)' },
   { value: 'S3', label: 'Amazon S3' },
+  { value: 'storage', label: 'Firebase Storage (Stardust DSP)' },
   { value: 'API', label: 'REST API' }
 ]
 
@@ -148,7 +159,106 @@ const defaultPort = computed(() => {
 })
 
 // Methods
+const parseJsonConfig = () => {
+  jsonError.value = ''
+  
+  try {
+    const config = JSON.parse(jsonInput.value)
+    
+    // Validate required fields
+    if (!config.name || !config.type || !config.protocol || !config.config) {
+      throw new Error('Invalid configuration format. Missing required fields.')
+    }
+    
+    // Map the configuration to our form structure
+    localTarget.value.name = config.name
+    localTarget.value.type = config.type
+    localTarget.value.protocol = config.protocol
+    
+    // Handle different protocol configurations
+    if (config.protocol === 'storage') {
+      // Firebase Storage configuration from Stardust DSP
+      localTarget.value.connection.bucket = config.config.bucket || ''
+      localTarget.value.connection.path = config.config.path || '/'
+      localTarget.value.connection.distributorId = config.config.distributorId || ''
+      
+      // Extract project ID from bucket URL if it's a Firebase Storage URL
+      if (config.config.bucket && config.config.bucket.includes('.firebasestorage.app')) {
+        const projectId = config.config.bucket.split('.firebasestorage.app')[0]
+        localTarget.value.connection.projectId = projectId
+      }
+      
+      // Set default DDEX info for Stardust DSP
+      localTarget.value.partyName = config.name
+      localTarget.value.partyId = `PADPIDA${new Date().getFullYear()}${(new Date().getMonth() + 1).toString().padStart(2, '0')}${new Date().getDate().toString().padStart(2, '0')}01T`
+      
+      // Set test mode by default for Stardust DSP
+      localTarget.value.testMode = true
+      
+      // Configure commercial models for testing
+      localTarget.value.commercialModels = [
+        {
+          type: 'SubscriptionModel',
+          usageTypes: ['OnDemandStream'],
+          territories: ['Worldwide']
+        },
+        {
+          type: 'AdvertisementSupportedModel',
+          usageTypes: ['OnDemandStream'],
+          territories: ['Worldwide']
+        }
+      ]
+    } else if (config.protocol === 'S3') {
+      localTarget.value.connection.bucket = config.config.bucket || ''
+      localTarget.value.connection.region = config.config.region || 'us-east-1'
+      localTarget.value.connection.path = config.config.path || '/'
+      localTarget.value.connection.accessKey = config.config.accessKey || ''
+      localTarget.value.connection.secretKey = config.config.secretKey || ''
+    } else if (config.protocol === 'API') {
+      localTarget.value.connection.endpoint = config.config.endpoint || ''
+      localTarget.value.connection.authType = config.config.authType || 'Bearer'
+      localTarget.value.connection.apiKey = config.config.apiKey || ''
+    } else if (config.protocol === 'FTP' || config.protocol === 'SFTP') {
+      localTarget.value.connection.host = config.config.host || ''
+      localTarget.value.connection.port = config.config.port || defaultPort.value
+      localTarget.value.connection.username = config.config.username || ''
+      localTarget.value.connection.password = config.config.password || ''
+      localTarget.value.connection.path = config.config.path || '/'
+    }
+    
+    // Additional metadata if provided
+    if (config.partyName) localTarget.value.partyName = config.partyName
+    if (config.partyId) localTarget.value.partyId = config.partyId
+    if (config.ernVersion) localTarget.value.ernVersion = config.ernVersion
+    if (config.testMode !== undefined) localTarget.value.testMode = config.testMode
+    if (config.commercialModels) localTarget.value.commercialModels = config.commercialModels
+    
+    // Close the JSON import modal
+    showJsonImport.value = false
+    jsonInput.value = ''
+    
+    // Show success message
+    connectionTestResult.value = {
+      success: true,
+      message: 'Configuration imported successfully!'
+    }
+    
+    // Clear success message after 3 seconds
+    setTimeout(() => {
+      connectionTestResult.value = null
+    }, 3000)
+    
+  } catch (error) {
+    jsonError.value = error.message || 'Invalid JSON configuration'
+  }
+}
+
 const applyPreset = () => {
+  if (selectedPreset.value === 'stardust-dsp') {
+    showJsonImport.value = true
+    return
+  }
+  
   const presets = {
     spotify: {
       name: 'Spotify',
@@ -295,7 +405,65 @@ onMounted(() => {
             {{ preset.label }}
           </option>
         </select>
-        <p class="form-help">Select a preset to auto-fill common DSP configurations</p>
+        <p class="form-help">Select a preset to auto-fill common DSP configurations or import from Stardust DSP</p>
+      </div>
+    </div>
+
+    <!-- JSON Import Modal -->
+    <div v-if="showJsonImport" class="modal-overlay" @click.self="showJsonImport = false">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Import Stardust DSP Configuration</h3>
+          <button @click="showJsonImport = false" class="btn-icon">
+            <font-awesome-icon icon="times" />
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="import-instructions">
+            <h4>How to import from Stardust DSP:</h4>
+            <ol>
+              <li>Go to Settings → Delivery Targets in Stardust DSP</li>
+              <li>Click "Add Target" and configure your distributor</li>
+              <li>Copy the configuration JSON</li>
+              <li>Paste it below</li>
+            </ol>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Configuration JSON</label>
+            <textarea 
+              v-model="jsonInput" 
+              class="form-textarea"
+              placeholder='Paste your Stardust DSP configuration JSON here...
+
+Example:
+{
+  "name": "Stardust DSP",
+  "type": "DSP",
+  "protocol": "storage",
+  "config": {
+    "distributorId": "SDT",
+    "bucket": "stardust-dsp.firebasestorage.app",
+    "path": "/deliveries/SDT/{timestamp}/"
+  }
+}'
+              rows="12"
+            ></textarea>
+            <div v-if="jsonError" class="form-error">
+              <font-awesome-icon icon="exclamation-triangle" />
+              {{ jsonError }}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="showJsonImport = false" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button @click="parseJsonConfig" class="btn btn-primary">
+            <font-awesome-icon icon="upload" />
+            Import Configuration
+          </button>
+        </div>
       </div>
     </div>
 
@@ -460,6 +628,54 @@ onMounted(() => {
             class="form-input"
             placeholder="/incoming/releases/"
           />
+        </div>
+      </div>
+      
+      <!-- Firebase Storage Configuration (Stardust DSP) -->
+      <div v-else-if="localTarget.protocol === 'storage'" class="protocol-config">
+        <div class="info-banner">
+          <font-awesome-icon icon="info-circle" />
+          <div>
+            <strong>Stardust DSP Integration</strong>
+            <p>This configuration is for integration with Stardust DSP test instances.</p>
+          </div>
+        </div>
+        
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label required">Distributor ID</label>
+            <input 
+              v-model="localTarget.connection.distributorId" 
+              type="text" 
+              class="form-input"
+              placeholder="e.g., SDT"
+              required
+            />
+            <p class="form-help">Your unique distributor identifier in Stardust DSP</p>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label required">Storage Bucket</label>
+            <input 
+              v-model="localTarget.connection.bucket" 
+              type="text" 
+              class="form-input"
+              placeholder="stardust-dsp.firebasestorage.app"
+              required
+            />
+            <p class="form-help">Firebase Storage bucket URL</p>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label">Delivery Path</label>
+          <input 
+            v-model="localTarget.connection.path" 
+            type="text" 
+            class="form-input"
+            placeholder="/deliveries/{distributorId}/{timestamp}/"
+          />
+          <p class="form-help">Path pattern for deliveries. {timestamp} will be replaced with actual timestamp.</p>
         </div>
       </div>
       
@@ -791,6 +1007,34 @@ onMounted(() => {
   color: var(--color-text-tertiary);
 }
 
+.form-textarea {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-family: var(--font-mono);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  transition: all var(--transition-base);
+  resize: vertical;
+  min-height: 200px;
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.form-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--color-error);
+  font-size: var(--text-sm);
+  margin-top: var(--space-xs);
+}
+
 .radio-group {
   display: flex;
   gap: var(--space-lg);
@@ -807,6 +1051,113 @@ onMounted(() => {
 .protocol-config {
   margin-top: var(--space-lg);
   padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Info Banner */
+.info-banner {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background-color: var(--color-primary-light);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-lg);
+}
+
+.info-banner svg {
+  color: var(--color-primary);
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.info-banner strong {
+  display: block;
+  margin-bottom: var(--space-xs);
+}
+
+.info-banner p {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+/* Import Instructions */
+.import-instructions {
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.import-instructions h4 {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-md);
+  color: var(--color-heading);
+}
+
+.import-instructions ol {
+  margin: 0;
+  padding-left: var(--space-lg);
+  color: var(--color-text-secondary);
+}
+
+.import-instructions li {
+  margin-bottom: var(--space-xs);
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  padding: var(--space-lg);
+}
+
+.modal {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-lg);
+  max-width: 600px;
+  width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-header h3 {
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  color: var(--color-heading);
+}
+
+.modal-body {
+  padding: var(--space-lg);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding: var(--space-lg);
   border-top: 1px solid var(--color-border);
 }
 

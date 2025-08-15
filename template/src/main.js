@@ -58,7 +58,13 @@ import {
   faLaptopCode,
   faPaperPlane,
   faFileCode,
-  faServer
+  faServer,
+  faCheckSquare,
+  faDownload,
+  faClock,           // Added for ReleaseDetail duration
+  faGlobe,           // Added for ReleaseDetail territories
+  faFile,            // Added for ReleaseDetail DDEX version
+  faImage            // Added for ReleaseDetail empty asset state
 } from '@fortawesome/free-solid-svg-icons'
 
 // Import brand icons
@@ -117,7 +123,13 @@ library.add(
   faLaptopCode,
   faPaperPlane,
   faFileCode,
-  faServer  
+  faServer,
+  faCheckSquare,
+  faDownload,
+  faClock,           // Added
+  faGlobe,           // Added
+  faFile,            // Added
+  faImage            // Added
 )
 
 // Add brand icons to the library
