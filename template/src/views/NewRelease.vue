@@ -730,16 +730,16 @@ const formatDuration = (seconds) => {
               <p class="step-description">Upload the main cover image for your release (minimum 3000x3000px)</p>
               
               <div v-if="!releaseData.assets.coverImage" class="upload-area">
-                <label>
-                  <font-awesome-icon icon="upload" class="upload-icon" />
-                  <p>Drag and drop or click to upload</p>
-                  <button class="btn btn-primary" type="button">Choose File</button>
+                <label class="upload-label">
                   <input 
                     type="file" 
                     accept="image/*"
                     @change="handleCoverImageUpload"
                     style="display: none"
                   />
+                  <font-awesome-icon icon="upload" class="upload-icon" />
+                  <p>Drag and drop or click to upload</p>
+                  <span class="btn btn-primary">Choose File</span>
                 </label>
               </div>
               
@@ -1342,6 +1342,7 @@ const formatDuration = (seconds) => {
   margin-bottom: var(--space-md);
 }
 
+/* Asset Upload */
 .upload-area {
   border: 2px dashed var(--color-border);
   border-radius: var(--radius-lg);
@@ -1349,7 +1350,6 @@ const formatDuration = (seconds) => {
   text-align: center;
   background-color: var(--color-bg-secondary);
   transition: all var(--transition-base);
-  cursor: pointer;
 }
 
 .upload-area:hover {
@@ -1357,7 +1357,7 @@ const formatDuration = (seconds) => {
   background-color: var(--color-primary-light);
 }
 
-.upload-area label {
+.upload-label {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1368,6 +1368,10 @@ const formatDuration = (seconds) => {
 .upload-icon {
   font-size: 3rem;
   color: var(--color-text-tertiary);
+}
+
+.upload-label .btn {
+  pointer-events: none; /* Prevent the button from capturing clicks */
 }
 
 .uploaded-asset {
