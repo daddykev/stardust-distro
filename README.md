@@ -206,13 +206,13 @@ An **open marketplace** for optional plugins, welcoming contributions from both 
 
 ## 🚀 Quick Start
 
-### Install and Deploy (Completely Free)
+### Install and Deploy
 ```bash
 # Create your distribution platform
-npx create-stardust-distro my-label
+npx stardust-distro create my-platform
 
 # Navigate to project
-cd my-label
+cd my-platform
 
 # Initialize Firebase (free tier available)
 stardust-distro init
