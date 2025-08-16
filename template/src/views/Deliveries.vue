@@ -660,22 +660,25 @@ onMounted(() => {
             <div class="delivery-footer">
               <div class="delivery-time">
                 <span v-if="delivery.status === 'queued'">
-                  Scheduled {{ formatTime(delivery.scheduledAt) }}
+                  Scheduled {{ formatDateTime(delivery.scheduledAt) }}
                 </span>
                 <span v-else-if="delivery.status === 'processing'">
-                  Started {{ formatTime(delivery.startedAt) }}
+                  Started {{ formatDateTime(delivery.startedAt) }}
+                  <span class="time-relative">({{ formatTime(delivery.startedAt) }})</span>
                 </span>
                 <span v-else-if="delivery.status === 'completed'">
-                  Completed {{ formatTime(delivery.completedAt) }}
+                  Completed {{ formatDateTime(delivery.completedAt) }}
                   <span class="time-duration">
                     ({{ getDuration(delivery.startedAt, delivery.completedAt) }})
                   </span>
                 </span>
                 <span v-else-if="delivery.status === 'failed'">
-                  Failed {{ formatTime(delivery.failedAt) }}
+                  Failed {{ formatDateTime(delivery.failedAt) }}
+                  <span class="time-relative">({{ formatTime(delivery.failedAt) }})</span>
                 </span>
                 <span v-else-if="delivery.status === 'cancelled'">
-                  Cancelled {{ formatTime(delivery.cancelledAt) }}
+                  Cancelled {{ formatDateTime(delivery.cancelledAt) }}
+                  <span class="time-relative">({{ formatTime(delivery.cancelledAt) }})</span>
                 </span>
               </div>
               
@@ -1771,6 +1774,12 @@ onMounted(() => {
 
 .package-info p {
   margin-bottom: var(--space-xs);
+}
+
+.time-relative {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  margin-left: var(--space-xs);
 }
 
 /* Responsive */
