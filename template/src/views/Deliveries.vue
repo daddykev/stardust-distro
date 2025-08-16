@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import deliveryTargetService from '../services/deliveryTargets'
+import deliveryService from '../services/delivery'
 import { db } from '../firebase'
 import { 
   collection, 
@@ -30,9 +31,13 @@ const showTargetModal = ref(false)
 const showDeliveryDetails = ref(false)
 const selectedDelivery = ref(null)
 const isProcessingAction = ref(false)
+const showLogsModal = ref(false)
+const selectedDeliveryLogs = ref([])
+const autoRefreshLogs = ref(false)
 
 // Real-time listener
 let unsubscribeDeliveries = null
+let logRefreshInterval = null
 
 // Computed
 const filteredDeliveries = computed(() => {
@@ -104,10 +109,25 @@ const loadDeliveries = () => {
   unsubscribeDeliveries = onSnapshot(q, (snapshot) => {
     const deliveriesData = []
     snapshot.forEach((doc) => {
-      deliveriesData.push({ id: doc.id, ...doc.data() })
+      const data = doc.data()
+      deliveriesData.push({ 
+        id: doc.id, 
+        ...data,
+        // Ensure logs array exists
+        logs: data.logs || []
+      })
     })
     deliveries.value = deliveriesData
     isLoading.value = false
+    
+    // If we're viewing logs for a delivery that just updated, refresh the logs
+    if (showLogsModal.value && selectedDelivery.value) {
+      const updatedDelivery = deliveriesData.find(d => d.id === selectedDelivery.value.id)
+      if (updatedDelivery) {
+        selectedDelivery.value = updatedDelivery
+        selectedDeliveryLogs.value = updatedDelivery.logs || []
+      }
+    }
   }, (error) => {
     console.error('Error loading deliveries:', error)
     isLoading.value = false
@@ -120,6 +140,140 @@ const loadDeliveryTargets = async () => {
   } catch (error) {
     console.error('Error loading delivery targets:', error)
   }
+}
+
+// View delivery logs
+const viewDeliveryLogs = async (delivery) => {
+  selectedDelivery.value = delivery
+  selectedDeliveryLogs.value = delivery.logs || []
+  showLogsModal.value = true
+  
+  // If delivery is processing, auto-refresh logs
+  if (delivery.status === 'processing' || delivery.status === 'queued') {
+    autoRefreshLogs.value = true
+    startLogRefresh()
+  }
+}
+
+// Start auto-refreshing logs
+const startLogRefresh = () => {
+  if (logRefreshInterval) return
+  
+  logRefreshInterval = setInterval(async () => {
+    if (!showLogsModal.value || !autoRefreshLogs.value) {
+      stopLogRefresh()
+      return
+    }
+    
+    // The real-time listener will update the logs automatically
+    // This is just a backup to ensure UI updates
+    const delivery = deliveries.value.find(d => d.id === selectedDelivery.value.id)
+    if (delivery) {
+      selectedDeliveryLogs.value = delivery.logs || []
+      
+      // Stop auto-refresh if delivery is completed or failed
+      if (delivery.status === 'completed' || delivery.status === 'failed' || delivery.status === 'cancelled') {
+        stopLogRefresh()
+      }
+    }
+  }, 2000) // Refresh every 2 seconds
+}
+
+// Stop auto-refreshing logs
+const stopLogRefresh = () => {
+  if (logRefreshInterval) {
+    clearInterval(logRefreshInterval)
+    logRefreshInterval = null
+  }
+  autoRefreshLogs.value = false
+}
+
+// Close logs modal
+const closeLogsModal = () => {
+  showLogsModal.value = false
+  stopLogRefresh()
+  selectedDelivery.value = null
+  selectedDeliveryLogs.value = []
+}
+
+// Get log level color
+const getLogLevelColor = (level) => {
+  switch (level) {
+    case 'success':
+      return 'log-success'
+    case 'error':
+      return 'log-error'
+    case 'warning':
+      return 'log-warning'
+    case 'info':
+    default:
+      return 'log-info'
+  }
+}
+
+// Get log level icon
+const getLogLevelIcon = (level) => {
+  switch (level) {
+    case 'success':
+      return 'check-circle'
+    case 'error':
+      return 'times-circle'
+    case 'warning':
+      return 'exclamation-triangle'
+    case 'info':
+    default:
+      return 'info-circle'
+  }
+}
+
+// Format log timestamp
+const formatLogTimestamp = (timestamp) => {
+  if (!timestamp) return 'N/A'
+  
+  const date = timestamp?.toDate ? timestamp.toDate() : 
+               timestamp?.seconds ? new Date(timestamp.seconds * 1000) : 
+               new Date(timestamp)
+  
+  return date.toLocaleString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  })
+}
+
+// Format log duration
+const formatLogDuration = (duration) => {
+  if (!duration) return null
+  
+  if (duration < 1000) {
+    return `${duration}ms`
+  } else if (duration < 60000) {
+    return `${(duration / 1000).toFixed(1)}s`
+  } else {
+    return `${Math.floor(duration / 60000)}m ${Math.floor((duration % 60000) / 1000)}s`
+  }
+}
+
+// Get current step display
+const getCurrentStepDisplay = (delivery) => {
+  if (!delivery.currentStep) return ''
+  
+  const stepNames = {
+    'initialization': 'Initializing',
+    'target_configuration': 'Configuring Target',
+    'package_preparation': 'Preparing Package',
+    'delivery_execution': 'Delivering',
+    'api_preparation': 'Preparing API',
+    'api_transmission': 'Sending Data',
+    'api_response': 'Awaiting Response',
+    'file_transfer_note': 'File Transfer',
+    'receipt_generation': 'Generating Receipt',
+    'completion': 'Completing',
+    'error_handling': 'Error Handling'
+  }
+  
+  return stepNames[delivery.currentStep] || delivery.currentStep
 }
 
 const retryDelivery = async (delivery) => {
@@ -188,43 +342,11 @@ const viewDeliveryDetails = (delivery) => {
 }
 
 const downloadERN = (delivery) => {
-  if (!delivery.ernXml) {
-    alert('ERN not available for this delivery')
-    return
-  }
-  
-  const blob = new Blob([delivery.ernXml], { type: 'text/xml' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${delivery.releaseTitle}_${delivery.targetName}_${delivery.ernMessageId}.xml`.replace(/[^a-z0-9]/gi, '_')
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  deliveryService.downloadERN(delivery)
 }
 
 const downloadReceipt = (delivery) => {
-  // Generate a delivery receipt
-  const receipt = {
-    deliveryId: delivery.id,
-    releaseTitle: delivery.releaseTitle,
-    targetName: delivery.targetName,
-    status: delivery.status,
-    completedAt: delivery.completedAt,
-    messageId: delivery.ernMessageId,
-    acknowledgment: delivery.receipt?.acknowledgment || 'Delivered successfully'
-  }
-  
-  const blob = new Blob([JSON.stringify(receipt, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `delivery_receipt_${delivery.id}.json`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  deliveryService.downloadReceipt(delivery)
 }
 
 const getStatusColor = (status) => {
@@ -347,6 +469,7 @@ onMounted(() => {
     if (unsubscribeDeliveries) {
       unsubscribeDeliveries()
     }
+    stopLogRefresh()
   }
 })
 </script>
@@ -502,6 +625,15 @@ onMounted(() => {
               </div>
             </div>
 
+            <!-- Current Step for Processing -->
+            <div v-if="delivery.status === 'processing' && delivery.currentStep" class="delivery-current-step">
+              <span class="step-label">Current Step:</span>
+              <span class="step-value">{{ getCurrentStepDisplay(delivery) }}</span>
+              <span v-if="delivery.logs && delivery.logs.length > 0" class="log-count">
+                ({{ delivery.logs.length }} logs)
+              </span>
+            </div>
+
             <!-- Progress Bar for Processing -->
             <div v-if="delivery.status === 'processing'" class="delivery-progress">
               <div class="progress-bar">
@@ -548,6 +680,18 @@ onMounted(() => {
               </div>
               
               <div class="delivery-actions">
+                <!-- Add View Logs button -->
+                <button 
+                  @click="viewDeliveryLogs(delivery)"
+                  class="btn-icon"
+                  title="View Logs"
+                  :class="{ 'has-logs': delivery.logs && delivery.logs.length > 0 }"
+                >
+                  <font-awesome-icon icon="list" />
+                  <span v-if="delivery.logs && delivery.logs.length > 0" class="log-badge">
+                    {{ delivery.logs.length }}
+                  </span>
+                </button>
                 <button 
                   v-if="delivery.status === 'queued'"
                   @click="cancelDelivery(delivery)"
@@ -644,6 +788,69 @@ onMounted(() => {
                   {{ deliveries.filter(d => d.targetName === target.name && d.status === 'queued').length }}
                   queued
                 </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Delivery Logs Modal -->
+    <div v-if="showLogsModal" class="modal-overlay" @click.self="closeLogsModal">
+      <div class="modal modal-large">
+        <div class="modal-header">
+          <div>
+            <h3>Delivery Logs</h3>
+            <p class="modal-subtitle">{{ selectedDelivery?.releaseTitle }} → {{ selectedDelivery?.targetName }}</p>
+          </div>
+          <div class="modal-actions">
+            <label v-if="selectedDelivery?.status === 'processing'" class="auto-refresh-toggle">
+              <input 
+                v-model="autoRefreshLogs" 
+                type="checkbox"
+                @change="autoRefreshLogs ? startLogRefresh() : stopLogRefresh()"
+              />
+              <span>Auto-refresh</span>
+            </label>
+            <button @click="closeLogsModal" class="btn-icon">
+              <font-awesome-icon icon="times" />
+            </button>
+          </div>
+        </div>
+        <div class="modal-body logs-container">
+          <div v-if="selectedDeliveryLogs.length === 0" class="no-logs">
+            <font-awesome-icon icon="file-alt" />
+            <p>No logs available yet</p>
+          </div>
+          
+          <div v-else class="logs-list">
+            <div 
+              v-for="(log, index) in selectedDeliveryLogs" 
+              :key="index"
+              class="log-entry"
+              :class="getLogLevelColor(log.level)"
+            >
+              <div class="log-header">
+                <div class="log-icon">
+                  <font-awesome-icon :icon="getLogLevelIcon(log.level)" />
+                </div>
+                <div class="log-time">
+                  {{ formatLogTimestamp(log.timestamp) }}
+                </div>
+                <div class="log-step">
+                  {{ log.step }}
+                </div>
+                <div v-if="log.duration" class="log-duration">
+                  {{ formatLogDuration(log.duration) }}
+                </div>
+              </div>
+              
+              <div class="log-message">
+                {{ log.message }}
+              </div>
+              
+              <div v-if="log.details" class="log-details">
+                <pre>{{ JSON.stringify(log.details, null, 2) }}</pre>
               </div>
             </div>
           </div>
@@ -1051,6 +1258,33 @@ onMounted(() => {
   color: var(--color-text-secondary);
 }
 
+/* Current Step Display */
+.delivery-current-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background-color: var(--color-primary-light);
+  border-radius: var(--radius-md);
+  margin: var(--space-sm) 0;
+  font-size: var(--text-sm);
+}
+
+.step-label {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-medium);
+}
+
+.step-value {
+  color: var(--color-primary);
+  font-weight: var(--font-semibold);
+}
+
+.log-count {
+  color: var(--color-text-tertiary);
+  margin-left: auto;
+}
+
 /* Progress Bar */
 .delivery-progress {
   margin: var(--space-md) 0;
@@ -1132,6 +1366,7 @@ onMounted(() => {
   cursor: pointer;
   border-radius: var(--radius-md);
   transition: all var(--transition-base);
+  position: relative;
 }
 
 .btn-icon:hover {
@@ -1141,6 +1376,25 @@ onMounted(() => {
 
 .btn-icon.text-error:hover {
   color: var(--color-error);
+}
+
+/* Log Badge on Button */
+.btn-icon.has-logs {
+  position: relative;
+}
+
+.log-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background-color: var(--color-primary);
+  color: white;
+  border-radius: var(--radius-full);
+  padding: 1px 4px;
+  font-size: 10px;
+  font-weight: var(--font-bold);
+  min-width: 16px;
+  text-align: center;
 }
 
 /* Delivery Targets Section */
@@ -1255,7 +1509,10 @@ onMounted(() => {
 }
 
 .modal-large {
-  max-width: 700px;
+  max-width: 900px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-header {
@@ -1272,12 +1529,173 @@ onMounted(() => {
   color: var(--color-heading);
 }
 
+.modal-subtitle {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-xs);
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+}
+
+.auto-refresh-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.auto-refresh-toggle input {
+  cursor: pointer;
+}
+
 .modal-body {
   padding: var(--space-lg);
   max-height: 70vh;
   overflow-y: auto;
 }
 
+/* Logs Container */
+.logs-container {
+  background-color: var(--color-bg);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  flex: 1;
+  overflow-y: auto;
+}
+
+.no-logs {
+  text-align: center;
+  padding: var(--space-3xl);
+  color: var(--color-text-tertiary);
+}
+
+.no-logs svg {
+  font-size: 3rem;
+  margin-bottom: var(--space-md);
+}
+
+.logs-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.log-entry {
+  background-color: var(--color-surface);
+  border-left: 3px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  transition: all var(--transition-base);
+}
+
+.log-entry:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.log-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+.log-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+}
+
+.log-time {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.log-step {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text);
+  padding: 2px 8px;
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.log-duration {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.log-message {
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+.log-details {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.log-details pre {
+  background-color: var(--color-bg);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--color-text-secondary);
+}
+
+/* Log Level Colors */
+.log-info {
+  border-left-color: var(--color-info);
+}
+
+.log-info .log-icon {
+  background-color: rgba(66, 133, 244, 0.1);
+  color: var(--color-info);
+}
+
+.log-success {
+  border-left-color: var(--color-success);
+}
+
+.log-success .log-icon {
+  background-color: rgba(52, 168, 83, 0.1);
+  color: var(--color-success);
+}
+
+.log-warning {
+  border-left-color: var(--color-warning);
+}
+
+.log-warning .log-icon {
+  background-color: rgba(251, 188, 4, 0.1);
+  color: var(--color-warning);
+}
+
+.log-error {
+  border-left-color: var(--color-error);
+}
+
+.log-error .log-icon {
+  background-color: rgba(234, 67, 53, 0.1);
+  color: var(--color-error);
+}
+
+/* Detail sections */
 .detail-section {
   margin-bottom: var(--space-xl);
 }
@@ -1390,6 +1808,11 @@ onMounted(() => {
   
   .detail-grid {
     grid-template-columns: 1fr;
+  }
+  
+  .modal-large {
+    max-width: 100%;
+    margin: var(--space-md);
   }
 }
 </style>

@@ -6,7 +6,8 @@ import {
   getDoc,
   Timestamp,
   collection,
-  addDoc
+  addDoc,
+  arrayUnion
 } from 'firebase/firestore'
 import { ref as storageRef, getBlob, getDownloadURL } from 'firebase/storage'
 import { getFunctions, httpsCallable } from 'firebase/functions'
@@ -19,10 +20,50 @@ export class DeliveryService {
   }
 
   /**
-   * Process a delivery job
+   * Add a log entry to the delivery record
+   */
+  async addDeliveryLog(deliveryId, logEntry) {
+    try {
+      const timestamp = Timestamp.now()
+      const log = {
+        timestamp,
+        level: logEntry.level || 'info', // info, warning, error, success
+        step: logEntry.step || 'general',
+        message: logEntry.message,
+        details: logEntry.details || null,
+        duration: logEntry.duration || null
+      }
+      
+      // Update the delivery document with the new log
+      await updateDoc(doc(db, 'deliveries', deliveryId), {
+        logs: arrayUnion(log),
+        lastLogAt: timestamp,
+        currentStep: logEntry.step
+      })
+      
+      // Also log to console for debugging
+      console.log(`[${log.level.toUpperCase()}] ${deliveryId} - ${log.step}: ${log.message}`)
+      
+      return log
+    } catch (error) {
+      console.error('Error adding delivery log:', error)
+    }
+  }
+
+  /**
+   * Process a delivery job with detailed logging
    */
   async processDelivery(deliveryId) {
+    const startTime = Date.now()
+    
     try {
+      // Log: Starting delivery
+      await this.addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 'initialization',
+        message: 'Starting delivery process'
+      })
+
       // Get delivery details
       const delivery = await this.getDelivery(deliveryId)
       
@@ -30,44 +71,137 @@ export class DeliveryService {
         throw new Error('Delivery not found')
       }
 
+      // Log: Delivery loaded
+      await this.addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 'initialization',
+        message: `Loaded delivery for "${delivery.releaseTitle}" to ${delivery.targetName}`,
+        details: {
+          releaseId: delivery.releaseId,
+          targetProtocol: delivery.targetProtocol,
+          testMode: delivery.testMode
+        }
+      })
+
       // Update status to processing
       await this.updateDeliveryStatus(deliveryId, 'processing', {
-        startedAt: Timestamp.now()
+        startedAt: Timestamp.now(),
+        logs: []
       })
 
       // Get delivery target configuration
+      await this.addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 'target_configuration',
+        message: 'Loading target configuration'
+      })
+      
       const target = await this.getDeliveryTarget(delivery.targetId)
       
+      await this.addDeliveryLog(deliveryId, {
+        level: 'success',
+        step: 'target_configuration',
+        message: `Target configured: ${target.name} (${target.protocol})`,
+        details: {
+          protocol: target.protocol,
+          type: target.type,
+          testMode: target.testMode
+        }
+      })
+      
       // Prepare delivery package
+      await this.addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 'package_preparation',
+        message: 'Preparing delivery package'
+      })
+      
       const deliveryPackage = await this.preparePackage(delivery)
       
+      await this.addDeliveryLog(deliveryId, {
+        level: 'success',
+        step: 'package_preparation',
+        message: `Package prepared: ${deliveryPackage.files.length} files`,
+        details: {
+          ernFiles: deliveryPackage.files.filter(f => f.isERN).length,
+          audioFiles: deliveryPackage.files.filter(f => f.type === 'audio').length,
+          imageFiles: deliveryPackage.files.filter(f => f.type === 'image').length,
+          totalFiles: deliveryPackage.files.length
+        }
+      })
+      
       // Execute delivery based on protocol
+      await this.addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 'delivery_execution',
+        message: `Starting ${target.protocol} delivery to ${target.name}`
+      })
+      
       let result
+      const deliveryStartTime = Date.now()
+      
       switch (target.protocol) {
         case 'FTP':
-          result = await this.deliverViaFTP(target, deliveryPackage)
+          result = await this.deliverViaFTP(target, deliveryPackage, deliveryId)
           break
         case 'SFTP':
-          result = await this.deliverViaSFTP(target, deliveryPackage)
+          result = await this.deliverViaSFTP(target, deliveryPackage, deliveryId)
           break
         case 'S3':
-          result = await this.deliverViaS3(target, deliveryPackage)
+          result = await this.deliverViaS3(target, deliveryPackage, deliveryId)
           break
         case 'API':
-          result = await this.deliverViaAPI(target, deliveryPackage)
+          result = await this.deliverViaAPI(target, deliveryPackage, deliveryId)
           break
         case 'Azure':
-          result = await this.deliverViaAzure(target, deliveryPackage)
+          result = await this.deliverViaAzure(target, deliveryPackage, deliveryId)
           break
         default:
           throw new Error(`Unsupported protocol: ${target.protocol}`)
       }
+      
+      const deliveryDuration = Date.now() - deliveryStartTime
 
+      await this.addDeliveryLog(deliveryId, {
+        level: 'success',
+        step: 'delivery_execution',
+        message: `Delivery completed via ${target.protocol}`,
+        duration: deliveryDuration,
+        details: {
+          filesDelivered: result.files?.length || 0,
+          bytesTransferred: result.bytesTransferred || 0,
+          acknowledgmentId: result.acknowledgmentId || result.deliveryId
+        }
+      })
+
+      // Generate receipt
+      await this.addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 'receipt_generation',
+        message: 'Generating delivery receipt'
+      })
+      
+      const receipt = this.generateReceipt(delivery, result)
+      
       // Update delivery status to completed
+      const totalDuration = Date.now() - startTime
+      
       await this.updateDeliveryStatus(deliveryId, 'completed', {
         completedAt: Timestamp.now(),
-        receipt: this.generateReceipt(delivery, result),
-        deliveredFiles: result.files
+        receipt,
+        deliveredFiles: result.files,
+        totalDuration
+      })
+
+      await this.addDeliveryLog(deliveryId, {
+        level: 'success',
+        step: 'completion',
+        message: `Delivery completed successfully in ${Math.round(totalDuration / 1000)}s`,
+        duration: totalDuration,
+        details: {
+          receiptId: receipt.receiptId,
+          dspMessageId: receipt.dspMessageId
+        }
       })
 
       // Send success notification
@@ -76,6 +210,16 @@ export class DeliveryService {
       return result
     } catch (error) {
       console.error('Delivery processing error:', error)
+      
+      await this.addDeliveryLog(deliveryId, {
+        level: 'error',
+        step: 'error_handling',
+        message: `Delivery failed: ${error.message}`,
+        details: {
+          error: error.message,
+          stack: error.stack
+        }
+      })
       
       // Handle retry logic
       await this.handleDeliveryError(deliveryId, error)
@@ -157,10 +301,16 @@ export class DeliveryService {
   }
 
   /**
-   * FTP Delivery Protocol using v2 Functions
+   * FTP Delivery Protocol using v2 Functions with logging
    */
-  async deliverViaFTP(target, deliveryPackage) {
+  async deliverViaFTP(target, deliveryPackage, deliveryId) {
     try {
+      await this.addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 'ftp_connection',
+        message: `Connecting to FTP server: ${target.connection.host}`
+      })
+
       const deliverFTP = httpsCallable(this.functions, 'deliverFTP')
       const result = await deliverFTP({
         target: {
@@ -174,6 +324,15 @@ export class DeliveryService {
         package: deliveryPackage
       })
       
+      await this.addDeliveryLog(deliveryId, {
+        level: 'success',
+        step: 'ftp_upload',
+        message: 'FTP upload completed successfully',
+        details: {
+          filesUploaded: result.data.files?.length || 0
+        }
+      })
+      
       return result.data
     } catch (error) {
       console.error('FTP delivery error:', error)
@@ -182,10 +341,16 @@ export class DeliveryService {
   }
 
   /**
-   * SFTP Delivery Protocol using v2 Functions
+   * SFTP Delivery Protocol using v2 Functions with logging
    */
-  async deliverViaSFTP(target, deliveryPackage) {
+  async deliverViaSFTP(target, deliveryPackage, deliveryId) {
     try {
+      await this.addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 'sftp_connection',
+        message: `Connecting to SFTP server: ${target.connection.host}`
+      })
+
       const deliverSFTP = httpsCallable(this.functions, 'deliverSFTP')
       const result = await deliverSFTP({
         target: {
@@ -200,6 +365,15 @@ export class DeliveryService {
         package: deliveryPackage
       })
       
+      await this.addDeliveryLog(deliveryId, {
+        level: 'success',
+        step: 'sftp_upload',
+        message: 'SFTP upload completed successfully',
+        details: {
+          filesUploaded: result.data.files?.length || 0
+        }
+      })
+      
       return result.data
     } catch (error) {
       console.error('SFTP delivery error:', error)
@@ -208,10 +382,16 @@ export class DeliveryService {
   }
 
   /**
-   * S3 Delivery Protocol using v2 Functions
+   * S3 Delivery Protocol using v2 Functions with logging
    */
-  async deliverViaS3(target, deliveryPackage) {
+  async deliverViaS3(target, deliveryPackage, deliveryId) {
     try {
+      await this.addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 's3_connection',
+        message: `Connecting to S3 bucket: ${target.connection.bucket}`
+      })
+
       const deliverS3 = httpsCallable(this.functions, 'deliverS3')
       const result = await deliverS3({
         target: {
@@ -224,6 +404,16 @@ export class DeliveryService {
         package: deliveryPackage
       })
       
+      await this.addDeliveryLog(deliveryId, {
+        level: 'success',
+        step: 's3_upload',
+        message: 'S3 upload completed successfully',
+        details: {
+          bucket: target.connection.bucket,
+          filesUploaded: result.data.files?.length || 0
+        }
+      })
+      
       return result.data
     } catch (error) {
       console.error('S3 delivery error:', error)
@@ -232,12 +422,31 @@ export class DeliveryService {
   }
 
   /**
-   * API Delivery Protocol with authentication
+   * API Delivery Protocol with enhanced logging
    */
-  async deliverViaAPI(target, deliveryPackage) {
+  async deliverViaAPI(target, deliveryPackage, deliveryId) {
     try {
+      // Log API preparation
+      await this.addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 'api_preparation',
+        message: `Preparing API request to ${target.connection.endpoint}`
+      })
+
       // For DSP deliveries, we need to send the data differently
       if (target.type === 'DSP') {
+        // Log DSP-specific preparation
+        await this.addDeliveryLog(deliveryId, {
+          level: 'info',
+          step: 'api_preparation',
+          message: 'Configuring DSP-specific payload',
+          details: {
+            distributorId: target.config?.distributorId || 'stardust-distro',
+            messageId: deliveryPackage.metadata.messageId,
+            fileCount: deliveryPackage.files.length
+          }
+        })
+
         // Prepare headers with authentication
         const headers = {
           'Content-Type': 'application/json'
@@ -249,6 +458,21 @@ export class DeliveryService {
         }
         
         // Prepare the payload for DSP
+        const audioFiles = deliveryPackage.files.filter(f => f.type === 'audio').map(f => f.url)
+        const imageFiles = deliveryPackage.files.filter(f => f.type === 'image').map(f => f.url)
+        
+        // Log file preparation
+        await this.addDeliveryLog(deliveryId, {
+          level: 'info',
+          step: 'file_preparation',
+          message: `Preparing ${audioFiles.length} audio and ${imageFiles.length} image files for transfer`,
+          details: {
+            audioCount: audioFiles.length,
+            imageCount: imageFiles.length,
+            ernIncluded: true
+          }
+        })
+
         const payload = {
           distributorId: target.config.distributorId || 'stardust-distro',
           messageId: deliveryPackage.metadata.messageId,
@@ -257,8 +481,8 @@ export class DeliveryService {
           ernXml: deliveryPackage.files.find(f => f.isERN)?.content,
           testMode: deliveryPackage.metadata.testMode,
           priority: deliveryPackage.metadata.priority,
-          audioFiles: deliveryPackage.files.filter(f => f.type === 'audio').map(f => f.url),
-          imageFiles: deliveryPackage.files.filter(f => f.type === 'image').map(f => f.url),
+          audioFiles,
+          imageFiles,
           // These fields are required by DSP:
           ern: {
             messageId: deliveryPackage.metadata.messageId,
@@ -269,14 +493,36 @@ export class DeliveryService {
             status: 'received',
             receivedAt: new Date().toISOString()
           },
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          // Add file download instructions
+          fileTransferRequired: true,
+          sourceStorage: 'firebase'
         }
         
+        // Log API call
+        await this.addDeliveryLog(deliveryId, {
+          level: 'info',
+          step: 'api_transmission',
+          message: `Sending API request to ${target.connection.endpoint}`,
+          details: {
+            method: 'POST',
+            payloadSize: JSON.stringify(payload).length,
+            hasAuth: !!headers['Authorization']
+          }
+        })
+        
         console.log('Sending to DSP:', target.connection.endpoint)
-        console.log('Payload:', JSON.stringify(payload, null, 2))
+        console.log('Payload summary:', {
+          distributorId: payload.distributorId,
+          messageId: payload.messageId,
+          audioFiles: payload.audioFiles.length,
+          imageFiles: payload.imageFiles.length
+        })
         
         // Call the Cloud Function with DSP-specific configuration
         const deliverAPI = httpsCallable(this.functions, 'deliverAPI')
+        const startTime = Date.now()
+        
         const result = await deliverAPI({
           target: {
             endpoint: target.connection.endpoint,
@@ -287,17 +533,86 @@ export class DeliveryService {
           package: payload
         })
         
+        const apiDuration = Date.now() - startTime
+        
         // Check if the result indicates success
         if (!result.data?.success) {
+          await this.addDeliveryLog(deliveryId, {
+            level: 'error',
+            step: 'api_response',
+            message: 'DSP rejected delivery',
+            details: {
+              error: result.data?.error,
+              duration: apiDuration
+            }
+          })
           throw new Error(result.data?.error || 'DSP delivery failed')
         }
+        
+        // Log successful API response
+        await this.addDeliveryLog(deliveryId, {
+          level: 'success',
+          step: 'api_response',
+          message: 'DSP accepted delivery',
+          duration: apiDuration,
+          details: {
+            acknowledgmentId: result.data.acknowledgmentId,
+            deliveryId: result.data.deliveryId,
+            responseTime: `${apiDuration}ms`
+          }
+        })
+        
+        // Note about file transfer
+        await this.addDeliveryLog(deliveryId, {
+          level: 'info',
+          step: 'file_transfer_note',
+          message: 'Files referenced by URL - DSP will download asynchronously',
+          details: {
+            audioUrls: audioFiles,
+            imageUrls: imageFiles
+          }
+        })
         
         return result.data
       }
       
-      // ... rest of the standard API delivery code
+      // Standard API delivery (non-DSP)
+      await this.addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 'api_standard',
+        message: 'Executing standard API delivery'
+      })
+      
+      const deliverAPI = httpsCallable(this.functions, 'deliverAPI')
+      const result = await deliverAPI({
+        target: {
+          endpoint: target.connection.endpoint,
+          method: target.connection.method || 'POST',
+          headers: target.connection.headers || {}
+        },
+        package: deliveryPackage
+      })
+      
+      await this.addDeliveryLog(deliveryId, {
+        level: 'success',
+        step: 'api_standard',
+        message: 'API delivery completed successfully'
+      })
+      
+      return result.data
+      
     } catch (error) {
       console.error('API delivery error:', error)
+      
+      await this.addDeliveryLog(deliveryId, {
+        level: 'error',
+        step: 'api_error',
+        message: `API delivery failed: ${error.message}`,
+        details: {
+          error: error.message,
+          response: error.response?.data
+        }
+      })
       
       // Extract meaningful error message
       const errorMessage = error.response?.data?.error || 
@@ -309,81 +624,16 @@ export class DeliveryService {
   }
 
   /**
-   * Storage Delivery (Firebase Storage or S3)
+   * Azure Blob Storage Delivery Protocol using v2 Functions with logging
    */
-  async deliverViaStorage(target, deliveryPackage) {
+  async deliverViaAzure(target, deliveryPackage, deliveryId) {
     try {
-      // For DSP storage deliveries, include distributorId in path
-      if (target.type === 'DSP' && target.config?.distributorId) {
-        const timestamp = Date.now()
-        const distributorPath = `/deliveries/${target.config.distributorId}/${timestamp}/`
-        
-        // Upload ERN and assets to the distributor's folder
-        const uploadTasks = []
-        
-        // Upload ERN
-        const ernFile = deliveryPackage.files.find(f => f.isERN)
-        if (ernFile) {
-          uploadTasks.push({
-            path: `${distributorPath}manifest.xml`,
-            content: ernFile.content,
-            contentType: 'text/xml',
-            metadata: {
-              distributorId: target.config.distributorId,
-              messageId: deliveryPackage.metadata.messageId,
-              releaseTitle: deliveryPackage.releaseTitle
-            }
-          })
-        }
-        
-        // Upload audio files
-        for (const file of deliveryPackage.files.filter(f => f.type === 'audio')) {
-          uploadTasks.push({
-            path: `${distributorPath}audio/${file.name}`,
-            url: file.url,
-            needsDownload: true
-          })
-        }
-        
-        // Upload image files
-        for (const file of deliveryPackage.files.filter(f => f.type === 'image')) {
-          uploadTasks.push({
-            path: `${distributorPath}images/${file.name}`,
-            url: file.url,
-            needsDownload: true
-          })
-        }
-        
-        // Call the appropriate storage Cloud Function
-        const deliverStorage = httpsCallable(this.functions, 'deliverStorage')
-        const result = await deliverStorage({
-          target: {
-            bucket: target.connection.bucket || 'stardust-dsp.firebasestorage.app',
-            uploads: uploadTasks,
-            distributorId: target.config.distributorId
-          },
-          package: {
-            deliveryId: deliveryPackage.deliveryId,
-            metadata: deliveryPackage.metadata
-          }
-        })
-        
-        return result.data
-      } else {
-        // Standard storage delivery (existing code)
-        // ... your existing S3/Azure logic
-      }
-    } catch (error) {
-      console.error('Storage delivery error:', error)
-      throw new Error(`Storage delivery failed: ${error.message}`)
-    }
-  }
+      await this.addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 'azure_connection',
+        message: `Connecting to Azure container: ${target.connection.containerName}`
+      })
 
-  /**
-   * Azure Blob Storage Delivery Protocol using v2 Functions
-   */
-  async deliverViaAzure(target, deliveryPackage) {
-    try {
       const deliverAzure = httpsCallable(this.functions, 'deliverAzure')
       const result = await deliverAzure({
         target: {
@@ -393,6 +643,16 @@ export class DeliveryService {
           prefix: target.connection.prefix || ''
         },
         package: deliveryPackage
+      })
+      
+      await this.addDeliveryLog(deliveryId, {
+        level: 'success',
+        step: 'azure_upload',
+        message: 'Azure upload completed successfully',
+        details: {
+          container: target.connection.containerName,
+          filesUploaded: result.data.files?.length || 0
+        }
       })
       
       return result.data
@@ -426,6 +686,17 @@ export class DeliveryService {
         // Schedule retry with exponential backoff
         const retryDelay = this.retryDelays[attemptNumber - 1] || 60000
         
+        await this.addDeliveryLog(deliveryId, {
+          level: 'warning',
+          step: 'retry_scheduled',
+          message: `Scheduling retry ${attemptNumber}/${this.maxRetries} in ${retryDelay / 1000}s`,
+          details: {
+            attemptNumber,
+            retryDelay,
+            error: error.message
+          }
+        })
+        
         await this.updateDeliveryStatus(deliveryId, 'queued', {
           attempts: [...(delivery.attempts || []), attempt],
           scheduledAt: Timestamp.fromMillis(Date.now() + retryDelay),
@@ -440,6 +711,16 @@ export class DeliveryService {
         })
       } else {
         // Max retries reached, mark as failed
+        await this.addDeliveryLog(deliveryId, {
+          level: 'error',
+          step: 'max_retries',
+          message: `Maximum retries (${this.maxRetries}) exceeded - delivery failed`,
+          details: {
+            attempts: attemptNumber,
+            finalError: error.message
+          }
+        })
+        
         await this.updateDeliveryStatus(deliveryId, 'failed', {
           attempts: [...(delivery.attempts || []), attempt],
           failedAt: Timestamp.now(),
@@ -649,19 +930,19 @@ export class DeliveryService {
       let result
       switch (targetConfig.protocol) {
         case 'FTP':
-          result = await this.deliverViaFTP(targetConfig, testPackage)
+          result = await this.deliverViaFTP(targetConfig, testPackage, 'test')
           break
         case 'SFTP':
-          result = await this.deliverViaSFTP(targetConfig, testPackage)
+          result = await this.deliverViaSFTP(targetConfig, testPackage, 'test')
           break
         case 'S3':
-          result = await this.deliverViaS3(targetConfig, testPackage)
+          result = await this.deliverViaS3(targetConfig, testPackage, 'test')
           break
         case 'API':
-          result = await this.deliverViaAPI(targetConfig, testPackage)
+          result = await this.deliverViaAPI(targetConfig, testPackage, 'test')
           break
         case 'Azure':
-          result = await this.deliverViaAzure(targetConfig, testPackage)
+          result = await this.deliverViaAzure(targetConfig, testPackage, 'test')
           break
         default:
           throw new Error(`Unsupported protocol: ${targetConfig.protocol}`)
@@ -680,6 +961,25 @@ export class DeliveryService {
         timestamp: new Date(),
         error: error
       }
+    }
+  }
+
+  /**
+   * Get delivery logs
+   */
+  async getDeliveryLogs(deliveryId) {
+    try {
+      const docRef = doc(db, 'deliveries', deliveryId)
+      const docSnap = await getDoc(docRef)
+      
+      if (docSnap.exists()) {
+        const delivery = docSnap.data()
+        return delivery.logs || []
+      }
+      return []
+    } catch (error) {
+      console.error('Error getting delivery logs:', error)
+      return []
     }
   }
 
