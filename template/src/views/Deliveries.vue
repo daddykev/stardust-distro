@@ -139,8 +139,8 @@ const retryDelivery = async (delivery) => {
     
     console.log('✅ Delivery queued for retry')
     
-    // In production, this would trigger a Cloud Function to process the delivery
-    simulateDeliveryProcessing(delivery.id)
+    // The Cloud Function processDeliveryQueue will pick this up within 1 minute
+    // No simulation - let the real delivery engine handle it
   } catch (error) {
     console.error('Error retrying delivery:', error)
     alert('Failed to retry delivery')
@@ -225,46 +225,6 @@ const downloadReceipt = (delivery) => {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
-}
-
-// Simulate delivery processing (in production, this would be a Cloud Function)
-const simulateDeliveryProcessing = async (deliveryId) => {
-  // Simulate processing after a delay
-  setTimeout(async () => {
-    try {
-      // Update to processing
-      await updateDoc(doc(db, 'deliveries', deliveryId), {
-        status: 'processing',
-        startedAt: Timestamp.now()
-      })
-      
-      // Simulate processing time
-      setTimeout(async () => {
-        // Randomly succeed or fail for demo
-        const success = Math.random() > 0.2 // 80% success rate
-        
-        if (success) {
-          await updateDoc(doc(db, 'deliveries', deliveryId), {
-            status: 'completed',
-            completedAt: Timestamp.now(),
-            receipt: {
-              acknowledgment: 'Delivery accepted by DSP',
-              dspMessageId: `DSP_${Date.now()}`,
-              timestamp: Timestamp.now()
-            }
-          })
-        } else {
-          await updateDoc(doc(db, 'deliveries', deliveryId), {
-            status: 'failed',
-            failedAt: Timestamp.now(),
-            error: 'Connection timeout (simulated error)'
-          })
-        }
-      }, 5000)
-    } catch (error) {
-      console.error('Error simulating delivery:', error)
-    }
-  }, 2000)
 }
 
 const getStatusColor = (status) => {
@@ -377,32 +337,16 @@ const navigateToTargetSettings = () => {
   router.push('/settings?tab=delivery')
 }
 
-// Process queued deliveries automatically (in production, this would be a Cloud Function)
-const processQueuedDeliveries = () => {
-  deliveries.value
-    .filter(d => d.status === 'queued')
-    .forEach(delivery => {
-      const scheduledTime = delivery.scheduledAt?.toDate ? delivery.scheduledAt.toDate() : new Date(delivery.scheduledAt)
-      if (scheduledTime <= new Date()) {
-        simulateDeliveryProcessing(delivery.id)
-      }
-    })
-}
-
 // Cleanup on unmount
 onMounted(() => {
   loadDeliveries()
   loadDeliveryTargets()
-  
-  // Process queued deliveries every 10 seconds (for demo)
-  const interval = setInterval(processQueuedDeliveries, 10000)
   
   // Cleanup
   return () => {
     if (unsubscribeDeliveries) {
       unsubscribeDeliveries()
     }
-    clearInterval(interval)
   }
 })
 </script>

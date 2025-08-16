@@ -35,7 +35,7 @@ setGlobalOptions({
  * Process delivery queue - runs every minute
  */
 exports.processDeliveryQueue = onSchedule({
-  schedule: 'every 1 minutes',
+  schedule: '* * * * *',
   timeoutSeconds: 540,
   memory: '1GB',
   maxInstances: 3
@@ -43,13 +43,10 @@ exports.processDeliveryQueue = onSchedule({
   try {
     console.log('Processing delivery queue...')
     
-    // Get queued deliveries that are ready to process
+    // TEMPORARY: Simpler query while index builds
     const now = admin.firestore.Timestamp.now()
     const snapshot = await db.collection('deliveries')
       .where('status', '==', 'queued')
-      .where('scheduledAt', '<=', now)
-      .orderBy('priority', 'desc')
-      .orderBy('scheduledAt', 'asc')
       .limit(10)
       .get()
 
@@ -58,11 +55,33 @@ exports.processDeliveryQueue = onSchedule({
       return { processed: 0 }
     }
 
-    const promises = []
+    // Filter in memory for now
+    const deliveriesToProcess = []
     snapshot.forEach(doc => {
-      console.log(`Processing delivery ${doc.id}`)
-      promises.push(processDelivery(doc.id, doc.data()))
+      const data = doc.data()
+      // Check if scheduledAt is in the past
+      if (data.scheduledAt && data.scheduledAt.toMillis() <= now.toMillis()) {
+        deliveriesToProcess.push({ id: doc.id, data })
+      }
     })
+    
+    // Sort by priority and scheduledAt in memory
+    deliveriesToProcess.sort((a, b) => {
+      // First by priority (desc)
+      const priorityOrder = { urgent: 4, high: 3, normal: 2, low: 1 }
+      const aPriority = priorityOrder[a.data.priority] || 2
+      const bPriority = priorityOrder[b.data.priority] || 2
+      if (aPriority !== bPriority) return bPriority - aPriority
+      
+      // Then by scheduledAt (asc)
+      return a.data.scheduledAt.toMillis() - b.data.scheduledAt.toMillis()
+    })
+
+    const promises = []
+    for (const delivery of deliveriesToProcess.slice(0, 10)) {
+      console.log(`Processing delivery ${delivery.id}`)
+      promises.push(processDelivery(delivery.id, delivery.data))
+    }
 
     const results = await Promise.allSettled(promises)
     
@@ -200,9 +219,16 @@ exports.deliverAPI = onCall({
  */
 async function deliverToDSP(target, deliveryPackage) {
   try {
+    // Get the endpoint from the correct location
+    const endpoint = target.endpoint || target.connection?.endpoint
+    
+    if (!endpoint) {
+      throw new Error('DSP endpoint not configured. Please configure the API endpoint in delivery target settings.')
+    }
+    
     // Prepare the DSP-specific payload
     const payload = {
-      distributorId: deliveryPackage.distributorId,
+      distributorId: deliveryPackage.distributorId || target.config?.distributorId || 'stardust-distro',
       messageId: deliveryPackage.metadata?.messageId || deliveryPackage.messageId,
       releaseTitle: deliveryPackage.releaseTitle,
       releaseArtist: deliveryPackage.releaseArtist,
@@ -213,7 +239,8 @@ async function deliverToDSP(target, deliveryPackage) {
       // ADD THESE for DSP Ingestion.vue compatibility:
       ern: {
         messageId: deliveryPackage.metadata?.messageId || deliveryPackage.messageId,
-        releaseCount: 1 // Or calculate from actual releases
+        version: '4.3',
+        releaseCount: 1
       },
       processing: {
         status: 'received',
@@ -227,22 +254,32 @@ async function deliverToDSP(target, deliveryPackage) {
     }
     
     // Add Bearer token if API key is provided
-    if (target.headers?.Authorization) {
-      headers.Authorization = target.headers.Authorization
+    const apiKey = target.headers?.Authorization || 
+                   target.connection?.apiKey || 
+                   target.config?.apiKey
+    
+    if (apiKey) {
+      // Handle both "Bearer xxx" format and plain token
+      headers.Authorization = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`
     }
     
-    console.log(`Delivering to DSP: ${target.endpoint}`)
+    console.log(`Delivering to DSP: ${endpoint}`)
     console.log(`Distributor ID: ${payload.distributorId}`)
     
     // Make the API request
     const response = await axios({
       method: 'POST',
-      url: target.endpoint,
+      url: endpoint,
       headers,
       data: payload,
-      timeout: 30000
+      timeout: 30000,
+      validateStatus: function (status) {
+        // Accept any status in the 2xx or 3xx range
+        return status >= 200 && status < 400
+      }
     })
     
+    console.log('DSP Response Status:', response.status)
     console.log('DSP Response:', response.data)
     
     return {
@@ -256,13 +293,19 @@ async function deliverToDSP(target, deliveryPackage) {
         status: 'completed',
         uploadedAt: new Date().toISOString()
       }],
-      acknowledgment: response.data.acknowledgment || response.data.message || 'Delivery accepted by DSP'
+      acknowledgment: response.data?.acknowledgment || 
+                      response.data?.message || 
+                      `Delivery accepted by DSP (Status: ${response.status})`
     }
   } catch (error) {
     console.error('DSP Delivery Error:', error.response?.data || error.message)
     
     if (error.response) {
-      throw new Error(`DSP rejected delivery: ${error.response.data?.error || error.response.statusText}`)
+      const errorMessage = error.response.data?.error || 
+                          error.response.data?.message || 
+                          error.response.statusText || 
+                          'Unknown error'
+      throw new Error(`DSP rejected delivery (${error.response.status}): ${errorMessage}`)
     }
     throw error
   }
@@ -420,13 +463,39 @@ async function processDelivery(deliveryId, delivery) {
     }
 
     const target = targetDoc.data()
-
-    // Prepare delivery package
+    
+    // Merge delivery connection info with target (delivery might have more recent config)
+    if (delivery.connection) {
+      target.connection = { ...target.connection, ...delivery.connection }
+    }
+    
+    // Merge config data
+    if (delivery.config) {
+      target.config = { ...target.config, ...delivery.config }
+    }
+    
+    console.log(`Target protocol: ${target.protocol || delivery.targetProtocol}`)
+    console.log(`Target endpoint: ${target.connection?.endpoint || 'Not configured'}`)
+    
+    // Use protocol from delivery if target doesn't have it
+    const protocol = target.protocol || delivery.targetProtocol
+    
+    // Prepare delivery package with DSP-specific data
     const deliveryPackage = await prepareDeliveryPackage(delivery)
+    
+    // Add distributor ID and other DSP-specific data
+    if (target.type === 'DSP' || delivery.targetType === 'DSP') {
+      deliveryPackage.distributorId = delivery.config?.distributorId || 
+                                     target.config?.distributorId || 
+                                     'stardust-distro'
+      deliveryPackage.ernXml = delivery.ernXml
+      deliveryPackage.releaseTitle = delivery.releaseTitle
+      deliveryPackage.releaseArtist = delivery.releaseArtist
+    }
 
     // Execute delivery based on protocol
     let result
-    switch (target.protocol) {
+    switch (protocol) {
       case 'FTP':
         result = await deliverViaFTP(target, deliveryPackage)
         break
@@ -437,13 +506,23 @@ async function processDelivery(deliveryId, delivery) {
         result = await deliverViaS3(target, deliveryPackage)
         break
       case 'API':
-        result = await deliverViaAPI(target, deliveryPackage)
+        // Check if this is a DSP delivery
+        if (target.type === 'DSP' || delivery.targetType === 'DSP') {
+          result = await deliverToDSP(target, deliveryPackage)
+        } else {
+          result = await deliverViaAPI(target, deliveryPackage)
+        }
         break
       case 'Azure':
         result = await deliverViaAzure(target, deliveryPackage)
         break
+      case 'storage':
+      case 'Storage':
+      case 'STORAGE':
+        result = await deliverViaStorage(target, deliveryPackage)
+        break
       default:
-        throw new Error(`Unsupported protocol: ${target.protocol}`)
+        throw new Error(`Unsupported protocol: ${protocol}`)
     }
 
     // Update delivery as completed
@@ -451,7 +530,7 @@ async function processDelivery(deliveryId, delivery) {
       status: 'completed',
       completedAt: admin.firestore.Timestamp.now(),
       receipt: {
-        acknowledgment: 'Delivery completed successfully',
+        acknowledgment: result.acknowledgment || 'Delivery completed successfully',
         dspMessageId: result.messageId || `DSP_${Date.now()}`,
         timestamp: admin.firestore.Timestamp.now(),
         files: result.files || []
@@ -459,7 +538,7 @@ async function processDelivery(deliveryId, delivery) {
     })
 
     // Send success notification
-    await sendNotification(delivery, 'success', result)
+    await sendNotification({ ...delivery, id: deliveryId }, 'success', result)
 
     console.log(`Delivery ${deliveryId} completed successfully`)
     return result
@@ -467,9 +546,186 @@ async function processDelivery(deliveryId, delivery) {
     console.error(`Error processing delivery ${deliveryId}:`, error)
     
     // Handle retry logic
-    await handleDeliveryError(deliveryId, delivery, error)
+    await handleDeliveryError(deliveryId, { ...delivery, id: deliveryId }, error)
     
     throw error
+  }
+}
+
+/**
+ * Storage Delivery Implementation (Firebase Storage)
+ */
+async function deliverViaStorage(target, deliveryPackage) {
+  try {
+    const bucket = storage.bucket()
+    const uploadedFiles = []
+    
+    // Determine the storage path
+    const timestamp = Date.now()
+    const distributorId = deliveryPackage.distributorId || target.config?.distributorId || 'unknown'
+    const basePath = `deliveries/${distributorId}/${timestamp}`
+    
+    console.log(`Uploading to Storage: ${basePath}`)
+    
+    // Upload ERN file
+    const ernFile = deliveryPackage.files.find(f => f.isERN)
+    if (ernFile) {
+      const ernPath = `${basePath}/manifest.xml`
+      const file = bucket.file(ernPath)
+      
+      await file.save(ernFile.content, {
+        metadata: {
+          contentType: 'text/xml',
+          metadata: {
+            distributorId: distributorId,
+            messageId: deliveryPackage.metadata.messageId,
+            releaseTitle: deliveryPackage.releaseTitle || 'Unknown',
+            testMode: String(deliveryPackage.metadata.testMode)
+          }
+        }
+      })
+      
+      uploadedFiles.push({
+        name: 'manifest.xml',
+        path: ernPath,
+        size: Buffer.byteLength(ernFile.content),
+        uploadedAt: new Date().toISOString()
+      })
+      
+      console.log(`✅ Uploaded ERN to: ${ernPath}`)
+    }
+    
+    // Upload other files (audio, images) if needed
+    for (const file of deliveryPackage.files.filter(f => !f.isERN && f.needsDownload)) {
+      try {
+        let fileBuffer
+        
+        if (file.url) {
+          // Download file from URL first
+          console.log(`Downloading file from: ${file.url}`)
+          const response = await axios.get(file.url, { 
+            responseType: 'arraybuffer',
+            timeout: 30000
+          })
+          fileBuffer = Buffer.from(response.data)
+        }
+        
+        if (fileBuffer) {
+          const filePath = `${basePath}/${file.type}/${file.name}`
+          const storageFile = bucket.file(filePath)
+          
+          await storageFile.save(fileBuffer, {
+            metadata: {
+              contentType: file.type === 'audio' ? 'audio/mpeg' : 'image/jpeg'
+            }
+          })
+          
+          uploadedFiles.push({
+            name: file.name,
+            path: filePath,
+            size: fileBuffer.length,
+            uploadedAt: new Date().toISOString()
+          })
+          
+          console.log(`✅ Uploaded ${file.type} file to: ${filePath}`)
+        }
+      } catch (fileError) {
+        console.error(`Failed to upload file ${file.name}:`, fileError.message)
+        // Continue with other files
+      }
+    }
+    
+    // If this is a DSP delivery, trigger the ingestion
+    if (deliveryPackage.distributorId) {
+      console.log(`Notifying DSP of new delivery in storage...`)
+      
+      // The DSP's processStorageDelivery function will pick this up
+      // Or we can notify via API if configured
+      if (target.connection?.notifyEndpoint) {
+        try {
+          await axios.post(target.connection.notifyEndpoint, {
+            distributorId: distributorId,
+            deliveryPath: basePath,
+            messageId: deliveryPackage.metadata.messageId,
+            timestamp: new Date().toISOString()
+          })
+          console.log('✅ DSP notified of storage delivery')
+        } catch (notifyError) {
+          console.error('Failed to notify DSP:', notifyError.message)
+          // Don't fail the delivery if notification fails
+        }
+      }
+    }
+    
+    return {
+      success: true,
+      protocol: 'Storage',
+      bucket: bucket.name,
+      basePath: basePath,
+      files: uploadedFiles,
+      messageId: deliveryPackage.metadata.messageId,
+      acknowledgment: `Uploaded ${uploadedFiles.length} files to Storage`
+    }
+  } catch (error) {
+    console.error('Storage delivery error:', error)
+    throw new Error(`Storage delivery failed: ${error.message}`)
+  }
+}
+
+/**
+ * Handle delivery error with retry logic
+ */
+async function handleDeliveryError(deliveryId, delivery, error) {
+  const attemptNumber = (delivery.attempts?.length || 0) + 1
+  const maxRetries = 3
+  const retryDelays = [5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000] // 5min, 15min, 1hr
+
+  const attempt = {
+    attemptNumber,
+    startTime: admin.firestore.Timestamp.now(),
+    endTime: admin.firestore.Timestamp.now(),
+    status: 'failed',
+    error: error.message
+  }
+
+  if (attemptNumber < maxRetries) {
+    // Schedule retry
+    const retryDelay = retryDelays[attemptNumber - 1]
+    const scheduledAt = admin.firestore.Timestamp.fromMillis(
+      Date.now() + retryDelay
+    )
+
+    await db.collection('deliveries').doc(deliveryId).update({
+      status: 'queued',
+      attempts: admin.firestore.FieldValue.arrayUnion(attempt),
+      scheduledAt,
+      lastError: error.message,
+      retryCount: attemptNumber
+    })
+
+    console.log(`Scheduled retry #${attemptNumber} for delivery ${deliveryId}`)
+    
+    // Send retry notification - ensure delivery has id
+    await sendNotification({ ...delivery, id: deliveryId }, 'retry', {
+      attemptNumber,
+      nextRetryIn: retryDelay / 1000
+    })
+  } else {
+    // Max retries reached
+    await db.collection('deliveries').doc(deliveryId).update({
+      status: 'failed',
+      attempts: admin.firestore.FieldValue.arrayUnion(attempt),
+      failedAt: admin.firestore.Timestamp.now(),
+      error: error.message
+    })
+
+    console.log(`Delivery ${deliveryId} failed after ${attemptNumber} attempts`)
+    
+    // Send failure notification - ensure delivery has id
+    await sendNotification({ ...delivery, id: deliveryId }, 'failed', {
+      error: error.message,
+      attempts: attemptNumber
+    })
   }
 }
 
@@ -1076,12 +1332,18 @@ async function handleDeliveryError(deliveryId, delivery, error) {
  */
 async function sendNotification(delivery, type, data) {
   try {
+    // Ensure delivery has an id
+    if (!delivery.id) {
+      console.warn('Delivery missing id for notification')
+      return
+    }
+    
     // Store notification in Firestore
     await db.collection('notifications').add({
       type,
       deliveryId: delivery.id,
-      releaseTitle: delivery.releaseTitle,
-      targetName: delivery.targetName,
+      releaseTitle: delivery.releaseTitle || 'Unknown',
+      targetName: delivery.targetName || 'Unknown',
       tenantId: delivery.tenantId,
       timestamp: admin.firestore.Timestamp.now(),
       data

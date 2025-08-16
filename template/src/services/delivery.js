@@ -248,9 +248,9 @@ export class DeliveryService {
           headers['Authorization'] = `Bearer ${target.config.apiKey}`
         }
         
-        // Prepare the payload for DSP - UPDATED STRUCTURE
+        // Prepare the payload for DSP
         const payload = {
-          distributorId: target.config.distributorId,
+          distributorId: target.config.distributorId || 'stardust-distro',
           messageId: deliveryPackage.metadata.messageId,
           releaseTitle: deliveryPackage.releaseTitle,
           releaseArtist: deliveryPackage.releaseArtist,
@@ -259,16 +259,21 @@ export class DeliveryService {
           priority: deliveryPackage.metadata.priority,
           audioFiles: deliveryPackage.files.filter(f => f.type === 'audio').map(f => f.url),
           imageFiles: deliveryPackage.files.filter(f => f.type === 'image').map(f => f.url),
-          // ADD THESE FIELDS for DSP compatibility:
+          // These fields are required by DSP:
           ern: {
             messageId: deliveryPackage.metadata.messageId,
-            releaseCount: 1 // Or calculate actual count
+            version: '4.3',
+            releaseCount: 1
           },
           processing: {
             status: 'received',
             receivedAt: new Date().toISOString()
-          }
+          },
+          timestamp: new Date().toISOString()
         }
+        
+        console.log('Sending to DSP:', target.connection.endpoint)
+        console.log('Payload:', JSON.stringify(payload, null, 2))
         
         // Call the Cloud Function with DSP-specific configuration
         const deliverAPI = httpsCallable(this.functions, 'deliverAPI')
@@ -282,11 +287,24 @@ export class DeliveryService {
           package: payload
         })
         
+        // Check if the result indicates success
+        if (!result.data?.success) {
+          throw new Error(result.data?.error || 'DSP delivery failed')
+        }
+        
         return result.data
       }
+      
+      // ... rest of the standard API delivery code
     } catch (error) {
       console.error('API delivery error:', error)
-      throw new Error(`API delivery failed: ${error.message}`)
+      
+      // Extract meaningful error message
+      const errorMessage = error.response?.data?.error || 
+                          error.message || 
+                          'Unknown delivery error'
+      
+      throw new Error(`API delivery failed: ${errorMessage}`)
     }
   }
 

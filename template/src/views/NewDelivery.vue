@@ -102,7 +102,30 @@ const loadData = async () => {
     }
     
     // Load delivery targets
-    availableTargets.value = await deliveryTargetService.getTenantTargets(user.value.uid, { active: true })
+    const targets = await deliveryTargetService.getTenantTargets(user.value.uid, { active: true })
+    
+    // Validate and enhance target configurations
+    availableTargets.value = targets.map(target => {
+      // Ensure DSP targets have proper configuration
+      if (target.type === 'DSP' || target.protocol === 'API') {
+        if (!target.config?.distributorId) {
+          console.warn(`Target ${target.name} missing distributorId, using default`)
+          target.config = {
+            ...target.config,
+            distributorId: 'stardust-distro'
+          }
+        }
+        
+        // Ensure endpoint is properly configured
+        if (!target.connection?.endpoint) {
+          console.warn(`Target ${target.name} missing endpoint configuration`)
+        }
+      }
+      
+      return target
+    })
+    
+    console.log('Loaded targets:', availableTargets.value.length)
     
     // If releaseId in query, select it
     if (route.query.releaseId) {
@@ -111,9 +134,9 @@ const loadData = async () => {
     
     // If releaseIds (multiple) in query, handle bulk delivery
     if (route.query.releaseIds) {
-      // For now, just select the first one
       const releaseIds = route.query.releaseIds.split(',')
       selectRelease(releaseIds[0])
+      // TODO: Handle multiple releases
     }
   } catch (err) {
     console.error('Error loading data:', err)
@@ -148,6 +171,7 @@ const deselectAllTargets = () => {
   generatedERNs.value = {}
 }
 
+// Update the generateERNs function starting at line 241:
 const generateERNs = async () => {
   isGeneratingERN.value = true
   ernErrors.value = {}
@@ -159,16 +183,18 @@ const generateERNs = async () => {
       if (!target) continue
       
       try {
-        // Generate ERN for this target
+        // Generate ERN for this target with complete configuration
         const result = await ernService.generateERN(deliveryData.value.releaseId, {
           id: target.id,
           name: target.name,
-          partyName: target.partyName,
-          partyId: target.partyId,
-          senderName: user.value.organizationName || user.value.displayName,
-          senderPartyId: user.value.partyId, // You might want to add this to user profile
+          type: target.type || 'DSP',
+          partyName: target.partyName || target.name,
+          partyId: target.partyId || target.config?.partyId,
+          distributorId: target.config?.distributorId || target.distributorId || 'stardust-distro',
+          senderName: user.value.organizationName || user.value.displayName || 'Stardust Distro',
+          senderPartyId: user.value.partyId || 'PADPIDA2023081501R', // Default party ID
           testMode: target.testMode || deliveryData.value.testMode,
-          ernVersion: target.ernVersion,
+          ernVersion: target.ernVersion || '4.3',
           territoryCode: target.territoryCode || 'Worldwide',
           commercialModels: target.commercialModels || [{
             type: 'PayAsYouGoModel',
@@ -177,6 +203,7 @@ const generateERNs = async () => {
         })
         
         generatedERNs.value[targetId] = result
+        console.log(`ERN generated for ${target.name}:`, result.messageId)
       } catch (err) {
         console.error(`Error generating ERN for ${target.name}:`, err)
         ernErrors.value[targetId] = err.message
@@ -184,8 +211,10 @@ const generateERNs = async () => {
     }
     
     if (Object.keys(ernErrors.value).length === 0) {
-      successMessage.value = 'ERN messages generated successfully!'
+      successMessage.value = `Successfully generated ${Object.keys(generatedERNs.value).length} ERN messages!`
       setTimeout(() => successMessage.value = null, 3000)
+    } else {
+      error.value = `Failed to generate ${Object.keys(ernErrors.value).length} ERN messages. See details below.`
     }
   } catch (err) {
     console.error('Error generating ERNs:', err)
@@ -229,6 +258,7 @@ const downloadERN = (targetId) => {
   }
 }
 
+// Replace the queueDelivery function starting at line 481:
 const queueDelivery = async () => {
   isQueuingDelivery.value = true
   error.value = null
@@ -242,7 +272,7 @@ const queueDelivery = async () => {
       
       if (!target || !ern) continue
       
-      // Create delivery record
+      // Create delivery record with proper DSP configuration
       const delivery = {
         releaseId: deliveryData.value.releaseId,
         releaseTitle: selectedRelease.value.basic?.title,
@@ -250,11 +280,12 @@ const queueDelivery = async () => {
         targetId: target.id,
         targetName: target.name,
         targetProtocol: target.protocol,
+        targetType: target.type || 'DSP', // Add target type
         tenantId: user.value.uid,
         status: 'queued',
         priority: deliveryData.value.priority,
         scheduledAt: new Date(scheduledDateTime.value),
-        testMode: deliveryData.value.testMode,
+        testMode: deliveryData.value.testMode || target.testMode,
         notes: deliveryData.value.notes,
         
         // ERN data
@@ -270,12 +301,31 @@ const queueDelivery = async () => {
           totalSize: calculatePackageSize()
         },
         
-        // Connection info (encrypted in production)
-        connection: target.connection,
+        // Connection info with proper structure
+        connection: target.connection || {},
+        
+        // DSP-specific configuration
+        config: {
+          distributorId: target.config?.distributorId || target.distributorId || 'stardust-distro',
+          partyId: target.partyId,
+          partyName: target.partyName,
+          apiKey: target.config?.apiKey || target.apiKey,
+          ...target.config // Include any other config from target
+        },
         
         createdAt: new Date(),
+        updatedAt: new Date(),
         attempts: []
       }
+      
+      // Log the delivery structure for debugging
+      console.log('Creating delivery:', {
+        targetName: delivery.targetName,
+        targetProtocol: delivery.targetProtocol,
+        distributorId: delivery.config.distributorId,
+        endpoint: delivery.connection.endpoint,
+        testMode: delivery.testMode
+      })
       
       const docRef = await addDoc(collection(db, 'deliveries'), delivery)
       deliveries.push({ id: docRef.id, ...delivery })
@@ -293,15 +343,15 @@ const queueDelivery = async () => {
       deliveries
     }
     
-    // Redirect to deliveries page after a short delay
-    successMessage.value = `Successfully queued ${deliveries.length} ${deliveries.length === 1 ? 'delivery' : 'deliveries'}!`
+    // Show success message with more detail
+    successMessage.value = `Successfully queued ${deliveries.length} ${deliveries.length === 1 ? 'delivery' : 'deliveries'}! They will be processed within 1 minute.`
     
     setTimeout(() => {
       router.push('/deliveries')
-    }, 2000)
+    }, 3000) // Give a bit more time to read the message
   } catch (err) {
     console.error('Error queuing delivery:', err)
-    error.value = 'Failed to queue delivery. Please try again.'
+    error.value = `Failed to queue delivery: ${err.message}`
   } finally {
     isQueuingDelivery.value = false
   }
@@ -562,7 +612,7 @@ onMounted(() => {
                   <div class="target-details">
                     <div class="detail-row">
                       <span class="detail-label">Party:</span>
-                      <span>{{ target.partyName }}</span>
+                      <span>{{ target.partyName || 'Not configured' }}</span>
                     </div>
                     <div class="detail-row">
                       <span class="detail-label">Protocol:</span>
@@ -570,7 +620,17 @@ onMounted(() => {
                     </div>
                     <div class="detail-row">
                       <span class="detail-label">ERN:</span>
-                      <span>{{ target.ernVersion }}</span>
+                      <span>{{ target.ernVersion || '4.3' }}</span>
+                    </div>
+                    <!-- Add distributor ID display for DSP targets -->
+                    <div v-if="target.type === 'DSP'" class="detail-row">
+                      <span class="detail-label">Distributor ID:</span>
+                      <span class="mono-text">{{ target.config?.distributorId || 'stardust-distro' }}</span>
+                    </div>
+                    <!-- Add endpoint display for API targets -->
+                    <div v-if="target.protocol === 'API'" class="detail-row">
+                      <span class="detail-label">Endpoint:</span>
+                      <span class="mono-text">{{ target.connection?.endpoint ? '✓ Configured' : '✗ Not configured' }}</span>
                     </div>
                   </div>
                   
