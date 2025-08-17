@@ -1,6 +1,7 @@
 // src/services/ern.js
 import { db } from '../firebase'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { escapeUrlForXml } from '../utils/urlUtils'
 
 export class ERNService {
   constructor() {
@@ -72,59 +73,63 @@ export class ERNService {
       // Dates
       releaseDate: this.formatDate(basic.releaseDate),
       originalReleaseDate: basic.originalReleaseDate ? this.formatDate(basic.originalReleaseDate) : null,
-      dealStartDate: this.formatDate(basic.releaseDate),
+      
+      // Deal information
+      dealStartDate: targetConfig.dealStartDate || new Date().toISOString().split('T')[0],
       dealEndDate: targetConfig.dealEndDate,
       
-      // Territory
-      territoryCode: this.mapTerritoryCode(territories, targetConfig),
+      // Territories
+      territoryCode: territories.territories?.[0] || 'Worldwide',
+      excludedTerritories: territories.excludedTerritories || [],
       
-      // Commercial models from target config
+      // Commercial models
       commercialModels: targetConfig.commercialModels || [{
         type: 'PayAsYouGoModel',
-        usageTypes: ['PermanentDownload']
+        usageTypes: ['PermanentDownload', 'OnDemandStream']
       }],
       
-      // Tracks for release resource list
+      // Tracks
       tracks: (release.tracks || []).map((track, index) => ({
+        sequenceNumber: index + 1,
         resourceReference: `A${(index + 1).toString().padStart(3, '0')}`,
-        sequenceNumber: track.sequenceNumber || (index + 1)
+        isrc: track.isrc,
+        title: track.metadata?.title,
+        artist: track.metadata?.displayArtist
       }))
     }
   }
 
   /**
-   * Transform tracks to resources format
+   * Transform tracks to resources
    */
   transformToResources(tracks) {
     return tracks.map((track, index) => ({
-      type: 'MusicalWorkSoundRecording',
       resourceReference: `A${(index + 1).toString().padStart(3, '0')}`,
-      isrc: track.isrc || `XX${Date.now()}${index}`.substr(0, 12),
-      title: track.title || `Track ${index + 1}`,
-      artist: track.artist || track.displayArtist || 'Unknown Artist',
-      duration: this.formatDuration(track.duration || track.audio?.duration || 180),
+      isrc: track.isrc || `XX000000000${index + 1}`,
+      title: track.metadata?.title || `Track ${index + 1}`,
+      artist: track.metadata?.displayArtist || 'Unknown Artist',
+      duration: this.formatDuration(track.metadata?.duration || 0),
       
-      // Technical details
-      codecType: track.audio?.format === 'FLAC' ? 'FLAC' : 'PCM',
+      // Use the audio URL - it will be escaped when building XML
+      fileUri: track.audio?.url || track.audioUrl || '',
+      
+      // Audio technical details
+      codecType: track.audio?.format === 'WAV' ? 'PCM' : track.audio?.format || 'PCM',
       bitRate: track.audio?.bitrate || '1411',
       samplingRate: track.audio?.sampleRate || '44100',
-      bitsPerSample: track.audio?.bitDepth || '16',
-      channels: track.audio?.channels || '2',
-      
-      // File reference
-      fileUri: track.audio?.url || track.audio?.fileId || `file:///${track.id}.wav`,
-      
-      // Contributors
-      contributors: track.contributors || [],
+      bitsPerSample: '16',
+      channels: '2',
       
       // Additional metadata
-      genre: track.genre,
-      parentalWarning: track.parentalWarning,
-      languageOfPerformance: track.language || 'en',
+      genre: track.metadata?.genre,
+      parentalWarning: track.metadata?.parentalWarning,
+      languageOfPerformance: track.metadata?.language || 'en',
+      contributors: track.metadata?.contributors || [],
       
-      // Copyright (inherit from release if not specified)
-      pLineYear: track.pLineYear,
-      pLineText: track.pLineText,
+      // Additional fields from original
+      label: track.metadata?.label,
+      pLineYear: track.metadata?.pLineYear,
+      pLineText: track.metadata?.pLineText,
       
       // Preview details
       previewDetails: track.preview ? {
@@ -234,7 +239,7 @@ export class ERNService {
         <BitsPerSample>${resource.bitsPerSample || '16'}</BitsPerSample>
         <NumberOfChannels>${resource.channels || '2'}</NumberOfChannels>
         <File>
-          <URI>${resource.fileUri}</URI>
+          <URI>${escapeUrlForXml(resource.fileUri)}</URI>
         </File>
         ${resource.previewDetails ? `<PreviewDetails>
           <StartPoint>${resource.previewDetails.startPoint || '30'}</StartPoint>
@@ -323,7 +328,7 @@ export class ERNService {
             <UseType>${useType}</UseType>
           </Usage>`).join('\n          ')}
           ${model.price && model.type === 'PayAsYouGoModel' ? `<PriceInformation>
-            <PriceType>WholesalePricePerUnit</PriceType>
+            <PriceType>WholePrice</PriceType>
             <Price>
               <Amount CurrencyCode="${model.currency || 'USD'}">${model.price}</Amount>
             </Price>
@@ -339,30 +344,20 @@ export class ERNService {
   }
 
   // Helper methods
-  formatPLineText(pLineText, pLineYear, fallbackLabel) {
-    let text = (pLineText || '').replace(/^\(P\)\s*/i, '').trim()
-    const year = pLineYear || new Date().getFullYear()
-    
-    if (!text) {
-      text = `${year} ${fallbackLabel || 'Unknown'}`
-    } else if (!text.startsWith(year.toString())) {
-      text = `${year} ${text}`
+  mapReleaseType(type) {
+    const typeMap = {
+      'Single': 'Single',
+      'EP': 'EP',
+      'Album': 'Album',
+      'Compilation': 'Compilation'
     }
-    
-    return text
+    return typeMap[type] || 'Album'
   }
 
-  formatCLineText(cLineText, cLineYear, fallbackLabel) {
-    let text = (cLineText || '').replace(/^[\(©C\)]+\s*/i, '').trim()
-    const year = cLineYear || new Date().getFullYear()
-    
-    if (!text) {
-      text = `${year} ${fallbackLabel || 'Unknown'}`
-    } else if (!text.startsWith(year.toString())) {
-      text = `${year} ${text}`
-    }
-    
-    return text
+  formatDate(date) {
+    if (!date) return new Date().toISOString().split('T')[0]
+    const d = date.toDate ? date.toDate() : new Date(date)
+    return d.toISOString().split('T')[0]
   }
 
   formatDuration(seconds) {
@@ -374,50 +369,24 @@ export class ERNService {
     let duration = 'PT'
     if (hours > 0) duration += `${hours}H`
     if (minutes > 0) duration += `${minutes}M`
-    if (secs > 0 || duration === 'PT') duration += `${secs}S`
+    if (secs > 0) duration += `${secs}S`
     
-    return duration
+    return duration || 'PT0S'
   }
 
-  formatDate(date) {
-    if (!date) return new Date().toISOString().split('T')[0]
-    
-    if (typeof date === 'string') {
-      return date.split('T')[0]
-    }
-    
-    if (date.toDate) {
-      return date.toDate().toISOString().split('T')[0]
-    }
-    
-    if (date instanceof Date) {
-      return date.toISOString().split('T')[0]
-    }
-    
-    return new Date().toISOString().split('T')[0]
+  formatPLineText(text, year, label) {
+    if (text) return text
+    return `${year} ${label || 'Independent'}`
   }
 
-  mapReleaseType(type) {
-    const typeMap = {
-      'Single': 'Single',
-      'EP': 'EP',
-      'Album': 'Album',
-      'Compilation': 'Album'
-    }
-    return typeMap[type] || 'Album'
+  formatCLineText(text, year, label) {
+    if (text) return text
+    return `${year} ${label || 'Independent'}`
   }
 
-  mapTerritoryCode(territories, targetConfig) {
-    if (targetConfig.territoryCode) {
-      return targetConfig.territoryCode
-    }
-    
-    if (territories.mode === 'worldwide') {
-      return 'Worldwide'
-    }
-    
-    // If specific territories, return the first one or Worldwide
-    return territories.included?.[0] || 'Worldwide'
+  getTerritoryCode(territories) {
+    if (!territories || territories.length === 0) return 'Worldwide'
+    return territories[0] || 'Worldwide'
   }
 
   generateMessageId() {

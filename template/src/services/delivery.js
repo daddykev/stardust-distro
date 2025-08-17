@@ -4,10 +4,16 @@ import {
   doc, 
   updateDoc, 
   getDoc,
+  getDocs,
+  deleteDoc,
   Timestamp,
   collection,
   addDoc,
-  arrayUnion
+  arrayUnion,
+  query,
+  where,
+  orderBy,
+  onSnapshot
 } from 'firebase/firestore'
 import { ref as storageRef, getBlob, getDownloadURL } from 'firebase/storage'
 import { getFunctions, httpsCallable } from 'firebase/functions'
@@ -17,6 +23,7 @@ export class DeliveryService {
     this.maxRetries = 3
     this.retryDelays = [5000, 15000, 60000] // Exponential backoff
     this.functions = getFunctions()
+    this.collection = 'deliveries'
   }
 
   /**
@@ -234,7 +241,7 @@ export class DeliveryService {
   async preparePackage(delivery) {
     const files = []
     
-    // Add ERN file
+    // Add ERN file (already contains properly escaped URLs)
     if (delivery.ernXml) {
       files.push({
         name: `${delivery.ernMessageId}.xml`,
@@ -663,87 +670,33 @@ export class DeliveryService {
   }
 
   /**
-   * Handle delivery errors with retry logic
+   * Generate a delivery receipt
    */
-  async handleDeliveryError(deliveryId, error) {
-    try {
-      const delivery = await this.getDelivery(deliveryId)
-      if (!delivery) return
-
-      const attemptNumber = (delivery.attempts?.length || 0) + 1
-
-      // Record the attempt
-      const attempt = {
-        attemptNumber,
-        startTime: Timestamp.now(),
-        endTime: Timestamp.now(),
-        status: 'failed',
-        error: error.message
-      }
-
-      // Check if we should retry
-      if (attemptNumber < this.maxRetries) {
-        // Schedule retry with exponential backoff
-        const retryDelay = this.retryDelays[attemptNumber - 1] || 60000
-        
-        await this.addDeliveryLog(deliveryId, {
-          level: 'warning',
-          step: 'retry_scheduled',
-          message: `Scheduling retry ${attemptNumber}/${this.maxRetries} in ${retryDelay / 1000}s`,
-          details: {
-            attemptNumber,
-            retryDelay,
-            error: error.message
-          }
-        })
-        
-        await this.updateDeliveryStatus(deliveryId, 'queued', {
-          attempts: [...(delivery.attempts || []), attempt],
-          scheduledAt: Timestamp.fromMillis(Date.now() + retryDelay),
-          lastError: error.message,
-          retryCount: attemptNumber
-        })
-
-        // Send retry notification
-        await this.sendNotification(delivery, 'retry', {
-          attemptNumber,
-          nextRetryIn: retryDelay / 1000
-        })
-      } else {
-        // Max retries reached, mark as failed
-        await this.addDeliveryLog(deliveryId, {
-          level: 'error',
-          step: 'max_retries',
-          message: `Maximum retries (${this.maxRetries}) exceeded - delivery failed`,
-          details: {
-            attempts: attemptNumber,
-            finalError: error.message
-          }
-        })
-        
-        await this.updateDeliveryStatus(deliveryId, 'failed', {
-          attempts: [...(delivery.attempts || []), attempt],
-          failedAt: Timestamp.now(),
-          error: error.message
-        })
-
-        // Send failure notification
-        await this.sendNotification(delivery, 'failed', {
-          error: error.message,
-          attempts: attemptNumber
-        })
-      }
-    } catch (err) {
-      console.error('Error handling delivery error:', err)
+  generateReceipt(delivery, result) {
+    return {
+      receiptId: `RCP_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      deliveryId: delivery.id,
+      releaseId: delivery.releaseId,
+      targetId: delivery.targetId,
+      targetName: delivery.targetName,
+      protocol: delivery.targetProtocol,
+      status: 'completed',
+      timestamp: new Date().toISOString(),
+      ernMessageId: delivery.ernMessageId,
+      filesDelivered: result.files?.length || 0,
+      bytesTransferred: result.bytesTransferred || 0,
+      dspMessageId: result.acknowledgmentId || result.messageId,
+      acknowledgment: result.acknowledgment || 'Delivery completed successfully',
+      testMode: delivery.testMode
     }
   }
 
   /**
-   * Send notifications for delivery events
+   * Send notification after delivery
    */
-  async sendNotification(delivery, type, data = {}) {
+  async sendNotification(delivery, type, data) {
     try {
-      const notification = {
+      await addDoc(collection(db, 'notifications'), {
         type,
         deliveryId: delivery.id,
         releaseTitle: delivery.releaseTitle,
@@ -751,174 +704,199 @@ export class DeliveryService {
         tenantId: delivery.tenantId,
         timestamp: Timestamp.now(),
         data
-      }
-
-      // Store notification in Firestore
-      await addDoc(collection(db, 'notifications'), notification)
-
-      // In production, also send email/webhook notifications
-      if (type === 'failed' || type === 'success') {
-        await this.sendEmailNotification(delivery, type, data)
-      }
+      })
+      
+      console.log(`Notification sent: ${type} for delivery ${delivery.id}`)
     } catch (error) {
       console.error('Error sending notification:', error)
     }
   }
 
   /**
-   * Send email notification using v2 Functions
+   * Handle delivery error and retry logic
    */
-  async sendEmailNotification(delivery, type, data) {
+  async handleDeliveryError(deliveryId, error) {
     try {
-      // Only send if we have a sendNotification function deployed
-      if (process.env.VUE_APP_ENABLE_EMAIL_NOTIFICATIONS === 'true') {
-        const sendNotification = httpsCallable(this.functions, 'sendNotification')
-        await sendNotification({
-          type: 'email',
-          template: `delivery_${type}`,
-          to: delivery.userEmail || delivery.tenantEmail,
-          data: {
-            releaseTitle: delivery.releaseTitle,
-            targetName: delivery.targetName,
-            ...data
+      const delivery = await this.getDelivery(deliveryId)
+      const attemptNumber = (delivery.attempts?.length || 0) + 1
+      
+      if (attemptNumber < this.maxRetries) {
+        const retryDelay = this.retryDelays[attemptNumber - 1]
+        const retryAt = new Date(Date.now() + retryDelay)
+        
+        await this.addDeliveryLog(deliveryId, {
+          level: 'warning',
+          step: 'retry_scheduled',
+          message: `Retry #${attemptNumber} scheduled for ${retryAt.toISOString()}`,
+          details: {
+            attemptNumber,
+            retryDelay,
+            error: error.message
           }
         })
+        
+        await updateDoc(doc(db, 'deliveries', deliveryId), {
+          status: 'queued',
+          scheduledAt: Timestamp.fromDate(retryAt),
+          retryCount: attemptNumber,
+          lastError: error.message,
+          attempts: arrayUnion({
+            attemptNumber,
+            timestamp: Timestamp.now(),
+            error: error.message
+          })
+        })
+      } else {
+        await this.addDeliveryLog(deliveryId, {
+          level: 'error',
+          step: 'max_retries',
+          message: `Maximum retries (${this.maxRetries}) exceeded`,
+          details: {
+            attempts: attemptNumber,
+            finalError: error.message
+          }
+        })
+        
+        await updateDoc(doc(db, 'deliveries', deliveryId), {
+          status: 'failed',
+          failedAt: Timestamp.now(),
+          error: error.message,
+          attempts: arrayUnion({
+            attemptNumber,
+            timestamp: Timestamp.now(),
+            error: error.message
+          })
+        })
+        
+        await this.sendNotification(delivery, 'failed', { error: error.message })
       }
-    } catch (error) {
-      console.error('Error sending email notification:', error)
-      // Don't throw - email failure shouldn't stop delivery process
+    } catch (err) {
+      console.error('Error handling delivery error:', err)
     }
   }
 
   /**
-   * Generate delivery receipt
+   * Create a new delivery
    */
-  generateReceipt(delivery, result) {
-    return {
-      receiptId: `RCP_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      deliveryId: delivery.id,
-      messageId: delivery.ernMessageId,
-      targetName: delivery.targetName,
-      timestamp: new Date().toISOString(),
-      status: 'delivered',
-      files: result.files || [],
-      acknowledgment: result.acknowledgment || 'Delivery completed successfully',
-      dspMessageId: result.dspMessageId || result.messageId,
-      metadata: {
-        protocol: result.protocol,
-        duration: result.duration,
-        bytesTransferred: result.bytesTransferred
-      }
-    }
-  }
-
-  /**
-   * Get delivery analytics using v2 Functions
-   */
-  async getAnalytics(tenantId, dateRange = {}) {
+  async createDelivery(deliveryData) {
     try {
-      const getDeliveryAnalytics = httpsCallable(this.functions, 'getDeliveryAnalytics')
-      const result = await getDeliveryAnalytics({
-        tenantId,
-        startDate: dateRange.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-        endDate: dateRange.endDate || new Date()
+      const docRef = await addDoc(collection(db, this.collection), {
+        ...deliveryData,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
       })
       
-      return result.data
+      return { id: docRef.id, ...deliveryData }
     } catch (error) {
-      console.error('Error getting analytics:', error)
-      
-      // Fallback to local calculation if function fails
-      const deliveries = await this.getDeliveriesForTenant(tenantId)
-      return this.calculateLocalAnalytics(deliveries)
+      console.error('Error creating delivery:', error)
+      throw error
     }
   }
 
   /**
-   * Calculate analytics locally (fallback)
+   * Get all deliveries for a tenant
    */
-  calculateLocalAnalytics(deliveries) {
-    const analytics = {
-      total: deliveries.length,
-      completed: 0,
-      failed: 0,
-      queued: 0,
-      processing: 0,
-      byTarget: {},
-      byProtocol: {},
-      averageDeliveryTime: 0,
-      successRate: 0
-    }
-
-    let totalDeliveryTime = 0
-    let completedCount = 0
-
-    deliveries.forEach(delivery => {
-      // Count by status
-      if (analytics[delivery.status] !== undefined) {
-        analytics[delivery.status]++
-      }
-
-      // Count by target
-      if (!analytics.byTarget[delivery.targetName]) {
-        analytics.byTarget[delivery.targetName] = {
-          total: 0,
-          completed: 0,
-          failed: 0
-        }
-      }
-      analytics.byTarget[delivery.targetName].total++
+  async getDeliveries(tenantId) {
+    try {
+      const q = query(
+        collection(db, this.collection),
+        where('tenantId', '==', tenantId),
+        orderBy('createdAt', 'desc')
+      )
       
-      if (delivery.status === 'completed') {
-        analytics.byTarget[delivery.targetName].completed++
-        
-        // Calculate delivery time
-        if (delivery.startedAt && delivery.completedAt) {
-          const startTime = delivery.startedAt.toDate ? delivery.startedAt.toDate() : new Date(delivery.startedAt)
-          const endTime = delivery.completedAt.toDate ? delivery.completedAt.toDate() : new Date(delivery.completedAt)
-          totalDeliveryTime += (endTime - startTime)
-          completedCount++
-        }
-      } else if (delivery.status === 'failed') {
-        analytics.byTarget[delivery.targetName].failed++
-      }
-
-      // Count by protocol
-      if (delivery.targetProtocol) {
-        if (!analytics.byProtocol[delivery.targetProtocol]) {
-          analytics.byProtocol[delivery.targetProtocol] = 0
-        }
-        analytics.byProtocol[delivery.targetProtocol]++
-      }
-    })
-
-    // Calculate averages
-    if (completedCount > 0) {
-      analytics.averageDeliveryTime = Math.round(totalDeliveryTime / completedCount / 1000) // in seconds
+      const snapshot = await getDocs(q)
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+    } catch (error) {
+      console.error('Error getting deliveries:', error)
+      throw error
     }
-
-    if (analytics.total > 0) {
-      analytics.successRate = Math.round((analytics.completed / analytics.total) * 100)
-    }
-
-    return analytics
   }
 
   /**
-   * Test delivery connection
+   * Subscribe to real-time delivery updates
+   */
+  subscribeToDeliveries(tenantId, callback) {
+    const q = query(
+      collection(db, this.collection),
+      where('tenantId', '==', tenantId),
+      orderBy('createdAt', 'desc')
+    )
+    
+    return onSnapshot(q, (snapshot) => {
+      const deliveries = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      }))
+      callback(deliveries)
+    })
+  }
+
+  /**
+   * Cancel a delivery
+   */
+  async cancelDelivery(deliveryId) {
+    try {
+      await this.updateDeliveryStatus(deliveryId, 'cancelled', {
+        cancelledAt: Timestamp.now()
+      })
+      
+      return { success: true }
+    } catch (error) {
+      console.error('Error cancelling delivery:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Retry a failed delivery
+   */
+  async retryDelivery(deliveryId) {
+    try {
+      // Get current delivery data
+      const delivery = await this.getDelivery(deliveryId)
+      
+      // Reset status to queued and clear error
+      await updateDoc(doc(db, this.collection, deliveryId), {
+        status: 'queued',
+        error: null,
+        retryAt: Timestamp.now(),
+        scheduledAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
+      })
+      
+      return { success: true }
+    } catch (error) {
+      console.error('Error retrying delivery:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Delete a delivery
+   */
+  async deleteDelivery(deliveryId) {
+    try {
+      await deleteDoc(doc(db, this.collection, deliveryId))
+      return { success: true }
+    } catch (error) {
+      console.error('Error deleting delivery:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Test connection to a delivery target
    */
   async testConnection(targetConfig) {
     try {
-      // Create a test package with minimal data
+      // Create a test package
       const testPackage = {
-        deliveryId: 'test_' + Date.now(),
-        releaseTitle: 'Connection Test',
-        targetName: targetConfig.name,
+        deliveryId: 'test',
         files: [{
-          name: 'test.txt',
-          content: 'This is a connection test file',
-          type: 'text/plain',
-          isERN: false
+          name: 'test.xml',
+          content: '<?xml version="1.0"?><test>Connection test</test>',
+          type: 'text/xml',
+          isERN: true
         }],
         metadata: {
           messageId: 'TEST_' + Date.now(),
@@ -927,6 +905,7 @@ export class DeliveryService {
         }
       }
 
+      // Try to connect based on protocol
       let result
       switch (targetConfig.protocol) {
         case 'FTP':
@@ -1046,15 +1025,32 @@ export class DeliveryService {
     }
   }
 
+  /**
+   * Extract filename from URL - Enhanced to handle Firebase Storage URLs
+   */
   extractFileName(url) {
     try {
       const urlObj = new URL(url)
       const pathname = urlObj.pathname
       const parts = pathname.split('/')
-      const filename = parts[parts.length - 1]
+      let filename = parts[parts.length - 1]
       
-      // Decode URL encoding and remove query params
-      return decodeURIComponent(filename.split('?')[0])
+      // Remove URL parameters
+      filename = filename.split('?')[0]
+      
+      // Decode URL encoding
+      filename = decodeURIComponent(filename)
+      
+      // Remove Firebase Storage prefixes if present
+      if (filename.includes('%2F')) {
+        const decodedParts = filename.split('%2F')
+        filename = decodedParts[decodedParts.length - 1]
+      }
+      
+      // Sanitize for filesystem (remove special chars except . _ -)
+      filename = filename.replace(/[^a-zA-Z0-9._-]/g, '_')
+      
+      return filename || `file_${Date.now()}`
     } catch (error) {
       // Fallback for invalid URLs
       return `file_${Date.now()}`

@@ -7,6 +7,7 @@ import deliveryTargetService from '../services/deliveryTargets'
 import ernService from '../services/ern'
 import { db } from '../firebase'
 import { collection, addDoc, updateDoc, doc } from 'firebase/firestore'
+import { validateXmlUrls } from '@/utils/urlUtils'
 
 const route = useRoute()
 const router = useRouter()
@@ -174,47 +175,61 @@ const deselectAllTargets = () => {
 // Update the generateERNs function starting at line 241:
 const generateERNs = async () => {
   isGeneratingERN.value = true
-  ernErrors.value = {}
+  error.value = null
   generatedERNs.value = {}
   
   try {
+    // Generate ERN for each selected target
     for (const targetId of deliveryData.value.selectedTargets) {
       const target = availableTargets.value.find(t => t.id === targetId)
       if (!target) continue
       
       try {
-        // Generate ERN for this target with complete configuration
-        const result = await ernService.generateERN(deliveryData.value.releaseId, {
-          id: target.id,
-          name: target.name,
-          type: target.type || 'DSP',
-          partyName: target.partyName || target.name,
-          partyId: target.partyId || target.config?.partyId,
-          distributorId: target.config?.distributorId || target.distributorId || 'stardust-distro',
-          senderName: user.value.organizationName || user.value.displayName || 'Stardust Distro',
-          senderPartyId: user.value.partyId || 'PADPIDA2023081501R', // Default party ID
-          testMode: target.testMode || deliveryData.value.testMode,
-          ernVersion: target.ernVersion || '4.3',
-          territoryCode: target.territoryCode || 'Worldwide',
-          commercialModels: target.commercialModels || [{
-            type: 'PayAsYouGoModel',
-            usageTypes: ['PermanentDownload']
-          }]
-        })
+        const result = await ernService.generateERN(
+          deliveryData.value.releaseId,
+          {
+            ...target,
+            testMode: deliveryData.value.testMode,
+            senderName: user.value?.organizationName || user.value?.displayName,
+            senderPartyId: target.config?.distributorId,
+            partyId: target.partyId,
+            partyName: target.partyName,
+            dealStartDate: target.dealStartDate,
+            dealEndDate: target.dealEndDate,
+            commercialModels: target.commercialModels || [{
+              type: target.commercialModelType || 'PayAsYouGoModel',
+              usageTypes: target.usageTypes || ['PermanentDownload', 'OnDemandStream']
+            }]
+          }
+        )
+        
+        // Validate URLs in generated ERN
+        const validation = validateXmlUrls(result.ern)
+        if (!validation.valid) {
+          console.warn(`URL validation issues in ERN for ${target.name}:`, validation.issues)
+          // URLs should already be escaped, but log if there are issues
+        }
         
         generatedERNs.value[targetId] = result
-        console.log(`ERN generated for ${target.name}:`, result.messageId)
       } catch (err) {
         console.error(`Error generating ERN for ${target.name}:`, err)
-        ernErrors.value[targetId] = err.message
+        error.value = `Failed to generate ERN for ${target.name}: ${err.message}`
       }
     }
     
-    if (Object.keys(ernErrors.value).length === 0) {
-      successMessage.value = `Successfully generated ${Object.keys(generatedERNs.value).length} ERN messages!`
-      setTimeout(() => successMessage.value = null, 3000)
+    // Check if any ERNs were generated
+    if (Object.keys(generatedERNs.value).length === 0) {
+      error.value = 'No ERNs were generated. Please check your configuration.'
     } else {
-      error.value = `Failed to generate ${Object.keys(ernErrors.value).length} ERN messages. See details below.`
+      successMessage.value = `Generated ${Object.keys(generatedERNs.value).length} ERN(s) successfully!`
+      
+      // Save ERN generation metadata
+      for (const [targetId, ernResult] of Object.entries(generatedERNs.value)) {
+        const target = availableTargets.value.find(t => t.id === targetId)
+        if (target) {
+          console.log(`ERN generated for ${target.name}: Message ID ${ernResult.messageId}`)
+        }
+      }
     }
   } catch (err) {
     console.error('Error generating ERNs:', err)
