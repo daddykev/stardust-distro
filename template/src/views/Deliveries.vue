@@ -217,7 +217,7 @@ const getLogLevelIcon = (level) => {
     case 'success':
       return 'check-circle'
     case 'error':
-      return 'times-circle'
+      return 'circle-xmark'
     case 'warning':
       return 'exclamation-triangle'
     case 'info':
@@ -375,7 +375,7 @@ const getStatusIcon = (status) => {
     case 'completed':
       return 'check-circle'
     case 'failed':
-      return 'times-circle'
+      return 'circle-xmark'
     case 'cancelled':
       return 'ban'
     default:
@@ -533,7 +533,7 @@ onMounted(() => {
         <div class="stat-card card">
           <div class="card-body">
             <div class="stat-icon error">
-              <font-awesome-icon icon="times-circle" />
+              <font-awesome-icon icon="circle-xmark" />
             </div>
             <div class="stat-content">
               <div class="stat-value">{{ statusCounts.failed }}</div>

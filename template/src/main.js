@@ -61,10 +61,15 @@ import {
   faServer,
   faCheckSquare,
   faDownload,
-  faClock,           // Added for ReleaseDetail duration
-  faGlobe,           // Added for ReleaseDetail territories
-  faFile,            // Added for ReleaseDetail DDEX version
-  faImage            // Added for ReleaseDetail empty asset state
+  faClock,
+  faGlobe,
+  faFile,
+  faImage,
+  faCircleXmark,
+  faFileAlt,
+  faBan,
+  faRedo,
+  faList
 } from '@fortawesome/free-solid-svg-icons'
 
 // Import brand icons
@@ -126,10 +131,15 @@ library.add(
   faServer,
   faCheckSquare,
   faDownload,
-  faClock,           // Added
-  faGlobe,           // Added
-  faFile,            // Added
-  faImage            // Added
+  faClock,
+  faGlobe,
+  faFile,
+  faImage,
+  faCircleXmark,
+  faFileAlt,
+  faBan,
+  faRedo,
+  faList
 )
 
 // Add brand icons to the library
