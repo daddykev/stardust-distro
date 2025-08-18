@@ -29,7 +29,7 @@ The marketplace will be **open to all developers**, fostering innovation and all
 
 ## 🚧 Current Development Status
 
-**Alpha Release - v0.7.0** (August 2025)
+**Alpha Release - v0.8.0** (August 2025)
 
 ### ✅ Phase 1: Foundation - COMPLETE
 - **Full Vue 3 Application**: All views, routing, and navigation implemented
@@ -59,12 +59,16 @@ The marketplace will be **open to all developers**, fostering innovation and all
 - **Upload Progress**: Visual progress bars for all file uploads
 - **Responsive Design**: Mobile-friendly interface throughout
 
-### ✅ Phase 3: ERN Generation - COMPLETE
+### ✅ Phase 3: ERN Generation - COMPLETE WITH ENHANCEMENTS
 - **ERN Service**: Complete ERN 4.3 generation with proper DDEX XML formatting
+  - **🆕 MD5 Hash Generation**: Automatic MD5 calculation for all audio files and cover images
+  - **🆕 DDEX-Compliant File Naming**: Industry-standard naming (UPC_DiscNumber_TrackNumber.extension)
+  - **🆕 XML URL Escaping**: Proper escaping for Firebase Storage URLs in ERN XML
+  - **🆕 Cloud Function Support**: Dedicated calculateFileMD5 function for hash generation
 - **Delivery Target Service**: Full CRUD operations for DSP configurations with encryption support
 - **DeliveryTargetForm Component**: Comprehensive configuration UI with:
   - DDEX Party Name and Party ID fields
-  - Protocol-specific settings (FTP/SFTP/S3/API)
+  - Protocol-specific settings (FTP/SFTP/S3/API/Azure)
   - Commercial model and usage type relationships
   - DSP presets for quick setup
   - Connection testing functionality
@@ -74,31 +78,56 @@ The marketplace will be **open to all developers**, fostering innovation and all
   - Step 2: Multi-target selection
   - Step 3: ERN generation with preview/download
   - Step 4: Scheduling and priority settings
+  - **🆕 Direct XML Preview**: Modal with copy functionality
+  - **🆕 Enhanced Target Display**: Distributor IDs and authentication info
 - **Deliveries View**: Real-time monitoring dashboard with:
   - Live Firestore updates
   - Status filtering and target filtering
   - Retry/cancel operations
   - ERN and receipt downloads
-  - Detailed delivery timeline modal
+  - **🆕 Comprehensive Logs Viewer**: Real-time log streaming
+  - **🆕 Log Level Indicators**: Color-coded log levels and step tracking
 - **Database Collections**: deliveryTargets and deliveries with proper schemas
-- **DDEX Compliance**: Full ERN 4.3 message generation with validation readiness
-- **Multi-Protocol Support**: Configuration for FTP/SFTP/S3/API delivery methods
-- **Delivery Queue Management**: Scheduling and queue system with Firestore
+- **🆕 XML Utilities**: New urlUtils.js for safe XML URL escaping
 
-### ✅ Phase 4: Delivery Engine - COMPLETE 🎉
+### ✅ Phase 4: Delivery Engine - COMPLETE WITH ENHANCEMENTS 🎉
+- **Firebase Functions v2**: Complete migration with improved performance
+  - **🆕 calculateFileMD5**: Callable function for hash generation
+  - **🆕 Enhanced Logging**: Structured logs with addDeliveryLog helper
+  - **🆕 DDEX File Naming**: Applied across all delivery protocols
 - **Protocol Implementations**:
-  - FTP delivery with basic-ftp library
-  - SFTP delivery with ssh2 library
-  - S3 delivery with AWS SDK v3 and multipart upload support
-  - REST API delivery with flexible authentication methods
-  - Azure Blob Storage delivery with Azure SDK
+  - **FTP delivery** with basic-ftp library
+    - **🆕 DDEX-compliant file naming on upload**
+    - **🆕 MD5 hash calculation and storage**
+  - **SFTP delivery** with ssh2 library
+    - **🆕 DDEX-compliant file naming on upload**
+    - **🆕 MD5 hash calculation and storage**
+  - **S3 delivery** with AWS SDK v3 and multipart upload support
+    - **🆕 MD5 hash in Content-MD5 header**
+    - **🆕 DDEX naming in S3 keys**
+    - **🆕 Enhanced metadata tags**
+  - **REST API delivery** with flexible authentication methods
+    - **🆕 DSP-specific payload structure**
+    - **🆕 File URL references with MD5 hashes**
+  - **Azure Blob Storage** delivery with Azure SDK
+    - **🆕 DDEX-compliant blob naming**
+    - **🆕 MD5 hash in blob metadata**
 - **Scheduled Processing**: Cloud Function running every minute to process queued deliveries
 - **Retry Logic**: Exponential backoff with 3 attempts (5min, 15min, 1hr delays)
 - **Delivery Service**: Complete service layer with:
   - Package preparation (ERN + assets)
+  - **🆕 DDEX file naming in preparePackage**
+  - **🆕 Enhanced file extension detection**
+  - **🆕 Comprehensive logging at each step**
   - Protocol-agnostic delivery interface
   - Error handling and recovery
   - Receipt generation
+- **🆕 Logging System**:
+  - Structured logs with levels (info, warning, error, success)
+  - Step-based logging for delivery tracking
+  - Duration tracking for performance monitoring
+  - Real-time log streaming to Firestore
+  - Log viewer UI with auto-refresh
 - **Notifications**: Firestore-backed notification system with hooks for email integration
 - **Analytics Integration**: Real-time delivery metrics in Analytics view
 - **Connection Testing**: Test delivery connections before actual deliveries
@@ -158,32 +187,71 @@ The marketplace will be **open to all developers**, fostering innovation and all
 - Production credits
 - Duration and format tracking
 
-✅ **ERN Generation** *(Coming Phase 3)*
-- DDEX ERN 3.8.2, 4.2, and 4.3 support
-- Automatic validation via DDEX Workbench API
+✅ **ERN Generation**
+- DDEX ERN 4.3 support with full compliance
+- **DDEX-compliant file naming** (UPC_DiscNumber_TrackNumber.extension)
+- **MD5 hash generation** for file integrity verification
+- **XML URL escaping** for Firebase Storage URLs
+- Automatic validation readiness for DDEX Workbench API
 - Profile-specific message generation
 - Real-time preview and editing
+- Direct XML preview with copy functionality
 
-✅ **All Delivery Protocols** *(Coming Phase 4)*
-- **FTP**: Legacy system support
-- **SFTP**: Secure file transfers
-- **S3**: AWS cloud delivery
-- **API**: Modern REST/GraphQL endpoints
-- **Azure**: Microsoft cloud storage
+✅ **All Delivery Protocols**
+- **FTP**: Legacy system support with DDEX naming
+- **SFTP**: Secure file transfers with MD5 verification
+- **S3**: AWS cloud delivery with metadata tags
+- **API**: Modern REST endpoints with DSP-specific payloads
+- **Azure**: Microsoft cloud storage with blob metadata
 - Manual export for custom workflows
+- **Connection testing** before deliveries
+- **Comprehensive logging** at every step
+
+✅ **Delivery Monitoring**
+- **Real-time log streaming** for active deliveries
+- **Structured logging** with levels (info, warning, error, success)
+- **Step-based tracking** for delivery progress
+- **Performance metrics** with duration tracking
+- **Visual indicators** for log levels and status
+- **Retry management** with exponential backoff
+- **Delivery receipts** with download capability
 
 ✅ **Professional Dashboard**
-- Real-time statistics
+- Real-time statistics from Firestore
 - Recent activity feed
 - Quick actions panel
 - Getting started checklist
-- Performance metrics
+- Delivery performance metrics
+- Error tracking and resolution
 
 ✅ **White-Label Ready**
 - Custom branding
 - Theme customization (light/dark modes)
 - Multi-tenant support
 - Domain mapping
+
+## 🔧 Technical Enhancements
+
+### DDEX Compliance Improvements
+- **File Naming Convention**: All files follow DDEX standard naming:
+  - Audio: `UPC_DiscNumber_TrackNumber.extension` (e.g., `1234567890123_01_001.wav`)
+  - Cover Art: `UPC.jpg` for main cover, `UPC_XX.jpg` for additional images
+  - ERN: `MessageID.xml` format
+- **MD5 Hash Generation**: All files include MD5 checksums for integrity verification
+- **XML Compliance**: Proper URL escaping for Firebase Storage URLs in ERN XML
+
+### Enhanced Monitoring & Logging
+- **Structured Logging**: Every delivery step logged with timestamp, level, and details
+- **Real-time Updates**: Logs stream to UI in real-time during processing
+- **Performance Tracking**: Duration tracking for each operation
+- **Visual Indicators**: Color-coded log levels and status badges
+- **Log Persistence**: All logs stored in Firestore for historical analysis
+
+### Improved Error Handling
+- **Detailed Error Messages**: Specific error details at each step
+- **Graceful Degradation**: Continue processing other files if one fails
+- **Retry Intelligence**: Smart retry logic with exponential backoff
+- **User Feedback**: Clear error messages and recovery options in UI
 
 ## 🔌 Plugin Marketplace
 
@@ -227,13 +295,16 @@ npm run deploy
 ```
 
 ### Try the Live Features
-With Phase 2 complete, you can now:
+With Phases 2-4 complete, you can now:
 1. **Create releases** with the 6-step wizard
-2. **Upload assets** to Firebase Storage
+2. **Upload assets** to Firebase Storage with progress tracking
 3. **Manage tracks** with full CRUD operations
-4. **Search and filter** your catalog
-5. **Edit existing releases** with all data preserved
-6. **Auto-save drafts** as you work
+4. **Generate ERN messages** with DDEX 4.3 compliance
+5. **Configure delivery targets** with multiple protocols
+6. **Queue deliveries** with real-time monitoring
+7. **Track delivery logs** with comprehensive detail
+8. **Retry failed deliveries** with smart exponential backoff
+9. **Download receipts** for successful deliveries
 
 ### Using the CLI Tool
 ```bash
@@ -250,7 +321,9 @@ stardust-distro dev              # Start development server
 ## 🛠️ Technology Stack
 
 - **Frontend**: Vue 3 (Composition API) + Vite
-- **Backend**: Firebase (Firestore, Functions, Storage, Auth)
+- **Backend**: Firebase (Firestore, Functions v2, Storage, Auth)
+- **Cloud Functions**: Node.js with Firebase Functions v2
+- **Delivery Protocols**: FTP, SFTP, S3, API, Azure
 - **Styling**: Custom CSS architecture with theme system
 - **Icons**: FontAwesome free icons
 - **CLI**: Node.js with Commander.js
@@ -258,6 +331,7 @@ stardust-distro dev              # Start development server
 - **Types**: TypeScript for shared packages
 - **Services**: Modular service architecture
 - **State Management**: Vue composables for reactive state
+- **Logging**: Structured logging with Firestore persistence
 
 ## 📊 Development Roadmap
 
@@ -274,7 +348,7 @@ stardust-distro dev              # Start development server
 - [x] TypeScript types and schemas
 - [x] Template system for project generation
 
-### Phase 2: Core CMS ✅ 80% COMPLETE
+### Phase 2: Core CMS ✅ COMPLETE
 - [x] Release creation wizard with persistence
 - [x] Asset upload to Firebase Storage
 - [x] Track management with CRUD operations
@@ -285,9 +359,11 @@ stardust-distro dev              # Start development server
 - [x] Vue composables for state
 - [x] Error handling and validation
 - [x] Upload progress tracking
-- [ ] Bulk operations (20% remaining)
+- [x] Bulk operations
+- [x] ReleaseDetail view with tabs
+- [x] Dashboard with real stats
 
-### Phase 3: ERN Generation ✅ COMPLETE
+### Phase 3: ERN Generation ✅ COMPLETE WITH ENHANCEMENTS
 - [x] ERN generator engine
 - [x] DDEX ERN 4.3 support
 - [x] Delivery target configuration system
@@ -297,17 +373,25 @@ stardust-distro dev              # Start development server
 - [x] Delivery scheduling system
 - [x] Real-time delivery monitoring
 - [x] Queue management with Firestore
+- [x] **ENHANCED: DDEX-compliant file naming**
+- [x] **ENHANCED: MD5 hash generation for all files**
+- [x] **ENHANCED: XML URL escaping and validation**
+- [x] **ENHANCED: Cloud Function for MD5 calculation**
 
-### Phase 4: Delivery Engine 📅 (Weeks 10-12) - IN PROGRESS
-- [ ] FTP/SFTP protocol implementation
-- [ ] S3/Azure/API delivery
-- [ ] Cloud Functions for processing
-- [ ] Retry logic and error handling
-- [ ] Delivery receipts and tracking
-- [ ] Failure notifications
-- [ ] Analytics and reporting
+### Phase 4: Delivery Engine ✅ COMPLETE WITH ENHANCEMENTS
+- [x] FTP/SFTP protocol implementation
+- [x] S3/Azure/API delivery
+- [x] Cloud Functions v2 for processing
+- [x] Retry logic and error handling
+- [x] Delivery receipts and tracking
+- [x] Failure notifications
+- [x] Analytics and reporting
+- [x] **ENHANCED: DDEX file naming in all protocols**
+- [x] **ENHANCED: MD5 hash validation for integrity**
+- [x] **ENHANCED: Comprehensive logging system**
+- [x] **ENHANCED: Real-time log streaming to UI**
 
-### Phase 5: Plug-in Marketplace 📅 (Weeks 17-20)
+### Phase 5: Plug-in Marketplace 📅 (Weeks 13-16) - STARTING NOW
 - [ ] Plug-in architecture design
 - [ ] Marketplace infrastructure
 - [ ] Plug-in SDK and documentation
@@ -315,7 +399,7 @@ stardust-distro dev              # Start development server
 - [ ] Initial core team plugins
 - [ ] Third-party developer support
 
-### Phase 6: Testing & Launch 📅 (Weeks 21-24)
+### Phase 6: Testing & Launch 📅 (Weeks 17-20)
 - [ ] Comprehensive test suite
 - [ ] Performance optimization
 - [ ] Security audit
@@ -328,7 +412,7 @@ stardust-distro dev              # Start development server
 ```bash
 # Clone the repository
 git clone https://github.com/daddykev/stardust-distro.git
-cd distro
+cd stardust-distro
 
 # Install all dependencies (root, template, cli, packages)
 npm run install:all
@@ -341,7 +425,7 @@ npm run dev
 # Build for production
 npm run build
 
-# Deploy to Firebase
+# Deploy to Firebase (including Functions)
 npm run deploy
 
 # Work with the CLI
@@ -357,13 +441,14 @@ stardust-distro/
 ├── template/            # Default Vue app template
 │   ├── src/
 │   │   ├── views/       # Page components (✅ 12 views complete)
-│   │   ├── components/  # UI components (✅ NavBar complete)
-│   │   ├── composables/ # Vue composables (✅ useAuth, useCatalog)
-│   │   ├── services/    # Backend services (✅ catalog, assets)
+│   │   ├── components/  # UI components
+│   │   ├── composables/ # Vue composables (✅ useAuth, useCatalog, useDelivery)
+│   │   ├── services/    # Backend services (✅ catalog, assets, ern, delivery)
 │   │   ├── router/      # Routing config (✅ Complete)
 │   │   ├── assets/      # CSS architecture (✅ Complete)
+│   │   ├── utils/       # Utilities (✅ urlUtils.js)
 │   │   └── firebase.js  # Firebase config (✅ Complete)
-│   └── functions/       # Cloud Functions (📅 Phase 3)
+│   └── functions/       # Cloud Functions (✅ v2 Complete)
 ├── cli/                 # CLI tool (✅ Complete)
 │   ├── bin/             # Executable scripts
 │   └── commands/        # All CLI commands
@@ -378,19 +463,13 @@ stardust-distro/
 
 ## 🤝 Contributing
 
-We welcome contributions! With Phase 2 80% complete, we especially need help with:
+We welcome contributions! With Phases 1-4 complete, we especially need help with:
 
-### Immediate Needs (Phase 2 Completion)
-- 🔧 Bulk operations UI implementation
-- 🎨 Performance optimizations
-- 🧪 Testing the release creation flow
-- 📝 Documentation for new features
-
-### Upcoming Priorities (Phase 3)
-- 🎵 ERN generation logic
-- 🔗 DDEX Workbench API integration
-- 📋 ERN validation rules
-- 🖼️ ERN preview UI
+### Immediate Needs (Phase 5 Start)
+- 🔧 Plugin architecture design
+- 🎨 Plugin marketplace UI/UX
+- 🧪 Testing the complete delivery flow
+- 📝 Documentation for all features
 
 ### For Plugin Developers
 Start thinking about plugins you'd like to build! The Plugin SDK and marketplace infrastructure will be available in Phase 5, but you can:
@@ -416,8 +495,10 @@ All tools share unified authentication for seamless workflow integration.
 - **Asset Upload**: Real-time progress tracking
 - **Catalog Search**: <100ms response time
 - **Auto-save**: 3-second debounce
-- **ERN Generation**: <5 seconds *(Phase 3)*
-- **Delivery Queue**: <2 minute average *(Phase 4)*
+- **ERN Generation**: <5 seconds with MD5 hashing
+- **Delivery Queue**: <2 minute average delivery time
+- **Log Streaming**: Real-time updates to UI
+- **MD5 Calculation**: <3 seconds per file
 
 ## 🔐 Security
 
@@ -427,6 +508,8 @@ All tools share unified authentication for seamless workflow integration.
 - ✅ Input validation and sanitization
 - ✅ Firestore security rules
 - ✅ Audit logging for all operations
+- ✅ MD5 hash verification for file integrity
+- ✅ Encrypted credential storage for delivery targets
 - 📅 Regular security audits *(Phase 6)*
 
 ## 📄 License
@@ -468,4 +551,4 @@ Built by the music industry, for the music industry. Special thanks to:
 
 **Join us in democratizing music distribution. True open source, no compromises.**
 
-*Star ⭐ the repo to follow our progress! With Phase 2 nearly complete, we're getting closer to a production-ready platform. Interested in developing plugins? Watch this space for the Plugin SDK announcement in Phase 5!*
+*Star ⭐ the repo to follow our progress! With Phases 1-4 complete, we're ready to build the plugin marketplace. Interested in developing plugins? Watch this space for the Plugin SDK announcement in Phase 5!*
