@@ -38,14 +38,17 @@ export class ERNService {
       const release = await this.getRelease(releaseId)
       const upc = release.basic?.barcode || '0000000000000'
       
+      // Get cover image URL directly from known location
+      const coverImageUrl = release.assets?.coverImage?.url || null
+      
       // Transform release data to ERN format
       const product = this.transformToProduct(release, targetConfig)
       
-      // Transform resources with MD5 calculation (now async)
+      // Transform resources with MD5 calculation
       const resourceData = await this.transformToResources(
         release.tracks || [], 
         upc, 
-        release.assets
+        coverImageUrl
       )
       
       // Build ERN XML with resources and coverMD5
@@ -131,8 +134,8 @@ export class ERNService {
   /**
    * Transform tracks to resources with DDEX-compliant file naming and MD5 calculation
    */
-  async transformToResources(tracks, upc = '0000000000000', assets) {
-    const discNumber = '01' // Default to disc 01 for now
+  async transformToResources(tracks, upc = '0000000000000', coverImageUrl) {
+    const discNumber = '01' // Default to disc 01
     
     // Calculate MD5 for audio files
     const audioResources = await Promise.all(tracks.map(async (track, index) => {
@@ -146,9 +149,11 @@ export class ERNService {
       
       // Calculate MD5 for the audio file
       let audioMD5 = 'PENDING'
-      if (track.audio?.url || track.audioUrl) {
+      const audioUrl = track.audio?.url || track.audioUrl
+      
+      if (audioUrl) {
         try {
-          audioMD5 = await this.calculateFileMD5(track.audio?.url || track.audioUrl)
+          audioMD5 = await this.calculateFileMD5(audioUrl)
         } catch (error) {
           console.error(`Failed to calculate MD5 for track ${index + 1}:`, error)
         }
@@ -165,33 +170,21 @@ export class ERNService {
         title: trackTitle,
         artist: trackArtist,
         duration: this.formatDuration(trackDuration),
-        
-        // DDEX-compliant filename for delivery
         ddexFileName: ddexFileName,
-        // Original URL for downloading from Firebase Storage
-        fileUri: track.audio?.url || track.audioUrl || '',
-        // MD5 hash
+        fileUri: audioUrl || '',
         audioMD5: audioMD5,
-        
-        // Audio technical details
         codecType: audioFormat === 'WAV' ? 'PCM' : audioFormat || 'PCM',
         bitRate: track.audio?.bitrate || '1411',
         samplingRate: track.audio?.sampleRate || '44100',
         bitsPerSample: '16',
         channels: '2',
-        
-        // Additional metadata
         genre: track.genre || track.metadata?.genre,
         parentalWarning: track.parentalWarning || track.metadata?.parentalWarning,
         languageOfPerformance: track.language || track.metadata?.language || 'en',
         contributors: track.contributors || track.metadata?.contributors || [],
-        
-        // Additional fields
         label: track.label || track.metadata?.label,
         pLineYear: track.pLineYear || track.metadata?.pLineYear,
         pLineText: track.pLineText || track.metadata?.pLineText,
-        
-        // Preview details
         previewDetails: track.preview ? {
           startPoint: track.preview.startTime || 30,
           endPoint: track.preview.startTime + track.preview.duration || 60
@@ -201,15 +194,14 @@ export class ERNService {
     
     // Calculate MD5 for cover image
     let coverMD5 = 'PENDING'
-    if (assets?.images?.[0]?.url) {
+    if (coverImageUrl) {
       try {
-        coverMD5 = await this.calculateFileMD5(assets.images[0].url)
+        coverMD5 = await this.calculateFileMD5(coverImageUrl)
       } catch (error) {
         console.error('Failed to calculate MD5 for cover image:', error)
       }
     }
     
-    // Return both audio resources and cover MD5
     return {
       audioResources,
       coverMD5
@@ -237,41 +229,41 @@ export class ERNService {
     }
     
     return `<?xml version="1.0" encoding="UTF-8"?>
-<ern:NewReleaseMessage xmlns:ern="${this.namespace}" 
-  xmlns:xs="http://www.w3.org/2001/XMLSchema-instance"
-  MessageSchemaVersionId="ern/43"
-  LanguageAndScriptCode="en">
-  
-  <MessageHeader>
-    <MessageId>${messageId}</MessageId>
-    <MessageCreatedDateTime>${createdDate}</MessageCreatedDateTime>
-    <MessageControlType>${config.messageControlType}</MessageControlType>
-    <MessageSender>
-      ${config.senderPartyId ? `<PartyId>${config.senderPartyId}</PartyId>` : ''}
-      <PartyName>
-        <FullName>${this.escapeXml(config.messageSender)}</FullName>
-      </PartyName>
-    </MessageSender>
-    <MessageRecipient>
-      ${config.recipientPartyId ? `<PartyId>${config.recipientPartyId}</PartyId>` : ''}
-      <PartyName>
-        <FullName>${this.escapeXml(config.messageRecipient)}</FullName>
-      </PartyName>
-    </MessageRecipient>
-  </MessageHeader>
-  
-  ${this.buildResourceList(resources, product.upc, coverMD5)}
-  ${this.buildReleaseList(product, resources)}
-  ${this.buildDealList(product)}
-  
-</ern:NewReleaseMessage>`
+  <ern:NewReleaseMessage xmlns:ern="${this.namespace}" 
+    xmlns:xs="http://www.w3.org/2001/XMLSchema-instance"
+    MessageSchemaVersionId="ern/43"
+    LanguageAndScriptCode="en">
+    
+    <MessageHeader>
+      <MessageId>${messageId}</MessageId>
+      <MessageCreatedDateTime>${createdDate}</MessageCreatedDateTime>
+      <MessageControlType>${config.messageControlType}</MessageControlType>
+      <MessageSender>
+        ${config.senderPartyId ? `<PartyId>${config.senderPartyId}</PartyId>` : ''}
+        <PartyName>
+          <FullName>${this.escapeXml(config.messageSender)}</FullName>
+        </PartyName>
+      </MessageSender>
+      <MessageRecipient>
+        ${config.recipientPartyId ? `<PartyId>${config.recipientPartyId}</PartyId>` : ''}
+        <PartyName>
+          <FullName>${this.escapeXml(config.messageRecipient)}</FullName>
+        </PartyName>
+      </MessageRecipient>
+    </MessageHeader>
+    
+    ${this.buildResourceList(resources, product.upc, coverMD5)}
+    ${this.buildReleaseList(product, resources)}
+    ${this.buildDealList(product)}
+    
+  </ern:NewReleaseMessage>`
   }
 
   buildResourceList(resources, upc, coverMD5) {
     return `<ResourceList>
-    ${resources.map(resource => this.buildSoundRecording(resource)).join('\n    ')}
-    ${this.buildImageResource(upc, coverMD5)}
-  </ResourceList>`
+      ${resources.map(resource => this.buildSoundRecording(resource)).join('\n    ')}
+      ${this.buildImageResource(upc, coverMD5)}
+    </ResourceList>`
   }
 
   buildSoundRecording(resource) {
@@ -341,8 +333,7 @@ export class ERNService {
     </SoundRecording>`
   }
 
-  buildImageResource(upc, coverMD5) {
-    // Basic image resource for front cover with MD5
+  buildImageResource(upc, coverMD5, coverImageUrl) {
     return `<Image>
       <ImageType>FrontCoverImage</ImageType>
       <ResourceReference>I001</ResourceReference>
@@ -358,9 +349,10 @@ export class ERNService {
         <File>
           <FileName>${upc}.jpg</FileName>
           <FilePath>${upc}.jpg</FilePath>
+          ${coverImageUrl ? `<URI>${escapeUrlForXml(coverImageUrl)}</URI>` : ''}
           <HashSum>
             <HashSumAlgorithmType>MD5</HashSumAlgorithmType>
-            <HashSum>${coverMD5}</HashSum>
+            <HashSum>${coverMD5 || 'PENDING'}</HashSum>
           </HashSum>
         </File>
       </TechnicalDetails>
