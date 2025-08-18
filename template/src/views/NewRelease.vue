@@ -88,10 +88,142 @@ const stepTitles = [
 // Computed
 const currentStepTitle = computed(() => stepTitles[currentStep.value - 1])
 
+// Validation methods
+const validateBasicInfo = () => {
+  const errors = []
+  const basic = releaseData.value.basic
+  
+  // Title validation
+  if (!basic.title || basic.title.trim() === '') {
+    errors.push('Release title is required')
+  } else if (basic.title.length > 200) {
+    errors.push('Release title must be less than 200 characters')
+  }
+  
+  // Display artist validation
+  if (!basic.displayArtist || basic.displayArtist.trim() === '') {
+    errors.push('Display artist is required')
+  } else if (basic.displayArtist.length > 200) {
+    errors.push('Display artist must be less than 200 characters')
+  }
+  
+  // Release type validation
+  if (!basic.type) {
+    errors.push('Release type is required')
+  } else if (!['Single', 'EP', 'Album', 'Compilation'].includes(basic.type)) {
+    errors.push('Invalid release type selected')
+  }
+  
+  // Label validation (optional but recommended)
+  if (basic.label && basic.label.length > 100) {
+    errors.push('Label name must be less than 100 characters')
+  }
+  
+  // Release date validation
+  if (!basic.releaseDate) {
+    errors.push('Release date is required')
+  } else {
+    const releaseDate = new Date(basic.releaseDate)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
+    if (isNaN(releaseDate.getTime())) {
+      errors.push('Invalid release date')
+    } else if (releaseDate < new Date('1900-01-01')) {
+      errors.push('Release date cannot be before 1900')
+    } else if (releaseDate > new Date('2100-01-01')) {
+      errors.push('Release date cannot be after 2100')
+    }
+  }
+  
+  // Original release date validation (if provided)
+  if (basic.originalReleaseDate) {
+    const originalDate = new Date(basic.originalReleaseDate)
+    const releaseDate = new Date(basic.releaseDate)
+    
+    if (isNaN(originalDate.getTime())) {
+      errors.push('Invalid original release date')
+    } else if (originalDate > releaseDate) {
+      errors.push('Original release date cannot be after the release date')
+    }
+  }
+  
+  // UPC/EAN barcode validation for DDEX compliance
+  if (!basic.barcode || basic.barcode.trim() === '') {
+    errors.push('UPC/EAN barcode is required for DDEX delivery')
+  } else {
+    const barcode = basic.barcode.trim()
+    
+    // Remove any spaces or hyphens
+    const cleanBarcode = barcode.replace(/[\s-]/g, '')
+    
+    // Check if it's all digits
+    if (!/^\d+$/.test(cleanBarcode)) {
+      errors.push('Barcode must contain only numbers')
+    } 
+    // Check length (UPC-A is 12 digits, EAN-13 is 13 digits, EAN-14 is 14 digits)
+    else if (cleanBarcode.length !== 12 && cleanBarcode.length !== 13 && cleanBarcode.length !== 14) {
+      errors.push('Barcode must be 12 digits (UPC-A), 13 digits (EAN-13), or 14 digits (EAN-14)')
+    }
+    // Validate checksum
+    else if (cleanBarcode.length === 12 && !validateUPCChecksum(cleanBarcode)) {
+      errors.push('Invalid UPC barcode - checksum validation failed')
+    }
+    else if (cleanBarcode.length === 13 && !validateEANChecksum(cleanBarcode)) {
+      errors.push('Invalid EAN-13 barcode - checksum validation failed')
+    }
+  }
+  
+  // Catalog number validation (optional but recommended)
+  if (basic.catalogNumber && basic.catalogNumber.trim() !== '') {
+    const catalogNumber = basic.catalogNumber.trim()
+    
+    if (catalogNumber.length > 50) {
+      errors.push('Catalog number must be less than 50 characters')
+    }
+    // Allow alphanumeric, hyphens, and underscores
+    if (!/^[A-Za-z0-9\-_]+$/.test(catalogNumber)) {
+      errors.push('Catalog number can only contain letters, numbers, hyphens, and underscores')
+    }
+  }
+  
+  return errors
+}
+
+// Helper function to validate UPC-A checksum (12 digits)
+const validateUPCChecksum = (upc) => {
+  if (upc.length !== 12) return false
+  
+  let sum = 0
+  for (let i = 0; i < 11; i++) {
+    const digit = parseInt(upc[i])
+    sum += (i % 2 === 0) ? digit * 3 : digit
+  }
+  
+  const checkDigit = (10 - (sum % 10)) % 10
+  return checkDigit === parseInt(upc[11])
+}
+
+// Helper function to validate EAN-13 checksum
+const validateEANChecksum = (ean) => {
+  if (ean.length !== 13) return false
+  
+  let sum = 0
+  for (let i = 0; i < 12; i++) {
+    const digit = parseInt(ean[i])
+    sum += (i % 2 === 0) ? digit : digit * 3
+  }
+  
+  const checkDigit = (10 - (sum % 10)) % 10
+  return checkDigit === parseInt(ean[12])
+}
+
 const canProceed = computed(() => {
   switch (currentStep.value) {
     case 1:
-      return releaseData.value.basic.title && releaseData.value.basic.displayArtist
+      // Run validation and check if there are no errors
+      const basicErrors = validateBasicInfo()
+      return basicErrors.length === 0
     case 2:
       return releaseData.value.tracks.length > 0
     case 3:
@@ -139,8 +271,19 @@ watch(releaseData, () => {
 
 // Methods
 const nextStep = () => {
+  // Validate current step before moving forward
+  if (currentStep.value === 1) {
+    const errors = validateBasicInfo()
+    if (errors.length > 0) {
+      validationErrors.value = errors
+      showErrorToast('Please fix the errors before proceeding')
+      return
+    }
+  }
+  
   if (currentStep.value < totalSteps) {
     currentStep.value++
+    validationErrors.value = [] // Clear errors when moving to next step
   }
 }
 
@@ -424,13 +567,42 @@ const validateERN = async () => {
   try {
     await new Promise(resolve => setTimeout(resolve, 1500))
     
-    // Check all required fields
+    // Check all required fields across all steps
     const errors = []
     
-    if (!releaseData.value.basic.title) errors.push('Release title is required')
-    if (!releaseData.value.basic.displayArtist) errors.push('Display artist is required')
-    if (releaseData.value.tracks.length === 0) errors.push('At least one track is required')
-    if (!releaseData.value.assets.coverImage) errors.push('Cover image is required')
+    // Validate basic info
+    const basicErrors = validateBasicInfo()
+    errors.push(...basicErrors)
+    
+    // Validate tracks
+    if (releaseData.value.tracks.length === 0) {
+      errors.push('At least one track is required')
+    } else {
+      releaseData.value.tracks.forEach((track, index) => {
+        if (!track.title || track.title.trim() === '') {
+          errors.push(`Track ${index + 1}: Title is required`)
+        }
+        if (!track.artist || track.artist.trim() === '') {
+          errors.push(`Track ${index + 1}: Artist is required`)
+        }
+        if (!track.audio) {
+          errors.push(`Track ${index + 1}: Audio file is required`)
+        }
+      })
+    }
+    
+    // Validate assets
+    if (!releaseData.value.assets.coverImage) {
+      errors.push('Cover image is required')
+    }
+    
+    // Validate metadata
+    if (!releaseData.value.metadata.genre) {
+      errors.push('Genre is required')
+    }
+    if (!releaseData.value.metadata.copyright) {
+      errors.push('Copyright information is required')
+    }
     
     if (errors.length > 0) {
       validationErrors.value = errors
@@ -439,6 +611,7 @@ const validateERN = async () => {
     }
     
     releaseData.value.preview.validated = true
+    validationErrors.value = []
     await showSuccessToast('Validation successful!')
   } catch (err) {
     console.error('Validation error:', err)
@@ -605,14 +778,17 @@ const formatDuration = (seconds) => {
               </div>
               
               <div class="form-group">
-                <label class="form-label">Barcode (UPC/EAN)</label>
+                <label class="form-label required">Barcode (UPC/EAN)</label>
                 <input 
                   v-model="releaseData.basic.barcode" 
                   type="text" 
                   class="form-input"
-                  placeholder="Enter barcode"
+                  placeholder="e.g., 669158581085"
                   pattern="[0-9]{12,14}"
+                  maxlength="14"
+                  required
                 />
+                <span class="form-hint">Required for DDEX-compliant delivery</span>
               </div>
               
               <div class="form-group">
@@ -633,6 +809,16 @@ const formatDuration = (seconds) => {
                   class="form-input"
                 />
               </div>
+            </div>
+            
+            <!-- Validation errors for Step 1 -->
+            <div v-if="validationErrors.length > 0" class="validation-errors">
+              <h4>Please fix the following errors:</h4>
+              <ul>
+                <li v-for="(error, index) in validationErrors" :key="index">
+                  {{ error }}
+                </li>
+              </ul>
             </div>
           </div>
 
@@ -893,6 +1079,10 @@ const formatDuration = (seconds) => {
                 <div class="summary-item">
                   <span class="summary-label">Type:</span>
                   <span class="summary-value">{{ releaseData.basic.type }}</span>
+                </div>
+                <div class="summary-item">
+                  <span class="summary-label">Barcode:</span>
+                  <span class="summary-value">{{ releaseData.basic.barcode || 'Not set' }}</span>
                 </div>
                 <div class="summary-item">
                   <span class="summary-label">Release Date:</span>
@@ -1209,6 +1399,13 @@ const formatDuration = (seconds) => {
 .form-label.required::after {
   content: ' *';
   color: var(--color-error);
+}
+
+.form-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-xs);
+  display: block;
 }
 
 .form-input,

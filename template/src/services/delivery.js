@@ -120,7 +120,7 @@ export class DeliveryService {
       await this.addDeliveryLog(deliveryId, {
         level: 'info',
         step: 'package_preparation',
-        message: 'Preparing delivery package'
+        message: 'Preparing delivery package with DDEX naming'
       })
       
       const deliveryPackage = await this.preparePackage(delivery)
@@ -133,7 +133,8 @@ export class DeliveryService {
           ernFiles: deliveryPackage.files.filter(f => f.isERN).length,
           audioFiles: deliveryPackage.files.filter(f => f.type === 'audio').length,
           imageFiles: deliveryPackage.files.filter(f => f.type === 'image').length,
-          totalFiles: deliveryPackage.files.length
+          totalFiles: deliveryPackage.files.length,
+          upc: deliveryPackage.upc
         }
       })
       
@@ -236,10 +237,23 @@ export class DeliveryService {
   }
 
   /**
-   * Prepare delivery package (ERN + assets) with authentication
+   * Prepare delivery package (ERN + assets) with DDEX-compliant naming
    */
   async preparePackage(delivery) {
     const files = []
+    
+    // Get the release for UPC/barcode and track information
+    const releaseDoc = await getDoc(doc(db, 'releases', delivery.releaseId))
+    if (!releaseDoc.exists()) {
+      throw new Error('Release not found')
+    }
+    
+    const release = releaseDoc.data()
+    const upc = release.basic?.barcode || '0000000000000'
+    const discNumber = '01' // Default to disc 01 for now
+    
+    // Log UPC being used
+    console.log(`Preparing package with UPC: ${upc}`)
     
     // Add ERN file (already contains properly escaped URLs)
     if (delivery.ernXml) {
@@ -251,32 +265,54 @@ export class DeliveryService {
       })
     }
 
-    // Add audio files
-    if (delivery.package?.audioFiles) {
-      for (const audioUrl of delivery.package.audioFiles) {
+    // Add audio files with DDEX naming
+    if (delivery.package?.audioFiles && release.tracks) {
+      delivery.package.audioFiles.forEach((audioUrl, index) => {
         if (audioUrl) {
+          const track = release.tracks[index]
+          const trackNumber = String(track?.sequenceNumber || index + 1).padStart(3, '0')
+          
+          // Extract original extension from URL
+          const originalExt = this.extractFileExtension(audioUrl)
+          
+          // DDEX standard: UPC_DiscNumber_TrackNumber.extension
+          const ddexFileName = `${upc}_${discNumber}_${trackNumber}.${originalExt}`
+          
+          console.log(`Audio file ${index + 1}: ${this.extractFileName(audioUrl)} → ${ddexFileName}`)
+          
           files.push({
-            name: this.extractFileName(audioUrl),
+            name: ddexFileName,  // This is what will be used for delivery
+            originalName: this.extractFileName(audioUrl),  // Keep for reference
             url: audioUrl,
             type: 'audio',
-            needsDownload: true
+            needsDownload: true,
+            trackNumber: track?.sequenceNumber || index + 1,
+            isrc: track?.isrc
           })
         }
-      }
+      })
     }
 
-    // Add image files
+    // Add image files with DDEX naming
     if (delivery.package?.imageFiles) {
-      for (const imageUrl of delivery.package.imageFiles) {
+      delivery.package.imageFiles.forEach((imageUrl, index) => {
         if (imageUrl) {
+          // Main cover art uses UPC as filename
+          // Additional images get numbered suffixes
+          const ddexFileName = index === 0 ? `${upc}.jpg` : `${upc}_${String(index + 1).padStart(2, '0')}.jpg`
+          
+          console.log(`Image file ${index + 1}: ${this.extractFileName(imageUrl)} → ${ddexFileName}`)
+          
           files.push({
-            name: this.extractFileName(imageUrl),
+            name: ddexFileName,  // This is what will be used for delivery
+            originalName: this.extractFileName(imageUrl),  // Keep for reference
             url: imageUrl,
             type: 'image',
-            needsDownload: true
+            needsDownload: true,
+            imageType: index === 0 ? 'FrontCover' : 'Additional'
           })
         }
-      }
+      })
     }
 
     // Get target configuration to add authentication data
@@ -289,6 +325,7 @@ export class DeliveryService {
       releaseTitle: delivery.releaseTitle,
       releaseArtist: delivery.releaseArtist,
       targetName: delivery.targetName,
+      upc,
       files,
       metadata: {
         messageId: delivery.ernMessageId,
@@ -304,7 +341,70 @@ export class DeliveryService {
       deliveryPackage.metadata.distributorId = target.config.distributorId
     }
     
+    // Log the DDEX file naming summary
+    console.log('DDEX File Naming Applied:')
+    console.log(`  UPC: ${upc}`)
+    console.log(`  ERN: ${files.find(f => f.isERN)?.name}`)
+    console.log(`  Audio files: ${files.filter(f => f.type === 'audio').map(f => f.name).join(', ')}`)
+    console.log(`  Image files: ${files.filter(f => f.type === 'image').map(f => f.name).join(', ')}`)
+    
     return deliveryPackage
+  }
+
+  /**
+   * Extract file extension from URL - Enhanced for Firebase Storage URLs
+   */
+  extractFileExtension(url) {
+    try {
+      const urlObj = new URL(url)
+      const pathname = urlObj.pathname
+      const parts = pathname.split('/')
+      let filename = parts[parts.length - 1]
+      
+      // Remove URL parameters
+      filename = filename.split('?')[0]
+      
+      // Decode URL encoding
+      filename = decodeURIComponent(filename)
+      
+      // Handle Firebase Storage URLs that might have encoded parts
+      if (filename.includes('%2F')) {
+        const decodedParts = filename.split('%2F')
+        filename = decodedParts[decodedParts.length - 1]
+      }
+      
+      // Extract extension
+      const extMatch = filename.match(/\.([^.]+)$/)
+      if (extMatch) {
+        const ext = extMatch[1].toLowerCase()
+        // Map common audio formats
+        if (ext === 'mp3' || ext === 'mpeg') return 'mp3'
+        if (ext === 'wav' || ext === 'wave') return 'wav'
+        if (ext === 'flac') return 'flac'
+        if (ext === 'jpg' || ext === 'jpeg') return 'jpg'
+        if (ext === 'png') return 'png'
+        return ext
+      }
+      
+      // Try to determine from the path structure
+      // Firebase Storage URLs often have the extension before parameters
+      const pathMatch = pathname.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)
+      if (pathMatch) {
+        const ext = pathMatch[1].toLowerCase()
+        if (['mp3', 'wav', 'flac', 'jpg', 'png'].includes(ext)) {
+          return ext
+        }
+      }
+      
+      // Default extensions based on context
+      // For audio files, default to wav (most common for DDEX)
+      // For images, default to jpg
+      console.warn(`Could not determine extension for ${url}, defaulting to wav`)
+      return 'wav'
+    } catch (error) {
+      console.error('Error extracting file extension:', error)
+      return 'wav'
+    }
   }
 
   /**

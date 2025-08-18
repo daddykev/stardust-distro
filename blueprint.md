@@ -255,13 +255,13 @@ stardust-distro/
 │   │   │   ├── delivery.js        # Delivery queue
 │   │   │   └── settings.js        # Platform config
 │   │   ├── services/              # API services
-│   │   │   ├── catalog.js         # Catalog operations ✅
 │   │   │   ├── assets.js          # Asset management ✅
+│   │   │   ├── catalog.js         # Catalog operations ✅
 │   │   │   ├── ern.js             # ERN generation ✅
 │   │   │   ├── deliveryTargets.js # Target management ✅
-│   │   │   ├── delivery.js        # Delivery operations ✅ NEW
-│   │   │   ├── workbench.js       # Validation API ❌
-│   │   │   └── storage.js         # Storage management ❌
+│   │   │   └── delivery.js        # Delivery operations ✅ NEW
+│   │   ├── utils/                 # Utils ✅
+│   │   │   └── urlUtils.js        # Escapes URLs for safe XML ✅
 │   │   ├── router/                # Vue Router
 │   │   │   └── index.js           # Route definitions ✅
 │   │   ├── assets/                # Design system CSS architecture

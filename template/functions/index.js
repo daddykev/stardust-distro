@@ -274,7 +274,8 @@ async function deliverToDSP(target, deliveryPackage) {
       messageId: deliveryPackage.metadata?.messageId,
       audioFiles: deliveryPackage.audioFiles?.length || 0,
       imageFiles: deliveryPackage.imageFiles?.length || 0,
-      hasERN: !!deliveryPackage.ernXml
+      hasERN: !!deliveryPackage.ernXml,
+      upc: deliveryPackage.upc
     })
     
     // Prepare the DSP-specific payload
@@ -289,6 +290,7 @@ async function deliverToDSP(target, deliveryPackage) {
       audioFiles: deliveryPackage.audioFiles || [],
       imageFiles: deliveryPackage.imageFiles || [],
       timestamp: new Date().toISOString(),
+      upc: deliveryPackage.upc,
       // ADD THESE for DSP Ingestion.vue compatibility:
       ern: {
         messageId: deliveryPackage.metadata?.messageId || deliveryPackage.messageId,
@@ -323,6 +325,7 @@ async function deliverToDSP(target, deliveryPackage) {
     console.log(`Sending to DSP endpoint: ${endpoint}`)
     console.log(`Distributor ID: ${payload.distributorId}`)
     console.log(`Has authentication: ${!!headers.Authorization}`)
+    console.log(`UPC: ${payload.upc}`)
     
     // Make the API request
     const startTime = Date.now()
@@ -591,7 +594,7 @@ async function processDelivery(deliveryId, delivery) {
     await addDeliveryLog(deliveryId, {
       level: 'info',
       step: 'package_preparation',
-      message: 'Preparing delivery package'
+      message: 'Preparing delivery package with DDEX naming'
     })
     
     // Prepare delivery package with DSP-specific data
@@ -607,16 +610,18 @@ async function processDelivery(deliveryId, delivery) {
       deliveryPackage.releaseArtist = delivery.releaseArtist
       deliveryPackage.audioFiles = delivery.package?.audioFiles || []
       deliveryPackage.imageFiles = delivery.package?.imageFiles || []
+      deliveryPackage.upc = delivery.upc
     }
 
     await addDeliveryLog(deliveryId, {
       level: 'success',
       step: 'package_preparation',
-      message: `Package prepared with ${deliveryPackage.files.length} files`,
+      message: `Package prepared with ${deliveryPackage.files.length} files (DDEX naming applied)`,
       details: {
         audioFiles: deliveryPackage.audioFiles?.length || 0,
         imageFiles: deliveryPackage.imageFiles?.length || 0,
-        ernIncluded: !!deliveryPackage.ernXml
+        ernIncluded: !!deliveryPackage.ernXml,
+        upc: deliveryPackage.upc
       }
     })
 
@@ -735,14 +740,14 @@ async function processDelivery(deliveryId, delivery) {
 }
 
 /**
- * Storage Delivery Implementation (Firebase Storage) with logging
+ * Storage Delivery Implementation (Firebase Storage) with logging and DDEX naming
  */
 async function deliverViaStorage(target, deliveryPackage, deliveryId) {
   try {
     await addDeliveryLog(deliveryId, {
       level: 'info',
       step: 'storage_preparation',
-      message: 'Preparing Firebase Storage delivery'
+      message: 'Preparing Firebase Storage delivery with DDEX naming'
     })
     
     const bucket = storage.bucket()
@@ -754,6 +759,7 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
     const basePath = `deliveries/${distributorId}/${timestamp}`
     
     console.log(`Uploading to Storage: ${basePath}`)
+    console.log(`UPC: ${deliveryPackage.upc}`)
     
     await addDeliveryLog(deliveryId, {
       level: 'info',
@@ -761,49 +767,28 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
       message: `Uploading to path: ${basePath}`,
       details: {
         distributorId,
-        bucket: bucket.name
+        bucket: bucket.name,
+        upc: deliveryPackage.upc
       }
     })
     
-    // Upload ERN file
-    const ernFile = deliveryPackage.files.find(f => f.isERN)
-    if (ernFile) {
-      const ernPath = `${basePath}/manifest.xml`
-      const file = bucket.file(ernPath)
-      
-      await file.save(ernFile.content, {
-        metadata: {
-          contentType: 'text/xml',
-          metadata: {
-            distributorId: distributorId,
-            messageId: deliveryPackage.metadata.messageId,
-            releaseTitle: deliveryPackage.releaseTitle || 'Unknown',
-            testMode: String(deliveryPackage.metadata.testMode)
-          }
-        }
-      })
-      
-      uploadedFiles.push({
-        name: 'manifest.xml',
-        path: ernPath,
-        size: Buffer.byteLength(ernFile.content),
-        uploadedAt: new Date().toISOString()
-      })
-      
-      console.log(`✅ Uploaded ERN to: ${ernPath}`)
-    }
-    
-    // Upload other files (audio, images) if needed
-    let audioCount = 0
-    let imageCount = 0
-    
-    for (const file of deliveryPackage.files.filter(f => !f.isERN && f.needsDownload)) {
+    // Upload files with DDEX naming
+    for (const file of deliveryPackage.files) {
       try {
         let fileBuffer
+        let filePath
         
-        if (file.url) {
-          // Download file from URL first
-          console.log(`Downloading file from: ${file.url}`)
+        if (file.isERN) {
+          // ERN file - use its name directly
+          filePath = `${basePath}/${file.name}`
+          fileBuffer = Buffer.from(file.content, 'utf8')
+        } else if (file.needsDownload) {
+          // Audio/Image files - use DDEX name
+          filePath = `${basePath}/${file.type}/${file.name}` // file.name already has DDEX naming
+          
+          console.log(`Downloading ${file.originalName} from: ${file.url}`)
+          console.log(`Will upload as: ${file.name}`)
+          
           const response = await axios.get(file.url, { 
             responseType: 'arraybuffer',
             timeout: 30000
@@ -811,27 +796,34 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
           fileBuffer = Buffer.from(response.data)
         }
         
-        if (fileBuffer) {
-          const filePath = `${basePath}/${file.type}/${file.name}`
+        if (fileBuffer && filePath) {
           const storageFile = bucket.file(filePath)
           
           await storageFile.save(fileBuffer, {
             metadata: {
-              contentType: file.type === 'audio' ? 'audio/mpeg' : 'image/jpeg'
+              contentType: file.isERN ? 'text/xml' : 
+                          file.type === 'audio' ? 'audio/mpeg' : 'image/jpeg',
+              metadata: {
+                distributorId: distributorId,
+                messageId: deliveryPackage.metadata.messageId,
+                releaseTitle: deliveryPackage.releaseTitle || 'Unknown',
+                testMode: String(deliveryPackage.metadata.testMode),
+                originalName: file.originalName || file.name,
+                ddexName: file.name,
+                upc: deliveryPackage.upc
+              }
             }
           })
           
           uploadedFiles.push({
-            name: file.name,
+            name: file.name, // DDEX compliant name
+            originalName: file.originalName,
             path: filePath,
             size: fileBuffer.length,
             uploadedAt: new Date().toISOString()
           })
           
-          if (file.type === 'audio') audioCount++
-          else if (file.type === 'image') imageCount++
-          
-          console.log(`✅ Uploaded ${file.type} file to: ${filePath}`)
+          console.log(`✅ Uploaded ${file.name} to: ${filePath}`)
         }
       } catch (fileError) {
         console.error(`Failed to upload file ${file.name}:`, fileError.message)
@@ -839,15 +831,19 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
       }
     }
     
+    const audioCount = uploadedFiles.filter(f => f.path.includes('/audio/')).length
+    const imageCount = uploadedFiles.filter(f => f.path.includes('/image/')).length
+    
     await addDeliveryLog(deliveryId, {
       level: 'success',
       step: 'storage_upload',
-      message: `Uploaded ${uploadedFiles.length} files to Storage`,
+      message: `Uploaded ${uploadedFiles.length} files to Storage with DDEX naming`,
       details: {
-        ernFiles: 1,
+        ernFiles: uploadedFiles.filter(f => f.name.endsWith('.xml')).length,
         audioFiles: audioCount,
         imageFiles: imageCount,
-        basePath
+        basePath,
+        upc: deliveryPackage.upc
       }
     })
     
@@ -869,7 +865,8 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
             distributorId: distributorId,
             deliveryPath: basePath,
             messageId: deliveryPackage.metadata.messageId,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            upc: deliveryPackage.upc
           })
           console.log('✅ DSP notified of storage delivery')
           
@@ -900,7 +897,8 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
       files: uploadedFiles,
       messageId: deliveryPackage.metadata.messageId,
       acknowledgment: `Uploaded ${uploadedFiles.length} files to Storage`,
-      bytesTransferred: uploadedFiles.reduce((sum, f) => sum + f.size, 0)
+      bytesTransferred: uploadedFiles.reduce((sum, f) => sum + f.size, 0),
+      upc: deliveryPackage.upc
     }
   } catch (error) {
     console.error('Storage delivery error:', error)
@@ -987,7 +985,7 @@ async function handleDeliveryError(deliveryId, delivery, error) {
 }
 
 /**
- * Prepare delivery package
+ * Prepare delivery package with DDEX naming
  */
 async function prepareDeliveryPackage(delivery) {
   const files = []
@@ -1003,11 +1001,17 @@ async function prepareDeliveryPackage(delivery) {
   }
 
   // Add references to audio and image files
+  // Note: These should already have DDEX names from the client-side preparePackage
   if (delivery.package?.audioFiles) {
-    delivery.package.audioFiles.forEach(url => {
+    delivery.package.audioFiles.forEach((url, index) => {
       if (url) {
+        // Extract the DDEX name if it was set, otherwise generate it
+        const ddexName = delivery.package.audioFileNames?.[index] || 
+                        `${delivery.upc || '0000000000000'}_01_${String(index + 1).padStart(3, '0')}.wav`
+        
         files.push({
-          name: extractFileName(url),
+          name: ddexName, // Use DDEX name
+          originalName: extractFileName(url),
           url,
           type: 'audio',
           needsDownload: true
@@ -1017,10 +1021,16 @@ async function prepareDeliveryPackage(delivery) {
   }
 
   if (delivery.package?.imageFiles) {
-    delivery.package.imageFiles.forEach(url => {
+    delivery.package.imageFiles.forEach((url, index) => {
       if (url) {
+        // Extract the DDEX name if it was set, otherwise generate it
+        const ddexName = delivery.package.imageFileNames?.[index] || 
+                        (index === 0 ? `${delivery.upc || '0000000000000'}.jpg` : 
+                                      `${delivery.upc || '0000000000000'}_${String(index + 1).padStart(2, '0')}.jpg`)
+        
         files.push({
-          name: extractFileName(url),
+          name: ddexName, // Use DDEX name
+          originalName: extractFileName(url),
           url,
           type: 'image',
           needsDownload: true
@@ -1038,16 +1048,17 @@ async function prepareDeliveryPackage(delivery) {
       messageId: delivery.ernMessageId,
       testMode: delivery.testMode,
       priority: delivery.priority
-    }
+    },
+    upc: delivery.upc
   }
 }
 
 // ============================================================================
-// PROTOCOL IMPLEMENTATIONS WITH LOGGING
+// PROTOCOL IMPLEMENTATIONS WITH DDEX NAMING
 // ============================================================================
 
 /**
- * FTP Delivery Implementation with logging
+ * FTP Delivery Implementation with DDEX naming
  */
 async function deliverViaFTP(target, deliveryPackage, deliveryId) {
   const client = new ftp.Client()
@@ -1082,9 +1093,12 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
 
     const uploadedFiles = []
 
-    // Upload each file
+    // Upload each file with DDEX naming
     for (const file of deliveryPackage.files) {
+      // Use DDEX name for local file
       const localPath = path.join(tempDir, file.name)
+      
+      console.log(`FTP: Processing ${file.name} (original: ${file.originalName || 'ERN'})`)
       
       // Download file from Storage if needed
       if (file.needsDownload) {
@@ -1094,13 +1108,17 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
         await fs.writeFile(localPath, file.content)
       }
 
-      // Upload to FTP
+      // Upload to FTP with DDEX name
       await client.uploadFrom(localPath, file.name)
+      
       uploadedFiles.push({
-        name: file.name,
+        name: file.name, // DDEX name
+        originalName: file.originalName,
         size: (await fs.stat(localPath)).size,
         uploadedAt: new Date().toISOString()
       })
+
+      console.log(`FTP: Uploaded ${file.name}`)
 
       // Clean up local file
       await fs.unlink(localPath)
@@ -1112,10 +1130,11 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
       await addDeliveryLog(deliveryId, {
         level: 'success',
         step: 'ftp_upload',
-        message: `Uploaded ${uploadedFiles.length} files via FTP`,
+        message: `Uploaded ${uploadedFiles.length} files via FTP with DDEX naming`,
         details: {
           filesUploaded: uploadedFiles.length,
-          totalSize: uploadedFiles.reduce((sum, f) => sum + f.size, 0)
+          totalSize: uploadedFiles.reduce((sum, f) => sum + f.size, 0),
+          upc: deliveryPackage.upc
         }
       })
     }
@@ -1142,7 +1161,7 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
 }
 
 /**
- * SFTP Delivery Implementation with logging
+ * SFTP Delivery Implementation with DDEX naming
  */
 async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
   const conn = new SSHClient()
@@ -1171,10 +1190,13 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
             const uploadedFiles = []
             const targetDir = target.directory || target.connection?.directory || '.'
 
-            // Upload each file
+            // Upload each file with DDEX naming
             for (const file of deliveryPackage.files) {
+              // Use DDEX name for local and remote file
               const localPath = path.join(tempDir, file.name)
               const remotePath = path.posix.join(targetDir, file.name)
+              
+              console.log(`SFTP: Processing ${file.name} (original: ${file.originalName || 'ERN'})`)
               
               // Prepare local file
               if (file.needsDownload) {
@@ -1183,7 +1205,7 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
                 await fs.writeFile(localPath, file.content)
               }
 
-              // Upload via SFTP
+              // Upload via SFTP with DDEX name
               await new Promise((uploadResolve, uploadReject) => {
                 sftp.fastPut(localPath, remotePath, (err) => {
                   if (err) uploadReject(err)
@@ -1192,10 +1214,13 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
               })
 
               uploadedFiles.push({
-                name: file.name,
+                name: file.name, // DDEX name
+                originalName: file.originalName,
                 size: (await fs.stat(localPath)).size,
                 uploadedAt: new Date().toISOString()
               })
+
+              console.log(`SFTP: Uploaded ${file.name}`)
 
               // Clean up local file
               await fs.unlink(localPath)
@@ -1207,10 +1232,11 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
               await addDeliveryLog(deliveryId, {
                 level: 'success',
                 step: 'sftp_upload',
-                message: `Uploaded ${uploadedFiles.length} files via SFTP`,
+                message: `Uploaded ${uploadedFiles.length} files via SFTP with DDEX naming`,
                 details: {
                   filesUploaded: uploadedFiles.length,
-                  totalSize: uploadedFiles.reduce((sum, f) => sum + f.size, 0)
+                  totalSize: uploadedFiles.reduce((sum, f) => sum + f.size, 0),
+                  upc: deliveryPackage.upc
                 }
               })
             }
@@ -1270,7 +1296,7 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
 }
 
 /**
- * S3 Delivery Implementation with logging
+ * S3 Delivery Implementation with DDEX naming
  */
 async function deliverViaS3(target, deliveryPackage, deliveryId) {
   const s3Client = new S3Client({
@@ -1296,6 +1322,8 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
   for (const file of deliveryPackage.files) {
     let fileContent
     
+    console.log(`S3: Processing ${file.name} (original: ${file.originalName || 'ERN'})`)
+    
     if (file.needsDownload) {
       // Download file from Storage
       const response = await axios.get(file.url, { responseType: 'arraybuffer' })
@@ -1304,7 +1332,10 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
       fileContent = Buffer.from(file.content)
     }
 
+    // Use DDEX name for S3 key
     const key = path.posix.join(prefix, file.name)
+    
+    console.log(`S3: Uploading to key: ${key}`)
     
     // For large files, use multipart upload
     if (fileContent.length > 5 * 1024 * 1024) { // 5MB threshold
@@ -1318,7 +1349,10 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
           Metadata: {
             'delivery-id': deliveryPackage.deliveryId,
             'message-id': deliveryPackage.metadata.messageId,
-            'test-mode': String(deliveryPackage.metadata.testMode)
+            'test-mode': String(deliveryPackage.metadata.testMode),
+            'original-name': file.originalName || '',
+            'ddex-name': file.name,
+            'upc': deliveryPackage.upc || ''
           }
         }
       })
@@ -1326,7 +1360,8 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
       const result = await multipartUpload.done()
       
       uploadedFiles.push({
-        name: file.name,
+        name: file.name, // DDEX name
+        originalName: file.originalName,
         location: `https://${bucket}.s3.${target.region || target.connection?.region}.amazonaws.com/${key}`,
         etag: result.ETag,
         size: fileContent.length,
@@ -1342,31 +1377,38 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
         Metadata: {
           'delivery-id': deliveryPackage.deliveryId,
           'message-id': deliveryPackage.metadata.messageId,
-          'test-mode': String(deliveryPackage.metadata.testMode)
+          'test-mode': String(deliveryPackage.metadata.testMode),
+          'original-name': file.originalName || '',
+          'ddex-name': file.name,
+          'upc': deliveryPackage.upc || ''
         }
       })
 
       const result = await s3Client.send(command)
       
       uploadedFiles.push({
-        name: file.name,
+        name: file.name, // DDEX name
+        originalName: file.originalName,
         location: `https://${bucket}.s3.${target.region || target.connection?.region}.amazonaws.com/${key}`,
         etag: result.ETag,
         size: fileContent.length,
         uploadedAt: new Date().toISOString()
       })
     }
+    
+    console.log(`S3: Uploaded ${file.name}`)
   }
 
   if (deliveryId && deliveryId !== 'test') {
     await addDeliveryLog(deliveryId, {
       level: 'success',
       step: 's3_upload',
-      message: `Uploaded ${uploadedFiles.length} files to S3`,
+      message: `Uploaded ${uploadedFiles.length} files to S3 with DDEX naming`,
       details: {
         bucket,
         filesUploaded: uploadedFiles.length,
-        totalSize: uploadedFiles.reduce((sum, f) => sum + f.size, 0)
+        totalSize: uploadedFiles.reduce((sum, f) => sum + f.size, 0),
+        upc: deliveryPackage.upc
       }
     })
   }
@@ -1403,11 +1445,12 @@ async function deliverViaAPI(target, deliveryPackage, deliveryId) {
     })
   }
 
-  // Add metadata
+  // Add metadata including UPC
   formData.append('metadata', JSON.stringify({
     messageId: deliveryPackage.metadata.messageId,
     releaseTitle: deliveryPackage.releaseTitle,
-    testMode: deliveryPackage.metadata.testMode
+    testMode: deliveryPackage.metadata.testMode,
+    upc: deliveryPackage.upc
   }))
 
   // Prepare headers
@@ -1451,7 +1494,8 @@ async function deliverViaAPI(target, deliveryPackage, deliveryId) {
       duration,
       details: {
         statusCode: response.status,
-        responseTime: `${duration}ms`
+        responseTime: `${duration}ms`,
+        upc: deliveryPackage.upc
       }
     })
   }
@@ -1467,7 +1511,7 @@ async function deliverViaAPI(target, deliveryPackage, deliveryId) {
 }
 
 /**
- * Azure Blob Storage Implementation with logging
+ * Azure Blob Storage Implementation with DDEX naming
  */
 async function deliverViaAzure(target, deliveryPackage, deliveryId) {
   const accountName = target.accountName || target.connection?.accountName
@@ -1492,8 +1536,12 @@ async function deliverViaAzure(target, deliveryPackage, deliveryId) {
   const prefix = target.prefix || target.connection?.prefix || ''
 
   for (const file of deliveryPackage.files) {
+    // Use DDEX name for blob name
     const blobName = path.posix.join(prefix, file.name)
     const blockBlobClient = containerClient.getBlockBlobClient(blobName)
+    
+    console.log(`Azure: Processing ${file.name} (original: ${file.originalName || 'ERN'})`)
+    console.log(`Azure: Uploading to blob: ${blobName}`)
     
     let fileContent
     if (file.needsDownload) {
@@ -1509,28 +1557,35 @@ async function deliverViaAzure(target, deliveryPackage, deliveryId) {
       {
         metadata: {
           deliveryId: deliveryPackage.deliveryId,
-          messageId: deliveryPackage.metadata.messageId
+          messageId: deliveryPackage.metadata.messageId,
+          originalName: file.originalName || '',
+          ddexName: file.name,
+          upc: deliveryPackage.upc || ''
         }
       }
     )
 
     uploadedFiles.push({
-      name: file.name,
+      name: file.name, // DDEX name
+      originalName: file.originalName,
       etag: uploadResponse.etag,
       size: fileContent.length,
       uploadedAt: new Date().toISOString()
     })
+    
+    console.log(`Azure: Uploaded ${file.name}`)
   }
 
   if (deliveryId && deliveryId !== 'test') {
     await addDeliveryLog(deliveryId, {
       level: 'success',
       step: 'azure_upload',
-      message: `Uploaded ${uploadedFiles.length} files to Azure`,
+      message: `Uploaded ${uploadedFiles.length} files to Azure with DDEX naming`,
       details: {
         container: containerName,
         filesUploaded: uploadedFiles.length,
-        totalSize: uploadedFiles.reduce((sum, f) => sum + f.size, 0)
+        totalSize: uploadedFiles.reduce((sum, f) => sum + f.size, 0),
+        upc: deliveryPackage.upc
       }
     })
   }

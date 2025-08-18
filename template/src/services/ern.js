@@ -16,10 +16,11 @@ export class ERNService {
     try {
       // Fetch release data
       const release = await this.getRelease(releaseId)
+      const upc = release.basic?.barcode || '0000000000000'
       
       // Transform release data to ERN format
       const product = this.transformToProduct(release, targetConfig)
-      const resources = this.transformToResources(release.tracks || [])
+      const resources = this.transformToResources(release.tracks || [], upc)
       
       // Build ERN XML
       const ernXml = this.buildERN(product, resources, {
@@ -37,7 +38,8 @@ export class ERNService {
         success: true,
         ern: ernXml,
         messageId: this.extractMessageId(ernXml),
-        version: this.version
+        version: this.version,
+        upc: upc
       }
     } catch (error) {
       console.error('Error generating ERN:', error)
@@ -100,43 +102,57 @@ export class ERNService {
   }
 
   /**
-   * Transform tracks to resources
+   * Transform tracks to resources with DDEX-compliant file naming
    */
-  transformToResources(tracks) {
-    return tracks.map((track, index) => ({
-      resourceReference: `A${(index + 1).toString().padStart(3, '0')}`,
-      isrc: track.isrc || `XX000000000${index + 1}`,
-      title: track.metadata?.title || `Track ${index + 1}`,
-      artist: track.metadata?.displayArtist || 'Unknown Artist',
-      duration: this.formatDuration(track.metadata?.duration || 0),
+  transformToResources(tracks, upc = '0000000000000') {
+    const discNumber = '01' // Default to disc 01 for now
+    
+    return tracks.map((track, index) => {
+      const trackNumber = String(track.sequenceNumber || index + 1).padStart(3, '0')
+      const audioFormat = track.audio?.format || 'WAV'
+      const fileExtension = audioFormat.toLowerCase() === 'wav' ? 'wav' : 
+                           audioFormat.toLowerCase() === 'flac' ? 'flac' : 'mp3'
       
-      // Use the audio URL - it will be escaped when building XML
-      fileUri: track.audio?.url || track.audioUrl || '',
+      // DDEX-compliant filename
+      const ddexFileName = `${upc}_${discNumber}_${trackNumber}.${fileExtension}`
       
-      // Audio technical details
-      codecType: track.audio?.format === 'WAV' ? 'PCM' : track.audio?.format || 'PCM',
-      bitRate: track.audio?.bitrate || '1411',
-      samplingRate: track.audio?.sampleRate || '44100',
-      bitsPerSample: '16',
-      channels: '2',
-      
-      // Additional metadata
-      genre: track.metadata?.genre,
-      parentalWarning: track.metadata?.parentalWarning,
-      languageOfPerformance: track.metadata?.language || 'en',
-      contributors: track.metadata?.contributors || [],
-      
-      // Additional fields from original
-      label: track.metadata?.label,
-      pLineYear: track.metadata?.pLineYear,
-      pLineText: track.metadata?.pLineText,
-      
-      // Preview details
-      previewDetails: track.preview ? {
-        startPoint: track.preview.startTime || 30,
-        endPoint: track.preview.startTime + track.preview.duration || 60
-      } : null
-    }))
+      return {
+        resourceReference: `A${(index + 1).toString().padStart(3, '0')}`,
+        isrc: track.isrc || `XX000000000${index + 1}`,
+        title: track.metadata?.title || `Track ${index + 1}`,
+        artist: track.metadata?.displayArtist || 'Unknown Artist',
+        duration: this.formatDuration(track.metadata?.duration || 0),
+        
+        // DDEX-compliant filename for delivery
+        ddexFileName: ddexFileName,
+        // Original URL for downloading from Firebase Storage
+        fileUri: track.audio?.url || track.audioUrl || '',
+        
+        // Audio technical details
+        codecType: audioFormat === 'WAV' ? 'PCM' : audioFormat || 'PCM',
+        bitRate: track.audio?.bitrate || '1411',
+        samplingRate: track.audio?.sampleRate || '44100',
+        bitsPerSample: '16',
+        channels: '2',
+        
+        // Additional metadata
+        genre: track.metadata?.genre,
+        parentalWarning: track.metadata?.parentalWarning,
+        languageOfPerformance: track.metadata?.language || 'en',
+        contributors: track.metadata?.contributors || [],
+        
+        // Additional fields from original
+        label: track.metadata?.label,
+        pLineYear: track.metadata?.pLineYear,
+        pLineText: track.metadata?.pLineText,
+        
+        // Preview details
+        previewDetails: track.preview ? {
+          startPoint: track.preview.startTime || 30,
+          endPoint: track.preview.startTime + track.preview.duration || 60
+        } : null
+      }
+    })
   }
 
   /**
@@ -179,16 +195,17 @@ export class ERNService {
     </MessageRecipient>
   </MessageHeader>
   
-  ${this.buildResourceList(resources)}
+  ${this.buildResourceList(resources, product.upc)}
   ${this.buildReleaseList(product, resources)}
   ${this.buildDealList(product)}
   
 </ern:NewReleaseMessage>`
   }
 
-  buildResourceList(resources) {
+  buildResourceList(resources, upc) {
     return `<ResourceList>
     ${resources.map(resource => this.buildSoundRecording(resource)).join('\n    ')}
+    ${this.buildImageResource(upc)}
   </ResourceList>`
   }
 
@@ -239,7 +256,13 @@ export class ERNService {
         <BitsPerSample>${resource.bitsPerSample || '16'}</BitsPerSample>
         <NumberOfChannels>${resource.channels || '2'}</NumberOfChannels>
         <File>
+          <FileName>${resource.ddexFileName}</FileName>
+          <FilePath>${resource.ddexFileName}</FilePath>
           <URI>${escapeUrlForXml(resource.fileUri)}</URI>
+          <HashSum>
+            <HashSumAlgorithmType>MD5</HashSumAlgorithmType>
+            <HashSum>TO_BE_CALCULATED</HashSum>
+          </HashSum>
         </File>
         ${resource.previewDetails ? `<PreviewDetails>
           <StartPoint>${resource.previewDetails.startPoint || '30'}</StartPoint>
@@ -251,6 +274,32 @@ export class ERNService {
         </PreviewDetails>` : ''}
       </TechnicalDetails>
     </SoundRecording>`
+  }
+
+  buildImageResource(upc) {
+    // Basic image resource for front cover
+    return `<Image>
+      <ImageType>FrontCoverImage</ImageType>
+      <ResourceReference>I001</ResourceReference>
+      <ImageId>
+        <ProprietaryId Namespace="DPID:PADPIDA2023081501R">${upc}_IMG_001</ProprietaryId>
+      </ImageId>
+      <TechnicalDetails>
+        <TechnicalResourceDetailsReference>TI001</TechnicalResourceDetailsReference>
+        <ImageCodecType>JPEG</ImageCodecType>
+        <ImageWidth>3000</ImageWidth>
+        <ImageHeight>3000</ImageHeight>
+        <ImageResolution>300</ImageResolution>
+        <File>
+          <FileName>${upc}.jpg</FileName>
+          <FilePath>${upc}.jpg</FilePath>
+          <HashSum>
+            <HashSumAlgorithmType>MD5</HashSumAlgorithmType>
+            <HashSum>TO_BE_CALCULATED</HashSum>
+          </HashSum>
+        </File>
+      </TechnicalDetails>
+    </Image>`
   }
 
   buildReleaseList(product, resources) {
@@ -298,6 +347,7 @@ export class ERNService {
         ${product.tracks.map((track, index) => 
           `<ReleaseResourceReference ReleaseResourceType="${index === 0 ? 'PrimaryResource' : 'SecondaryResource'}">${track.resourceReference}</ReleaseResourceReference>`
         ).join('\n        ')}
+        <ReleaseResourceReference ReleaseResourceType="SecondaryResource">I001</ReleaseResourceReference>
       </ReleaseResourceReferenceList>
     </Release>
   </ReleaseList>`
