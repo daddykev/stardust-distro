@@ -2,11 +2,31 @@
 import { db } from '../firebase'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { escapeUrlForXml } from '../utils/urlUtils'
+import { getFunctions, httpsCallable } from 'firebase/functions'
 
 export class ERNService {
   constructor() {
     this.version = '4.3'
     this.namespace = 'http://ddex.net/xml/ern/43'
+  }
+
+  /**
+   * Calculate MD5 hash for a file from URL using Cloud Function
+   */
+  async calculateFileMD5(url) {
+    try {
+      if (!url) return 'NO_URL_PROVIDED'
+      
+      console.log(`Calculating MD5 for: ${url}`)
+      const functions = getFunctions()
+      const calculateMD5 = httpsCallable(functions, 'calculateFileMD5')
+      const result = await calculateMD5({ url })
+      console.log(`MD5 calculated: ${result.data.md5}`)
+      return result.data.md5
+    } catch (error) {
+      console.error('Error calculating MD5:', error)
+      return 'ERROR_CALCULATING_MD5'
+    }
   }
 
   /**
@@ -20,10 +40,16 @@ export class ERNService {
       
       // Transform release data to ERN format
       const product = this.transformToProduct(release, targetConfig)
-      const resources = this.transformToResources(release.tracks || [], upc)
       
-      // Build ERN XML
-      const ernXml = this.buildERN(product, resources, {
+      // Transform resources with MD5 calculation (now async)
+      const resourceData = await this.transformToResources(
+        release.tracks || [], 
+        upc, 
+        release.assets
+      )
+      
+      // Build ERN XML with resources and coverMD5
+      const ernXml = this.buildERN(product, resourceData, {
         messageControlType: targetConfig.testMode ? 'TestMessage' : 'LiveMessage',
         messageSender: targetConfig.senderName || release.basic?.label || 'Stardust Distro',
         messageRecipient: targetConfig.partyName || 'DSP',
@@ -51,6 +77,7 @@ export class ERNService {
    * Transform release data to product format
    */
   transformToProduct(release, targetConfig) {
+    // ... keep existing implementation ...
     const basic = release.basic || {}
     const metadata = release.metadata || {}
     const territories = release.territories || {}
@@ -102,31 +129,49 @@ export class ERNService {
   }
 
   /**
-   * Transform tracks to resources with DDEX-compliant file naming
+   * Transform tracks to resources with DDEX-compliant file naming and MD5 calculation
    */
-  transformToResources(tracks, upc = '0000000000000') {
+  async transformToResources(tracks, upc = '0000000000000', assets) {
     const discNumber = '01' // Default to disc 01 for now
     
-    return tracks.map((track, index) => {
+    // Calculate MD5 for audio files
+    const audioResources = await Promise.all(tracks.map(async (track, index) => {
       const trackNumber = String(track.sequenceNumber || index + 1).padStart(3, '0')
       const audioFormat = track.audio?.format || 'WAV'
       const fileExtension = audioFormat.toLowerCase() === 'wav' ? 'wav' : 
-                           audioFormat.toLowerCase() === 'flac' ? 'flac' : 'mp3'
+                          audioFormat.toLowerCase() === 'flac' ? 'flac' : 'mp3'
       
       // DDEX-compliant filename
       const ddexFileName = `${upc}_${discNumber}_${trackNumber}.${fileExtension}`
       
+      // Calculate MD5 for the audio file
+      let audioMD5 = 'PENDING'
+      if (track.audio?.url || track.audioUrl) {
+        try {
+          audioMD5 = await this.calculateFileMD5(track.audio?.url || track.audioUrl)
+        } catch (error) {
+          console.error(`Failed to calculate MD5 for track ${index + 1}:`, error)
+        }
+      }
+      
+      const trackTitle = track.title || track.metadata?.title || `Track ${index + 1}`
+      const trackArtist = track.artist || track.metadata?.displayArtist || track.displayArtist || 'Unknown Artist'
+      const trackDuration = track.duration || track.metadata?.duration || track.audio?.duration || 0
+      const trackISRC = track.isrc || track.metadata?.isrc || `XX000000000${index + 1}`
+      
       return {
         resourceReference: `A${(index + 1).toString().padStart(3, '0')}`,
-        isrc: track.isrc || `XX000000000${index + 1}`,
-        title: track.metadata?.title || `Track ${index + 1}`,
-        artist: track.metadata?.displayArtist || 'Unknown Artist',
-        duration: this.formatDuration(track.metadata?.duration || 0),
+        isrc: trackISRC,
+        title: trackTitle,
+        artist: trackArtist,
+        duration: this.formatDuration(trackDuration),
         
         // DDEX-compliant filename for delivery
         ddexFileName: ddexFileName,
         // Original URL for downloading from Firebase Storage
         fileUri: track.audio?.url || track.audioUrl || '',
+        // MD5 hash
+        audioMD5: audioMD5,
         
         // Audio technical details
         codecType: audioFormat === 'WAV' ? 'PCM' : audioFormat || 'PCM',
@@ -136,15 +181,15 @@ export class ERNService {
         channels: '2',
         
         // Additional metadata
-        genre: track.metadata?.genre,
-        parentalWarning: track.metadata?.parentalWarning,
-        languageOfPerformance: track.metadata?.language || 'en',
-        contributors: track.metadata?.contributors || [],
+        genre: track.genre || track.metadata?.genre,
+        parentalWarning: track.parentalWarning || track.metadata?.parentalWarning,
+        languageOfPerformance: track.language || track.metadata?.language || 'en',
+        contributors: track.contributors || track.metadata?.contributors || [],
         
-        // Additional fields from original
-        label: track.metadata?.label,
-        pLineYear: track.metadata?.pLineYear,
-        pLineText: track.metadata?.pLineText,
+        // Additional fields
+        label: track.label || track.metadata?.label,
+        pLineYear: track.pLineYear || track.metadata?.pLineYear,
+        pLineText: track.pLineText || track.metadata?.pLineText,
         
         // Preview details
         previewDetails: track.preview ? {
@@ -152,15 +197,35 @@ export class ERNService {
           endPoint: track.preview.startTime + track.preview.duration || 60
         } : null
       }
-    })
+    }))
+    
+    // Calculate MD5 for cover image
+    let coverMD5 = 'PENDING'
+    if (assets?.images?.[0]?.url) {
+      try {
+        coverMD5 = await this.calculateFileMD5(assets.images[0].url)
+      } catch (error) {
+        console.error('Failed to calculate MD5 for cover image:', error)
+      }
+    }
+    
+    // Return both audio resources and cover MD5
+    return {
+      audioResources,
+      coverMD5
+    }
   }
 
   /**
    * Build ERN XML
    */
-  buildERN(product, resources, options = {}) {
+  buildERN(product, resourceData, options = {}) {
     const messageId = this.generateMessageId()
     const createdDate = new Date().toISOString()
+    
+    // Extract resources and coverMD5 from resourceData
+    const resources = resourceData.audioResources || resourceData
+    const coverMD5 = resourceData.coverMD5 || 'PENDING'
     
     const config = {
       messageControlType: options.messageControlType || 'TestMessage',
@@ -195,17 +260,17 @@ export class ERNService {
     </MessageRecipient>
   </MessageHeader>
   
-  ${this.buildResourceList(resources, product.upc)}
+  ${this.buildResourceList(resources, product.upc, coverMD5)}
   ${this.buildReleaseList(product, resources)}
   ${this.buildDealList(product)}
   
 </ern:NewReleaseMessage>`
   }
 
-  buildResourceList(resources, upc) {
+  buildResourceList(resources, upc, coverMD5) {
     return `<ResourceList>
     ${resources.map(resource => this.buildSoundRecording(resource)).join('\n    ')}
-    ${this.buildImageResource(upc)}
+    ${this.buildImageResource(upc, coverMD5)}
   </ResourceList>`
   }
 
@@ -261,7 +326,7 @@ export class ERNService {
           <URI>${escapeUrlForXml(resource.fileUri)}</URI>
           <HashSum>
             <HashSumAlgorithmType>MD5</HashSumAlgorithmType>
-            <HashSum>TO_BE_CALCULATED</HashSum>
+            <HashSum>${resource.audioMD5 || 'PENDING'}</HashSum>
           </HashSum>
         </File>
         ${resource.previewDetails ? `<PreviewDetails>
@@ -276,8 +341,8 @@ export class ERNService {
     </SoundRecording>`
   }
 
-  buildImageResource(upc) {
-    // Basic image resource for front cover
+  buildImageResource(upc, coverMD5) {
+    // Basic image resource for front cover with MD5
     return `<Image>
       <ImageType>FrontCoverImage</ImageType>
       <ResourceReference>I001</ResourceReference>
@@ -295,7 +360,7 @@ export class ERNService {
           <FilePath>${upc}.jpg</FilePath>
           <HashSum>
             <HashSumAlgorithmType>MD5</HashSumAlgorithmType>
-            <HashSum>TO_BE_CALCULATED</HashSum>
+            <HashSum>${coverMD5}</HashSum>
           </HashSum>
         </File>
       </TechnicalDetails>

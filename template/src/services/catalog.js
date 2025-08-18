@@ -179,7 +179,28 @@ export class CatalogService {
       const newTrack = {
         id: Date.now().toString(),
         sequenceNumber: tracks.length + 1,
-        ...trackData,
+        // Ensure these fields are captured
+        title: trackData.title,
+        artist: trackData.artist || release.basic?.displayArtist,
+        displayArtist: trackData.displayArtist || trackData.artist || release.basic?.displayArtist,
+        duration: trackData.duration || 0,
+        isrc: trackData.isrc || '',
+        // Store audio metadata
+        audio: {
+          url: trackData.audio?.url,
+          format: trackData.audio?.format || 'WAV',
+          duration: trackData.audio?.duration || trackData.duration,
+          bitrate: trackData.audio?.bitrate,
+          sampleRate: trackData.audio?.sampleRate
+        },
+        // Store additional metadata
+        metadata: {
+          title: trackData.title,
+          displayArtist: trackData.displayArtist || trackData.artist,
+          genre: trackData.genre,
+          language: trackData.language || 'en',
+          contributors: trackData.contributors || []
+        },
         createdAt: new Date().toISOString()
       }
       

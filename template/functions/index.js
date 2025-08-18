@@ -13,6 +13,7 @@ const FormData = require('form-data')
 const fs = require('fs').promises
 const path = require('path')
 const os = require('os')
+const crypto = require('crypto')
 
 // Initialize Firebase Admin
 admin.initializeApp()
@@ -25,6 +26,56 @@ setGlobalOptions({
   region: 'us-central1',
   timeoutSeconds: 540, // 9 minutes for large file transfers
   memory: '1GB'
+})
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Calculate MD5 hash of a buffer
+ */
+function calculateMD5(buffer) {
+  return crypto.createHash('md5').update(buffer).digest('hex')
+}
+
+/**
+ * Callable function for MD5 calculation
+ */
+exports.calculateFileMD5 = onCall({
+  timeoutSeconds: 60,
+  memory: '256MB',
+  cors: true
+}, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'User must be authenticated')
+  }
+  
+  const { url } = request.data
+  
+  if (!url) {
+    throw new HttpsError('invalid-argument', 'URL is required')
+  }
+  
+  try {
+    console.log(`Calculating MD5 for: ${url}`)
+    const response = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 30000
+    })
+    
+    const buffer = Buffer.from(response.data)
+    const md5Hash = calculateMD5(buffer)
+    
+    return {
+      url,
+      md5: md5Hash,
+      size: buffer.length
+    }
+  } catch (error) {
+    console.error('Error calculating MD5:', error)
+    throw new HttpsError('internal', `Failed to calculate MD5: ${error.message}`)
+  }
 })
 
 // ============================================================================
@@ -777,11 +828,13 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
       try {
         let fileBuffer
         let filePath
+        let md5Hash
         
         if (file.isERN) {
           // ERN file - use its name directly
           filePath = `${basePath}/${file.name}`
           fileBuffer = Buffer.from(file.content, 'utf8')
+          md5Hash = calculateMD5(fileBuffer)
         } else if (file.needsDownload) {
           // Audio/Image files - use DDEX name
           filePath = `${basePath}/${file.type}/${file.name}` // file.name already has DDEX naming
@@ -794,6 +847,7 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
             timeout: 30000
           })
           fileBuffer = Buffer.from(response.data)
+          md5Hash = calculateMD5(fileBuffer)
         }
         
         if (fileBuffer && filePath) {
@@ -810,7 +864,8 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
                 testMode: String(deliveryPackage.metadata.testMode),
                 originalName: file.originalName || file.name,
                 ddexName: file.name,
-                upc: deliveryPackage.upc
+                upc: deliveryPackage.upc,
+                md5Hash: md5Hash
               }
             }
           })
@@ -820,10 +875,11 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
             originalName: file.originalName,
             path: filePath,
             size: fileBuffer.length,
+            md5Hash: md5Hash,
             uploadedAt: new Date().toISOString()
           })
           
-          console.log(`✅ Uploaded ${file.name} to: ${filePath}`)
+          console.log(`✅ Uploaded ${file.name} to: ${filePath} (MD5: ${md5Hash})`)
         }
       } catch (fileError) {
         console.error(`Failed to upload file ${file.name}:`, fileError.message)
@@ -843,7 +899,8 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
         audioFiles: audioCount,
         imageFiles: imageCount,
         basePath,
-        upc: deliveryPackage.upc
+        upc: deliveryPackage.upc,
+        md5Hashes: uploadedFiles.map(f => ({ name: f.name, md5: f.md5Hash }))
       }
     })
     
@@ -1054,11 +1111,11 @@ async function prepareDeliveryPackage(delivery) {
 }
 
 // ============================================================================
-// PROTOCOL IMPLEMENTATIONS WITH DDEX NAMING
+// PROTOCOL IMPLEMENTATIONS WITH DDEX NAMING AND MD5 HASHING
 // ============================================================================
 
 /**
- * FTP Delivery Implementation with DDEX naming
+ * FTP Delivery Implementation with DDEX naming and MD5 hashing
  */
 async function deliverViaFTP(target, deliveryPackage, deliveryId) {
   const client = new ftp.Client()
@@ -1093,19 +1150,27 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
 
     const uploadedFiles = []
 
-    // Upload each file with DDEX naming
+    // Upload each file with DDEX naming and MD5 hashing
     for (const file of deliveryPackage.files) {
       // Use DDEX name for local file
       const localPath = path.join(tempDir, file.name)
       
       console.log(`FTP: Processing ${file.name} (original: ${file.originalName || 'ERN'})`)
       
+      let fileContent
+      let md5Hash
+      
       // Download file from Storage if needed
       if (file.needsDownload) {
         await downloadFile(file.url, localPath)
+        // Calculate MD5 after download
+        fileContent = await fs.readFile(localPath)
+        md5Hash = calculateMD5(fileContent)
       } else {
         // Write ERN XML directly
-        await fs.writeFile(localPath, file.content)
+        fileContent = Buffer.from(file.content, 'utf8')
+        await fs.writeFile(localPath, fileContent)
+        md5Hash = calculateMD5(fileContent)
       }
 
       // Upload to FTP with DDEX name
@@ -1114,11 +1179,12 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
       uploadedFiles.push({
         name: file.name, // DDEX name
         originalName: file.originalName,
-        size: (await fs.stat(localPath)).size,
+        size: fileContent.length,
+        md5Hash: md5Hash,
         uploadedAt: new Date().toISOString()
       })
 
-      console.log(`FTP: Uploaded ${file.name}`)
+      console.log(`FTP: Uploaded ${file.name} (MD5: ${md5Hash})`)
 
       // Clean up local file
       await fs.unlink(localPath)
@@ -1134,7 +1200,8 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
         details: {
           filesUploaded: uploadedFiles.length,
           totalSize: uploadedFiles.reduce((sum, f) => sum + f.size, 0),
-          upc: deliveryPackage.upc
+          upc: deliveryPackage.upc,
+          md5Hashes: uploadedFiles.map(f => ({ name: f.name, md5: f.md5Hash }))
         }
       })
     }
@@ -1161,7 +1228,7 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
 }
 
 /**
- * SFTP Delivery Implementation with DDEX naming
+ * SFTP Delivery Implementation with DDEX naming and MD5 hashing
  */
 async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
   const conn = new SSHClient()
@@ -1190,7 +1257,7 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
             const uploadedFiles = []
             const targetDir = target.directory || target.connection?.directory || '.'
 
-            // Upload each file with DDEX naming
+            // Upload each file with DDEX naming and MD5 hashing
             for (const file of deliveryPackage.files) {
               // Use DDEX name for local and remote file
               const localPath = path.join(tempDir, file.name)
@@ -1198,11 +1265,18 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
               
               console.log(`SFTP: Processing ${file.name} (original: ${file.originalName || 'ERN'})`)
               
+              let fileContent
+              let md5Hash
+              
               // Prepare local file
               if (file.needsDownload) {
                 await downloadFile(file.url, localPath)
+                fileContent = await fs.readFile(localPath)
+                md5Hash = calculateMD5(fileContent)
               } else {
-                await fs.writeFile(localPath, file.content)
+                fileContent = Buffer.from(file.content, 'utf8')
+                await fs.writeFile(localPath, fileContent)
+                md5Hash = calculateMD5(fileContent)
               }
 
               // Upload via SFTP with DDEX name
@@ -1216,11 +1290,12 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
               uploadedFiles.push({
                 name: file.name, // DDEX name
                 originalName: file.originalName,
-                size: (await fs.stat(localPath)).size,
+                size: fileContent.length,
+                md5Hash: md5Hash,
                 uploadedAt: new Date().toISOString()
               })
 
-              console.log(`SFTP: Uploaded ${file.name}`)
+              console.log(`SFTP: Uploaded ${file.name} (MD5: ${md5Hash})`)
 
               // Clean up local file
               await fs.unlink(localPath)
@@ -1236,7 +1311,8 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
                 details: {
                   filesUploaded: uploadedFiles.length,
                   totalSize: uploadedFiles.reduce((sum, f) => sum + f.size, 0),
-                  upc: deliveryPackage.upc
+                  upc: deliveryPackage.upc,
+                  md5Hashes: uploadedFiles.map(f => ({ name: f.name, md5: f.md5Hash }))
                 }
               })
             }
@@ -1296,7 +1372,7 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
 }
 
 /**
- * S3 Delivery Implementation with DDEX naming
+ * S3 Delivery Implementation with DDEX naming and MD5 hashing
  */
 async function deliverViaS3(target, deliveryPackage, deliveryId) {
   const s3Client = new S3Client({
@@ -1321,6 +1397,7 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
 
   for (const file of deliveryPackage.files) {
     let fileContent
+    let md5Hash
     
     console.log(`S3: Processing ${file.name} (original: ${file.originalName || 'ERN'})`)
     
@@ -1331,11 +1408,14 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
     } else {
       fileContent = Buffer.from(file.content)
     }
+    
+    // Calculate MD5 hash
+    md5Hash = calculateMD5(fileContent)
 
     // Use DDEX name for S3 key
     const key = path.posix.join(prefix, file.name)
     
-    console.log(`S3: Uploading to key: ${key}`)
+    console.log(`S3: Uploading to key: ${key} (MD5: ${md5Hash})`)
     
     // For large files, use multipart upload
     if (fileContent.length > 5 * 1024 * 1024) { // 5MB threshold
@@ -1346,13 +1426,15 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
           Key: key,
           Body: fileContent,
           ContentType: file.type === 'text/xml' ? 'text/xml' : 'application/octet-stream',
+          ContentMD5: Buffer.from(md5Hash, 'hex').toString('base64'),
           Metadata: {
             'delivery-id': deliveryPackage.deliveryId,
             'message-id': deliveryPackage.metadata.messageId,
             'test-mode': String(deliveryPackage.metadata.testMode),
             'original-name': file.originalName || '',
             'ddex-name': file.name,
-            'upc': deliveryPackage.upc || ''
+            'upc': deliveryPackage.upc || '',
+            'md5-hash': md5Hash
           }
         }
       })
@@ -1365,6 +1447,7 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
         location: `https://${bucket}.s3.${target.region || target.connection?.region}.amazonaws.com/${key}`,
         etag: result.ETag,
         size: fileContent.length,
+        md5Hash: md5Hash,
         uploadedAt: new Date().toISOString()
       })
     } else {
@@ -1374,13 +1457,15 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
         Key: key,
         Body: fileContent,
         ContentType: file.type === 'text/xml' ? 'text/xml' : 'application/octet-stream',
+        ContentMD5: Buffer.from(md5Hash, 'hex').toString('base64'),
         Metadata: {
           'delivery-id': deliveryPackage.deliveryId,
           'message-id': deliveryPackage.metadata.messageId,
           'test-mode': String(deliveryPackage.metadata.testMode),
           'original-name': file.originalName || '',
           'ddex-name': file.name,
-          'upc': deliveryPackage.upc || ''
+          'upc': deliveryPackage.upc || '',
+          'md5-hash': md5Hash
         }
       })
 
@@ -1392,11 +1477,12 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
         location: `https://${bucket}.s3.${target.region || target.connection?.region}.amazonaws.com/${key}`,
         etag: result.ETag,
         size: fileContent.length,
+        md5Hash: md5Hash,
         uploadedAt: new Date().toISOString()
       })
     }
     
-    console.log(`S3: Uploaded ${file.name}`)
+    console.log(`S3: Uploaded ${file.name} (MD5: ${md5Hash})`)
   }
 
   if (deliveryId && deliveryId !== 'test') {
@@ -1408,7 +1494,8 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
         bucket,
         filesUploaded: uploadedFiles.length,
         totalSize: uploadedFiles.reduce((sum, f) => sum + f.size, 0),
-        upc: deliveryPackage.upc
+        upc: deliveryPackage.upc,
+        md5Hashes: uploadedFiles.map(f => ({ name: f.name, md5: f.md5Hash }))
       }
     })
   }
@@ -1511,7 +1598,7 @@ async function deliverViaAPI(target, deliveryPackage, deliveryId) {
 }
 
 /**
- * Azure Blob Storage Implementation with DDEX naming
+ * Azure Blob Storage Implementation with DDEX naming and MD5 hashing
  */
 async function deliverViaAzure(target, deliveryPackage, deliveryId) {
   const accountName = target.accountName || target.connection?.accountName
@@ -1544,23 +1631,33 @@ async function deliverViaAzure(target, deliveryPackage, deliveryId) {
     console.log(`Azure: Uploading to blob: ${blobName}`)
     
     let fileContent
+    let md5Hash
+    
     if (file.needsDownload) {
       const response = await axios.get(file.url, { responseType: 'arraybuffer' })
       fileContent = Buffer.from(response.data)
     } else {
       fileContent = Buffer.from(file.content)
     }
+    
+    // Calculate MD5 hash
+    md5Hash = calculateMD5(fileContent)
+    console.log(`Azure: MD5 hash: ${md5Hash}`)
 
     const uploadResponse = await blockBlobClient.upload(
       fileContent,
       fileContent.length,
       {
+        blobHTTPHeaders: {
+          blobContentMD5: Buffer.from(md5Hash, 'hex').toString('base64')
+        },
         metadata: {
           deliveryId: deliveryPackage.deliveryId,
           messageId: deliveryPackage.metadata.messageId,
           originalName: file.originalName || '',
           ddexName: file.name,
-          upc: deliveryPackage.upc || ''
+          upc: deliveryPackage.upc || '',
+          md5Hash: md5Hash
         }
       }
     )
@@ -1570,10 +1667,11 @@ async function deliverViaAzure(target, deliveryPackage, deliveryId) {
       originalName: file.originalName,
       etag: uploadResponse.etag,
       size: fileContent.length,
+      md5Hash: md5Hash,
       uploadedAt: new Date().toISOString()
     })
     
-    console.log(`Azure: Uploaded ${file.name}`)
+    console.log(`Azure: Uploaded ${file.name} (MD5: ${md5Hash})`)
   }
 
   if (deliveryId && deliveryId !== 'test') {
@@ -1585,7 +1683,8 @@ async function deliverViaAzure(target, deliveryPackage, deliveryId) {
         container: containerName,
         filesUploaded: uploadedFiles.length,
         totalSize: uploadedFiles.reduce((sum, f) => sum + f.size, 0),
-        upc: deliveryPackage.upc
+        upc: deliveryPackage.upc,
+        md5Hashes: uploadedFiles.map(f => ({ name: f.name, md5: f.md5Hash }))
       }
     })
   }
