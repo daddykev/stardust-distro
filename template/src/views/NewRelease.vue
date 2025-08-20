@@ -155,10 +155,10 @@ const validateBasicInfo = () => {
     const barcode = basic.barcode.trim()
     
     // Remove any spaces or hyphens
-    const cleanBarcode = barcode.replace(/[\s-]/g, '')
+    const cleanBarcode = barcode.replace(/[\\s-]/g, '')
     
     // Check if it's all digits
-    if (!/^\d+$/.test(cleanBarcode)) {
+    if (!/^\\d+$/.test(cleanBarcode)) {
       errors.push('Barcode must contain only numbers')
     } 
     // Check length (UPC-A is 12 digits, EAN-13 is 13 digits, EAN-14 is 14 digits)
@@ -182,7 +182,7 @@ const validateBasicInfo = () => {
       errors.push('Catalog number must be less than 50 characters')
     }
     // Allow alphanumeric, hyphens, and underscores
-    if (!/^[A-Za-z0-9\-_]+$/.test(catalogNumber)) {
+    if (!/^[A-Za-z0-9\\-_]+$/.test(catalogNumber)) {
       errors.push('Catalog number can only contain letters, numbers, hyphens, and underscores')
     }
   }
@@ -216,6 +216,88 @@ const validateEANChecksum = (ean) => {
   
   const checkDigit = (10 - (sum % 10)) % 10
   return checkDigit === parseInt(ean[12])
+}
+
+// Helper function to clean File objects from data
+const cleanDataForFirestore = (data) => {
+  return {
+    ...data,
+    assets: {
+      ...data.assets,
+      coverImage: data.assets.coverImage?.url ? {
+        url: data.assets.coverImage.url,
+        name: data.assets.coverImage.name,
+        size: data.assets.coverImage.size,
+        dimensions: data.assets.coverImage.dimensions
+      } : null,
+      additionalImages: (data.assets.additionalImages || []).filter(img => img?.url).map(img => ({
+        url: img.url,
+        name: img.name,
+        size: img.size,
+        dimensions: img.dimensions
+      }))
+    },
+    tracks: data.tracks.map(track => ({
+      ...track,
+      audio: track.audio?.url ? {
+        url: track.audio.url,
+        name: track.audio.name,
+        size: track.audio.size,
+        format: track.audio.format,
+        duration: track.audio.duration
+      } : null
+    }))
+  }
+}
+
+// Helper function to upload pending files
+const uploadPendingFiles = async () => {
+  if (!releaseId.value) return
+  
+  // Upload cover image if it's a File object
+  if (releaseData.value.assets.coverImage?.file) {
+    try {
+      const coverResult = await uploadCoverImage(
+        releaseData.value.assets.coverImage.file, 
+        releaseId.value
+      )
+      releaseData.value.assets.coverImage = coverResult
+    } catch (err) {
+      console.error('Error uploading cover:', err)
+    }
+  }
+  
+  // Upload track audio files
+  for (let i = 0; i < releaseData.value.tracks.length; i++) {
+    const track = releaseData.value.tracks[i]
+    if (track.audio?.file) {
+      try {
+        // First ensure the track has been created in Firestore
+        if (!track.id) {
+          const newTrack = await addTrack(releaseId.value, {
+            title: track.title,
+            artist: track.artist,
+            duration: track.duration || 0,
+            isrc: track.isrc || '',
+            sequenceNumber: i + 1
+          })
+          releaseData.value.tracks[i].id = newTrack.id
+        }
+        
+        const audioResult = await uploadTrackAudio(
+          track.audio.file,
+          releaseId.value,
+          releaseData.value.tracks[i].id,
+          (progress) => {
+            uploadProgress.value[`track_${releaseData.value.tracks[i].id}`] = progress
+          }
+        )
+        releaseData.value.tracks[i].audio = audioResult
+      } catch (err) {
+        console.error(`Error uploading audio for track ${i + 1}:`, err)
+      }
+    }
+  }
 }
 
 const canProceed = computed(() => {
@@ -304,6 +386,8 @@ const scheduleAutoSave = () => {
   }
   
   autoSaveTimer.value = setTimeout(() => {
+    // Only auto-save if we have a release ID (existing release)
+    // For new releases, wait until the user explicitly saves
     if (hasUnsavedChanges.value && releaseId.value) {
       autoSave()
     }
@@ -314,7 +398,10 @@ const autoSave = async () => {
   if (!hasUnsavedChanges.value) return
   
   try {
-    await saveDraft(releaseData.value, releaseId.value)
+    // Clean the data before saving - remove File objects
+    const cleanedData = cleanDataForFirestore(releaseData.value)
+    
+    await saveDraft(cleanedData, releaseId.value)
     lastSavedAt.value = new Date()
     hasUnsavedChanges.value = false
   } catch (err) {
@@ -328,11 +415,17 @@ const saveAsDraft = async () => {
   
   isSaving.value = true
   try {
-    const draft = await saveDraft(releaseData.value, releaseId.value)
+    // Clean the data before saving - remove File objects
+    const cleanedData = cleanDataForFirestore(releaseData.value)
+    
+    const draft = await saveDraft(cleanedData, releaseId.value)
     
     if (!releaseId.value) {
       // If new release, update the ID for future saves
       releaseId.value = draft.id
+      
+      // Now upload any pending files
+      await uploadPendingFiles()
     }
     
     lastSavedAt.value = new Date()
@@ -359,19 +452,37 @@ const generateERN = async () => {
   
   isSaving.value = true
   try {
-    // First, create or update the release
     let release
-    if (releaseId.value) {
+    
+    // First, we need to handle file uploads if this is a new release
+    if (!releaseId.value) {
+      // Clean the data first
+      const cleanedData = cleanDataForFirestore(releaseData.value)
+      
+      // Create a draft release first to get an ID
+      release = await createRelease({
+        ...cleanedData,
+        status: 'draft'
+      })
+      
+      releaseId.value = release.id
+      
+      // Now upload any pending files
+      await uploadPendingFiles()
+      
+      // Update the release to ready status
+      const finalData = cleanDataForFirestore(releaseData.value)
       release = await updateRelease(releaseId.value, {
-        ...releaseData.value,
+        ...finalData,
         status: 'ready'
       })
     } else {
-      release = await createRelease({
-        ...releaseData.value,
+      // Existing release - just update it
+      const cleanedData = cleanDataForFirestore(releaseData.value)
+      release = await updateRelease(releaseId.value, {
+        ...cleanedData,
         status: 'ready'
       })
-      releaseId.value = release.id
     }
     
     // TODO: In the future, this will call the ERN generation service
@@ -385,7 +496,7 @@ const generateERN = async () => {
     }, 1500)
   } catch (err) {
     console.error('Error generating ERN:', err)
-    await showErrorToast('Failed to create release')
+    await showErrorToast(err.message || 'Failed to create release')
   } finally {
     isSaving.value = false
   }
