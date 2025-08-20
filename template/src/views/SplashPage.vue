@@ -70,11 +70,11 @@ const pluginExamples = [
 ]
 
 const codeExample = ref(`# Install and deploy your distribution platform
-npx create-stardust-distro my-label
-cd my-label
+npx stardust-distro create my-distro  # Coming Soon
+cd my-distro
 npm run deploy
 
-# Or clone the repo to explore the complete platform
+# Clone the repo and explore the platform (available now)
 git clone https://github.com/daddykev/stardust-distro.git
 cd stardust-distro/template
 npm install
@@ -368,7 +368,7 @@ const copyCode = () => {
           <div class="quick-start-content">
             <h2 class="section-title">Try the Platform</h2>
             <p class="section-description">
-              The core platform is fully functional - start distributing today!
+              The core platform is functional - start exploring today!
             </p>
           </div>
           <div class="code-block">
@@ -849,6 +849,12 @@ const copyCode = () => {
   font-size: var(--text-sm);
   line-height: var(--leading-relaxed);
   white-space: pre-wrap;
+  text-align: left;  /* Add explicit left alignment */
+}
+
+.code-block code {
+  text-align: left;  /* Ensure code is also left-aligned */
+  display: block;
 }
 
 .copy-btn {
