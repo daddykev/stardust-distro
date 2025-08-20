@@ -1,8 +1,19 @@
 // src/services/ern.js
 import { db } from '../firebase'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
-import { escapeUrlForXml } from '../utils/urlUtils'
 import { getFunctions, httpsCallable } from 'firebase/functions'
+import { create } from 'xmlbuilder2'
+
+// Constants for magic numbers
+const TEN_MINUTES_IN_SECONDS = 600
+const THIRTY_MINUTES_IN_SECONDS = 1800
+const DEFAULT_IMAGE_WIDTH = 3000
+const DEFAULT_IMAGE_HEIGHT = 3000
+const DEFAULT_IMAGE_RESOLUTION = 300
+const DEFAULT_AUDIO_CHANNELS = 2
+const DEFAULT_BITS_PER_SAMPLE = 16
+const DEFAULT_SAMPLING_RATE = 44100
+const DEFAULT_BITRATE = 1411
 
 export class ERNService {
   constructor() {
@@ -24,23 +35,22 @@ export class ERNService {
       return sum + duration
     }, 0)
     
-    // Check if any track exceeds 10 minutes (600 seconds)
+    // Check if any track exceeds 10 minutes
     const hasLongTrack = tracks.some(track => {
       const duration = track.duration || track.audio?.duration || 0
-      return duration > 600
+      return duration > TEN_MINUTES_IN_SECONDS
     })
     
     // Determine classification based on industry standards
     let classification = {
-      releaseType: 'Album',        // DDEX ReleaseType
-      commercialType: 'Album',     // Industry classification
-      profile: 'Audio',            // ERN Profile
-      rationale: ''                // Explanation for classification
+      releaseType: 'Album',
+      commercialType: 'Album',
+      profile: 'Audio',
+      rationale: ''
     }
     
     // Apply Apple Music's classification rules (industry standard)
     if (trackCount === 0) {
-      // No tracks - invalid
       classification = {
         releaseType: 'UserDefined',
         commercialType: 'Invalid',
@@ -48,28 +58,23 @@ export class ERNService {
         rationale: 'No tracks in release'
       }
     } else if (trackCount === 1) {
-      // Single track
-      if (totalDuration > 600) {
-        // Single track over 10 minutes = EP/Album depending on DSP
+      if (totalDuration > TEN_MINUTES_IN_SECONDS) {
         classification = {
-          releaseType: 'Album',  // Send as Album, DSPs will classify
+          releaseType: 'Album',
           commercialType: 'EP',
-          profile: 'Audio',      // Use Audio for better metadata support
+          profile: 'Audio',
           rationale: `Single track over 10 minutes (${Math.round(totalDuration/60)}min)`
         }
       } else {
-        // True single
         classification = {
           releaseType: 'Single',
           commercialType: 'Single',
-          profile: 'SimpleAudioSingle',  // Can use simple profile for true singles
+          profile: 'SimpleAudioSingle',
           rationale: `Single track under 10 minutes`
         }
       }
     } else if (trackCount >= 2 && trackCount <= 3) {
-      // 2-3 tracks
-      if (totalDuration > 1800) {
-        // Over 30 minutes = Album
+      if (totalDuration > THIRTY_MINUTES_IN_SECONDS) {
         classification = {
           releaseType: 'Album',
           commercialType: 'Album',
@@ -77,15 +82,13 @@ export class ERNService {
           rationale: `${trackCount} tracks over 30 minutes total`
         }
       } else if (hasLongTrack) {
-        // Has a track over 10 minutes = EP
         classification = {
-          releaseType: 'Album',  // Send as Album for EP
+          releaseType: 'Album',
           commercialType: 'EP',
           profile: 'Audio',
           rationale: `${trackCount} tracks with at least one over 10 minutes`
         }
       } else {
-        // 2-3 tracks, all under 10 minutes, total under 30 minutes = Single
         classification = {
           releaseType: 'Single',
           commercialType: 'Single',
@@ -94,9 +97,7 @@ export class ERNService {
         }
       }
     } else if (trackCount >= 4 && trackCount <= 6) {
-      // 4-6 tracks
-      if (totalDuration > 1800) {
-        // Over 30 minutes = Album
+      if (totalDuration > THIRTY_MINUTES_IN_SECONDS) {
         classification = {
           releaseType: 'Album',
           commercialType: 'Album',
@@ -104,16 +105,14 @@ export class ERNService {
           rationale: `${trackCount} tracks over 30 minutes total`
         }
       } else {
-        // 4-6 tracks under 30 minutes = EP
         classification = {
-          releaseType: 'Album',  // Send as Album for EP
+          releaseType: 'Album',
           commercialType: 'EP',
           profile: 'Audio',
           rationale: `${trackCount} tracks under 30 minutes (EP range)`
         }
       }
     } else {
-      // 7+ tracks = Album
       classification = {
         releaseType: 'Album',
         commercialType: 'Album',
@@ -125,24 +124,14 @@ export class ERNService {
     // Check if user manually specified a type that should override
     const userType = release.basic?.type
     if (userType) {
-      // Map user-friendly types to DDEX ReleaseTypes
-      const userTypeMap = {
-        'Single': 'Single',
-        'EP': 'Album',        // EP must be sent as Album
-        'Album': 'Album',
-        'Compilation': 'Album'
-      }
-      
-      // Only override if user's choice is compatible with track count
-      if (userType === 'Single' && trackCount <= 3 && totalDuration < 1800 && !hasLongTrack) {
+      if (userType === 'Single' && trackCount <= 3 && totalDuration < THIRTY_MINUTES_IN_SECONDS && !hasLongTrack) {
         classification.releaseType = 'Single'
         classification.commercialType = 'Single'
-      } else if (userType === 'EP' && trackCount >= 1 && trackCount <= 6 && totalDuration < 1800) {
-        classification.releaseType = 'Album'  // Must send as Album
+      } else if (userType === 'EP' && trackCount >= 1 && trackCount <= 6 && totalDuration < THIRTY_MINUTES_IN_SECONDS) {
+        classification.releaseType = 'Album'
         classification.commercialType = 'EP'
         classification.rationale += ' (User specified EP)'
       } else if (userType === 'Compilation') {
-        // Add Compilation as secondary type
         classification.releaseType = 'Album'
         classification.secondaryTypes = ['Compilation']
         classification.rationale += ' (Compilation)'
@@ -169,9 +158,11 @@ export class ERNService {
    * Calculate MD5 hash for a file from URL using Cloud Function
    */
   async calculateFileMD5(url) {
+    if (!url) {
+      throw new Error('No URL provided for MD5 calculation')
+    }
+    
     try {
-      if (!url) return 'NO_URL_PROVIDED'
-      
       console.log(`Calculating MD5 for: ${url}`)
       const functions = getFunctions()
       const calculateMD5 = httpsCallable(functions, 'calculateFileMD5')
@@ -180,7 +171,7 @@ export class ERNService {
       return result.data.md5
     } catch (error) {
       console.error('Error calculating MD5:', error)
-      return 'ERROR_CALCULATING_MD5'
+      throw new Error(`Failed to calculate MD5 for ${url}: ${error.message}`)
     }
   }
 
@@ -191,7 +182,19 @@ export class ERNService {
     try {
       // Fetch release data
       const release = await this.getRelease(releaseId)
-      const upc = release.basic?.barcode || '0000000000000'
+      
+      // Validate critical data
+      if (!release.basic?.barcode) {
+        throw new Error('Release must have a valid UPC/barcode')
+      }
+      
+      const upc = release.basic.barcode
+      
+      // Validate tracks have ISRCs
+      const tracksWithoutISRC = (release.tracks || []).filter(t => !t.isrc && !t.metadata?.isrc)
+      if (tracksWithoutISRC.length > 0) {
+        throw new Error(`${tracksWithoutISRC.length} track(s) missing ISRC codes`)
+      }
       
       // Classify the release
       const classification = this.classifyRelease(release)
@@ -212,14 +215,14 @@ export class ERNService {
         coverImageUrl
       )
       
-      // Build ERN XML with correct profile
-      const ernXml = this.buildERN(product, resourceData, {
+      // Build ERN XML with correct profile using xmlbuilder2
+      const ernXml = await this.buildERNWithBuilder(product, resourceData, {
         messageControlType: targetConfig.testMode ? 'TestMessage' : 'LiveMessage',
         messageSender: targetConfig.senderName || release.basic?.label || 'Stardust Distro',
         messageRecipient: targetConfig.partyName || 'DSP',
         senderPartyId: targetConfig.senderPartyId,
         recipientPartyId: targetConfig.partyId,
-        profile: classification.profile  // Use classified profile
+        profile: classification.profile
       })
       
       // Save ERN and classification to release record
@@ -260,10 +263,10 @@ export class ERNService {
     
     return {
       releaseReference: `R${release.id.substr(0, 10).toUpperCase()}`,
-      releaseType: releaseType,  // Use classified type
+      releaseType: releaseType,
       secondaryReleaseTypes: secondaryTypes,
-      commercialType: classification.commercialType,  // For internal tracking
-      upc: basic.barcode || '0000000000000',
+      commercialType: classification.commercialType,
+      upc: basic.barcode,
       catalogNumber: basic.catalogNumber,
       title: basic.title || 'Untitled',
       artist: basic.displayArtist || 'Unknown Artist',
@@ -314,7 +317,7 @@ export class ERNService {
   /**
    * Transform tracks to resources with DDEX-compliant file naming and MD5 calculation
    */
-  async transformToResources(tracks, upc = '0000000000000', coverImageUrl) {
+  async transformToResources(tracks, upc, coverImageUrl) {
     const discNumber = '01' // Default to disc 01
     
     // Calculate MD5 for audio files
@@ -336,13 +339,19 @@ export class ERNService {
           audioMD5 = await this.calculateFileMD5(audioUrl)
         } catch (error) {
           console.error(`Failed to calculate MD5 for track ${index + 1}:`, error)
+          // Continue processing even if MD5 fails
+          audioMD5 = 'MD5_CALCULATION_FAILED'
         }
       }
       
       const trackTitle = track.title || track.metadata?.title || `Track ${index + 1}`
       const trackArtist = track.artist || track.metadata?.displayArtist || track.displayArtist || 'Unknown Artist'
       const trackDuration = track.duration || track.metadata?.duration || track.audio?.duration || 0
-      const trackISRC = track.isrc || track.metadata?.isrc || `XX000000000${index + 1}`
+      const trackISRC = track.isrc || track.metadata?.isrc
+      
+      if (!trackISRC) {
+        throw new Error(`Track ${index + 1} (${trackTitle}) is missing ISRC code`)
+      }
       
       return {
         resourceReference: `A${(index + 1).toString().padStart(3, '0')}`,
@@ -354,10 +363,10 @@ export class ERNService {
         fileUri: audioUrl || '',
         audioMD5: audioMD5,
         codecType: audioFormat === 'WAV' ? 'PCM' : audioFormat || 'PCM',
-        bitRate: track.audio?.bitrate || '1411',
-        samplingRate: track.audio?.sampleRate || '44100',
-        bitsPerSample: '16',
-        channels: '2',
+        bitRate: track.audio?.bitrate || DEFAULT_BITRATE,
+        samplingRate: track.audio?.sampleRate || DEFAULT_SAMPLING_RATE,
+        bitsPerSample: DEFAULT_BITS_PER_SAMPLE,
+        channels: DEFAULT_AUDIO_CHANNELS,
         genre: track.genre || track.metadata?.genre,
         parentalWarning: track.parentalWarning || track.metadata?.parentalWarning,
         languageOfPerformance: track.language || track.metadata?.language || 'en',
@@ -367,7 +376,7 @@ export class ERNService {
         pLineText: track.pLineText || track.metadata?.pLineText,
         previewDetails: track.preview ? {
           startPoint: track.preview.startTime || 30,
-          endPoint: track.preview.startTime + track.preview.duration || 60
+          endPoint: (track.preview.startTime || 30) + (track.preview.duration || 30)
         } : null
       }
     }))
@@ -379,28 +388,33 @@ export class ERNService {
         coverMD5 = await this.calculateFileMD5(coverImageUrl)
       } catch (error) {
         console.error('Failed to calculate MD5 for cover image:', error)
+        // Continue processing even if MD5 fails
+        coverMD5 = 'MD5_CALCULATION_FAILED'
       }
     }
     
     return {
       audioResources,
-      coverMD5
+      coverMD5,
+      coverImageUrl
     }
   }
 
   /**
-   * Build ERN XML with proper profile
+   * Build ERN XML using xmlbuilder2 for safety and correctness
    */
-  buildERN(product, resourceData, options = {}) {
+  async buildERNWithBuilder(product, resourceData, options = {}) {
     const messageId = this.generateMessageId()
     const createdDate = new Date().toISOString()
     
     // Use the profile from classification
     const profile = options.profile || 'Audio'
+    const profileVersion = profile === 'SimpleAudioSingle' ? 'SimpleAudioSingle/23' : 'Audio/23'
     
-    // Extract resources and coverMD5 from resourceData
+    // Extract resources and coverMD5
     const resources = resourceData.audioResources || resourceData
     const coverMD5 = resourceData.coverMD5 || 'PENDING'
+    const coverImageUrl = resourceData.coverImageUrl
     
     const config = {
       messageControlType: options.messageControlType || 'TestMessage',
@@ -411,235 +425,313 @@ export class ERNService {
       ...options
     }
     
-    // Build ERN with correct profile versioning
-    const profileVersion = profile === 'SimpleAudioSingle' ? 'SimpleAudioSingle/23' : 'Audio/23'
+    // Build ERN with xmlbuilder2
+    const doc = create({ version: '1.0', encoding: 'UTF-8' })
     
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<ern:NewReleaseMessage xmlns:ern="${this.namespace}" 
-  xmlns:xs="http://www.w3.org/2001/XMLSchema-instance"
-  MessageSchemaVersionId="ern/43"
-  ReleaseProfileVersionId="${profileVersion}"
-  LanguageAndScriptCode="en">
-  
-  <MessageHeader>
-    <MessageId>${messageId}</MessageId>
-    <MessageCreatedDateTime>${createdDate}</MessageCreatedDateTime>
-    <MessageControlType>${config.messageControlType}</MessageControlType>
-    <MessageSender>
-      ${config.senderPartyId ? `<PartyId>${config.senderPartyId}</PartyId>` : ''}
-      <PartyName>
-        <FullName>${this.escapeXml(config.messageSender)}</FullName>
-      </PartyName>
-    </MessageSender>
-    <MessageRecipient>
-      ${config.recipientPartyId ? `<PartyId>${config.recipientPartyId}</PartyId>` : ''}
-      <PartyName>
-        <FullName>${this.escapeXml(config.messageRecipient)}</FullName>
-      </PartyName>
-    </MessageRecipient>
-  </MessageHeader>
-  
-  ${this.buildResourceList(resources, product.upc, coverMD5)}
-  ${this.buildReleaseList(product, resources)}
-  ${this.buildDealList(product)}
-  
-</ern:NewReleaseMessage>`
+    const ernMessage = doc.ele('ern:NewReleaseMessage', {
+      'xmlns:ern': this.namespace,
+      'xmlns:xs': 'http://www.w3.org/2001/XMLSchema-instance',
+      'MessageSchemaVersionId': 'ern/43',
+      'ReleaseProfileVersionId': profileVersion,
+      'LanguageAndScriptCode': 'en'
+    })
+    
+    // Build MessageHeader
+    const messageHeader = ernMessage.ele('MessageHeader')
+    messageHeader.ele('MessageId').txt(messageId)
+    messageHeader.ele('MessageCreatedDateTime').txt(createdDate)
+    messageHeader.ele('MessageControlType').txt(config.messageControlType)
+    
+    const messageSender = messageHeader.ele('MessageSender')
+    if (config.senderPartyId) {
+      messageSender.ele('PartyId').txt(config.senderPartyId)
+    }
+    messageSender.ele('PartyName').ele('FullName').txt(config.messageSender)
+    
+    const messageRecipient = messageHeader.ele('MessageRecipient')
+    if (config.recipientPartyId) {
+      messageRecipient.ele('PartyId').txt(config.recipientPartyId)
+    }
+    messageRecipient.ele('PartyName').ele('FullName').txt(config.messageRecipient)
+    
+    // Build ResourceList
+    this.buildResourceListWithBuilder(ernMessage, resources, product.upc, coverMD5, coverImageUrl)
+    
+    // Build ReleaseList
+    this.buildReleaseListWithBuilder(ernMessage, product, resources)
+    
+    // Build DealList
+    this.buildDealListWithBuilder(ernMessage, product)
+    
+    // Convert to XML string
+    return doc.end({ prettyPrint: true })
   }
 
-  buildResourceList(resources, upc, coverMD5) {
-    return `<ResourceList>
-    ${resources.map(resource => this.buildSoundRecording(resource)).join('\\n    ')}
-    ${this.buildImageResource(upc, coverMD5)}
-  </ResourceList>`
+  /**
+   * Build ResourceList using xmlbuilder2
+   */
+  buildResourceListWithBuilder(parent, resources, upc, coverMD5, coverImageUrl) {
+    const resourceList = parent.ele('ResourceList')
+    
+    // Add sound recordings
+    for (const resource of resources) {
+      this.buildSoundRecordingWithBuilder(resourceList, resource)
+    }
+    
+    // Add image resource
+    this.buildImageResourceWithBuilder(resourceList, upc, coverMD5, coverImageUrl)
   }
 
-  buildSoundRecording(resource) {
+  /**
+   * Build SoundRecording using xmlbuilder2
+   */
+  buildSoundRecordingWithBuilder(parent, resource) {
+    const soundRecording = parent.ele('SoundRecording')
+    
+    soundRecording.ele('SoundRecordingType').txt('MusicalWorkSoundRecording')
+    soundRecording.ele('ResourceReference').txt(resource.resourceReference)
+    
+    const resourceId = soundRecording.ele('ResourceId')
+    resourceId.ele('ISRC').txt(resource.isrc)
+    
+    const referenceTitle = soundRecording.ele('ReferenceTitle')
+    referenceTitle.ele('TitleText').txt(resource.title)
+    
+    soundRecording.ele('DisplayTitleText').txt(resource.title)
+    
+    const displayArtist = soundRecording.ele('DisplayArtist')
+    displayArtist.ele('PartyName').ele('FullName').txt(resource.artist)
+    
+    soundRecording.ele('Duration').txt(resource.duration)
+    
+    if (resource.genre) {
+      soundRecording.ele('Genre').ele('GenreText').txt(resource.genre)
+    }
+    
+    if (resource.parentalWarning) {
+      soundRecording.ele('ParentalWarningType').txt(resource.parentalWarning)
+    }
+    
+    if (resource.languageOfPerformance) {
+      soundRecording.ele('LanguageOfPerformance').txt(resource.languageOfPerformance)
+    }
+    
+    soundRecording.ele('IsArtistRelated').txt('true')
+    
     const pLineYear = resource.pLineYear || new Date().getFullYear()
     const pLineText = this.formatPLineText(resource.pLineText, pLineYear, resource.label || resource.artist)
     
-    return `<SoundRecording>
-    <SoundRecordingType>MusicalWorkSoundRecording</SoundRecordingType>
-    <ResourceReference>${resource.resourceReference}</ResourceReference>
-    <ResourceId>
-      <ISRC>${resource.isrc}</ISRC>
-    </ResourceId>
-    <ReferenceTitle>
-      <TitleText>${this.escapeXml(resource.title)}</TitleText>
-    </ReferenceTitle>
-    <DisplayTitleText>${this.escapeXml(resource.title)}</DisplayTitleText>
-    <DisplayArtist>
-      <PartyName>
-        <FullName>${this.escapeXml(resource.artist)}</FullName>
-      </PartyName>
-    </DisplayArtist>
-    <Duration>${resource.duration}</Duration>
-    ${resource.genre ? `<Genre>
-      <GenreText>${this.escapeXml(resource.genre)}</GenreText>
-    </Genre>` : ''}
-    ${resource.parentalWarning ? `<ParentalWarningType>${resource.parentalWarning}</ParentalWarningType>` : ''}
-    ${resource.languageOfPerformance ? `<LanguageOfPerformance>${resource.languageOfPerformance}</LanguageOfPerformance>` : ''}
-    <IsArtistRelated>true</IsArtistRelated>
-    <PLine>
-      <Year>${pLineYear}</Year>
-      <PLineText>${this.escapeXml(pLineText)}</PLineText>
-    </PLine>
-    ${resource.contributors && resource.contributors.length > 0 ? 
-      resource.contributors
-        .filter(contrib => contrib.name)
-        .map(contrib => `<ResourceContributor>
-      <PartyName>
-        <FullName>${this.escapeXml(contrib.name)}</FullName>
-      </PartyName>
-      <ResourceContributorRole>${contrib.role}</ResourceContributorRole>
-    </ResourceContributor>`).join('\\n    ') : ''}
-    <TechnicalDetails>
-      <TechnicalResourceDetailsReference>T${resource.resourceReference}</TechnicalResourceDetailsReference>
-      <AudioCodecType>${resource.codecType || 'PCM'}</AudioCodecType>
-      <BitRate>${resource.bitRate || '1411'}</BitRate>
-      <SamplingRate>${resource.samplingRate || '44100'}</SamplingRate>
-      <BitsPerSample>${resource.bitsPerSample || '16'}</BitsPerSample>
-      <NumberOfChannels>${resource.channels || '2'}</NumberOfChannels>
-      <File>
-        <FileName>${resource.ddexFileName}</FileName>
-        <FilePath>${resource.ddexFileName}</FilePath>
-        <URI>${escapeUrlForXml(resource.fileUri)}</URI>
-        <HashSum>
-          <HashSumAlgorithmType>MD5</HashSumAlgorithmType>
-          <HashSum>${resource.audioMD5 || 'PENDING'}</HashSum>
-        </HashSum>
-      </File>
-      ${resource.previewDetails ? `<PreviewDetails>
-        <StartPoint>${resource.previewDetails.startPoint || '30'}</StartPoint>
-        <EndPoint>${resource.previewDetails.endPoint || '60'}</EndPoint>
-        <Duration>PT${(resource.previewDetails.endPoint || 60) - (resource.previewDetails.startPoint || 30)}S</Duration>
-        <TopLeftCorner>0</TopLeftCorner>
-        <BottomRightCorner>0</BottomRightCorner>
-        <ExpressionType>Full</ExpressionType>
-      </PreviewDetails>` : ''}
-    </TechnicalDetails>
-  </SoundRecording>`
+    const pLine = soundRecording.ele('PLine')
+    pLine.ele('Year').txt(String(pLineYear))
+    pLine.ele('PLineText').txt(pLineText)
+    
+    // Add contributors if present
+    if (resource.contributors && resource.contributors.length > 0) {
+      for (const contrib of resource.contributors.filter(c => c.name)) {
+        const contributor = soundRecording.ele('ResourceContributor')
+        contributor.ele('PartyName').ele('FullName').txt(contrib.name)
+        contributor.ele('ResourceContributorRole').txt(contrib.role)
+      }
+    }
+    
+    // Technical Details
+    const technicalDetails = soundRecording.ele('TechnicalDetails')
+    technicalDetails.ele('TechnicalResourceDetailsReference').txt(`T${resource.resourceReference}`)
+    technicalDetails.ele('AudioCodecType').txt(resource.codecType || 'PCM')
+    technicalDetails.ele('BitRate').txt(String(resource.bitRate || DEFAULT_BITRATE))
+    technicalDetails.ele('SamplingRate').txt(String(resource.samplingRate || DEFAULT_SAMPLING_RATE))
+    technicalDetails.ele('BitsPerSample').txt(String(resource.bitsPerSample || DEFAULT_BITS_PER_SAMPLE))
+    technicalDetails.ele('NumberOfChannels').txt(String(resource.channels || DEFAULT_AUDIO_CHANNELS))
+    
+    const file = technicalDetails.ele('File')
+    file.ele('FileName').txt(resource.ddexFileName)
+    file.ele('FilePath').txt(resource.ddexFileName)
+    if (resource.fileUri) {
+      file.ele('URI').txt(resource.fileUri)
+    }
+    
+    const hashSum = file.ele('HashSum')
+    hashSum.ele('HashSumAlgorithmType').txt('MD5')
+    hashSum.ele('HashSum').txt(resource.audioMD5 || 'PENDING')
+    
+    // Add preview details if present
+    if (resource.previewDetails) {
+      const preview = technicalDetails.ele('PreviewDetails')
+      preview.ele('StartPoint').txt(String(resource.previewDetails.startPoint || 30))
+      preview.ele('EndPoint').txt(String(resource.previewDetails.endPoint || 60))
+      const previewDuration = (resource.previewDetails.endPoint || 60) - (resource.previewDetails.startPoint || 30)
+      preview.ele('Duration').txt(`PT${previewDuration}S`)
+      preview.ele('TopLeftCorner').txt('0')
+      preview.ele('BottomRightCorner').txt('0')
+      preview.ele('ExpressionType').txt('Full')
+    }
   }
 
-  buildImageResource(upc, coverMD5, coverImageUrl) {
-    return `<Image>
-    <ImageType>FrontCoverImage</ImageType>
-    <ResourceReference>I001</ResourceReference>
-    <ImageId>
-      <ProprietaryId Namespace="DPID:PADPIDA2023081501R">${upc}_IMG_001</ProprietaryId>
-    </ImageId>
-    <TechnicalDetails>
-      <TechnicalResourceDetailsReference>TI001</TechnicalResourceDetailsReference>
-      <ImageCodecType>JPEG</ImageCodecType>
-      <ImageWidth>3000</ImageWidth>
-      <ImageHeight>3000</ImageHeight>
-      <ImageResolution>300</ImageResolution>
-      <File>
-        <FileName>${upc}.jpg</FileName>
-        <FilePath>${upc}.jpg</FilePath>
-        ${coverImageUrl ? `<URI>${escapeUrlForXml(coverImageUrl)}</URI>` : ''}
-        <HashSum>
-          <HashSumAlgorithmType>MD5</HashSumAlgorithmType>
-          <HashSum>${coverMD5 || 'PENDING'}</HashSum>
-        </HashSum>
-      </File>
-    </TechnicalDetails>
-  </Image>`
+  /**
+   * Build Image Resource using xmlbuilder2
+   */
+  buildImageResourceWithBuilder(parent, upc, coverMD5, coverImageUrl) {
+    const image = parent.ele('Image')
+    
+    image.ele('ImageType').txt('FrontCoverImage')
+    image.ele('ResourceReference').txt('I001')
+    
+    const imageId = image.ele('ImageId')
+    imageId.ele('ProprietaryId', { 
+      'Namespace': 'DPID:PADPIDA2023081501R' 
+    }).txt(`${upc}_IMG_001`)
+    
+    const technicalDetails = image.ele('TechnicalDetails')
+    technicalDetails.ele('TechnicalResourceDetailsReference').txt('TI001')
+    technicalDetails.ele('ImageCodecType').txt('JPEG')
+    technicalDetails.ele('ImageWidth').txt(String(DEFAULT_IMAGE_WIDTH))
+    technicalDetails.ele('ImageHeight').txt(String(DEFAULT_IMAGE_HEIGHT))
+    technicalDetails.ele('ImageResolution').txt(String(DEFAULT_IMAGE_RESOLUTION))
+    
+    const file = technicalDetails.ele('File')
+    file.ele('FileName').txt(`${upc}.jpg`)
+    file.ele('FilePath').txt(`${upc}.jpg`)
+    
+    // Include URI if we have the cover image URL
+    if (coverImageUrl) {
+      file.ele('URI').txt(coverImageUrl)
+    }
+    
+    const hashSum = file.ele('HashSum')
+    hashSum.ele('HashSumAlgorithmType').txt('MD5')
+    hashSum.ele('HashSum').txt(coverMD5 || 'PENDING')
   }
 
-  buildReleaseList(product, resources) {
-    const releaseDate = product.releaseDate || new Date().toISOString().split('T')[0]
+  /**
+   * Build ReleaseList using xmlbuilder2
+   */
+  buildReleaseListWithBuilder(parent, product, resources) {
+    const releaseList = parent.ele('ReleaseList')
+    const release = releaseList.ele('Release')
     
-    const pLineYear = product.pLineYear || new Date().getFullYear()
-    const pLineText = this.formatPLineText(product.pLineText, pLineYear, product.label)
-    
-    const cLineYear = product.cLineYear || new Date().getFullYear()
-    const cLineText = this.formatCLineText(product.cLineText, cLineYear, product.label)
+    release.ele('ReleaseReference').txt(product.releaseReference)
     
     // Handle multiple release types if present
     const releaseTypes = product.secondaryReleaseTypes && product.secondaryReleaseTypes.length > 0
       ? [product.releaseType, ...product.secondaryReleaseTypes]
       : [product.releaseType]
     
-    return `<ReleaseList>
-  <Release>
-    <ReleaseReference>${product.releaseReference}</ReleaseReference>
-    ${releaseTypes.map(type => `<ReleaseType>${type}</ReleaseType>`).join('\\n    ')}
-    <ReleaseId>
-      <ICPN isEan="true">${product.upc}</ICPN>
-      ${product.catalogNumber ? `<CatalogNumber Namespace="DPID:${product.labelDPID || 'PADPIDA2023081501R'}">${product.catalogNumber}</CatalogNumber>` : ''}
-    </ReleaseId>
-    <ReferenceTitle>
-      <TitleText>${this.escapeXml(product.title)}</TitleText>
-    </ReferenceTitle>
-    <DisplayTitleText>${this.escapeXml(product.title)}</DisplayTitleText>
-    <DisplayArtist>
-      <PartyName>
-        <FullName>${this.escapeXml(product.artist)}</FullName>
-      </PartyName>
-    </DisplayArtist>
-    <LabelName>${this.escapeXml(product.label)}</LabelName>
-    ${product.genre ? `<Genre>
-      <GenreText>${this.escapeXml(product.genre)}</GenreText>
-    </Genre>` : ''}
-    ${product.parentalWarning ? `<ParentalWarningType>${product.parentalWarning}</ParentalWarningType>` : ''}
-    <PLine>
-      <Year>${pLineYear}</Year>
-      <PLineText>${this.escapeXml(pLineText)}</PLineText>
-    </PLine>
-    <CLine>
-      <Year>${cLineYear}</Year>
-      <CLineText>${this.escapeXml(cLineText)}</CLineText>
-    </CLine>
-    <ReleaseDate>${releaseDate}</ReleaseDate>
-    ${product.originalReleaseDate ? `<OriginalReleaseDate>${product.originalReleaseDate}</OriginalReleaseDate>` : ''}
-    <ReleaseResourceReferenceList>
-      ${product.tracks.map((track, index) => 
-        `<ReleaseResourceReference ReleaseResourceType="${index === 0 ? 'PrimaryResource' : 'SecondaryResource'}">${track.resourceReference}</ReleaseResourceReference>`
-      ).join('\\n      ')}
-      <ReleaseResourceReference ReleaseResourceType="SecondaryResource">I001</ReleaseResourceReference>
-    </ReleaseResourceReferenceList>
-  </Release>
-</ReleaseList>`
+    for (const type of releaseTypes) {
+      release.ele('ReleaseType').txt(type)
+    }
+    
+    const releaseId = release.ele('ReleaseId')
+    releaseId.ele('ICPN', { 'isEan': 'true' }).txt(product.upc)
+    
+    if (product.catalogNumber) {
+      releaseId.ele('CatalogNumber', {
+        'Namespace': `DPID:${product.labelDPID || 'PADPIDA2023081501R'}`
+      }).txt(product.catalogNumber)
+    }
+    
+    const referenceTitle = release.ele('ReferenceTitle')
+    referenceTitle.ele('TitleText').txt(product.title)
+    
+    release.ele('DisplayTitleText').txt(product.title)
+    
+    const displayArtist = release.ele('DisplayArtist')
+    displayArtist.ele('PartyName').ele('FullName').txt(product.artist)
+    
+    release.ele('LabelName').txt(product.label)
+    
+    if (product.genre) {
+      release.ele('Genre').ele('GenreText').txt(product.genre)
+    }
+    
+    if (product.parentalWarning) {
+      release.ele('ParentalWarningType').txt(product.parentalWarning)
+    }
+    
+    // PLine
+    const pLineYear = product.pLineYear || new Date().getFullYear()
+    const pLineText = this.formatPLineText(product.pLineText, pLineYear, product.label)
+    
+    const pLine = release.ele('PLine')
+    pLine.ele('Year').txt(String(pLineYear))
+    pLine.ele('PLineText').txt(pLineText)
+    
+    // CLine
+    const cLineYear = product.cLineYear || new Date().getFullYear()
+    const cLineText = this.formatCLineText(product.cLineText, cLineYear, product.label)
+    
+    const cLine = release.ele('CLine')
+    cLine.ele('Year').txt(String(cLineYear))
+    cLine.ele('CLineText').txt(cLineText)
+    
+    const releaseDate = product.releaseDate || new Date().toISOString().split('T')[0]
+    release.ele('ReleaseDate').txt(releaseDate)
+    
+    if (product.originalReleaseDate) {
+      release.ele('OriginalReleaseDate').txt(product.originalReleaseDate)
+    }
+    
+    // ReleaseResourceReferenceList
+    const resourceRefList = release.ele('ReleaseResourceReferenceList')
+    
+    product.tracks.forEach((track, index) => {
+      resourceRefList.ele('ReleaseResourceReference', {
+        'ReleaseResourceType': index === 0 ? 'PrimaryResource' : 'SecondaryResource'
+      }).txt(track.resourceReference)
+    })
+    
+    // Add image reference
+    resourceRefList.ele('ReleaseResourceReference', {
+      'ReleaseResourceType': 'SecondaryResource'
+    }).txt('I001')
   }
 
-  buildDealList(product) {
+  /**
+   * Build DealList using xmlbuilder2
+   */
+  buildDealListWithBuilder(parent, product) {
+    const dealList = parent.ele('DealList')
+    
     const startDate = product.dealStartDate || new Date().toISOString().split('T')[0]
     const commercialModels = product.commercialModels || [{
       type: 'PayAsYouGoModel',
       usageTypes: ['PermanentDownload']
     }]
     
-    const deals = commercialModels.map((model, index) => {
-      return `<ReleaseDeal>
-    <DealReleaseReference>${product.releaseReference}</DealReleaseReference>
-    <Deal>
-      <DealId>${product.releaseReference}_DEAL_${index + 1}</DealId>
-      <DealTerms>
-        <Territory>
-          <TerritoryCode>${product.territoryCode}</TerritoryCode>
-        </Territory>
-        <ValidityPeriod>
-          <StartDate>${startDate}</StartDate>
-          ${product.dealEndDate ? `<EndDate>${product.dealEndDate}</EndDate>` : ''}
-        </ValidityPeriod>
-        <CommercialModelType>${model.type}</CommercialModelType>
-        ${model.usageTypes.map(useType => `<Usage>
-          <UseType>${useType}</UseType>
-        </Usage>`).join('\\n        ')}
-        ${model.price && model.type === 'PayAsYouGoModel' ? `<PriceInformation>
-          <PriceType>WholePrice</PriceType>
-          <Price>
-            <Amount CurrencyCode="${model.currency || 'USD'}">${model.price}</Amount>
-          </Price>
-        </PriceInformation>` : ''}
-      </DealTerms>
-    </Deal>
-  </ReleaseDeal>`
-    }).join('\\n    ')
-    
-    return `<DealList>
-    ${deals}
-  </DealList>`
+    commercialModels.forEach((model, index) => {
+      const releaseDeal = dealList.ele('ReleaseDeal')
+      releaseDeal.ele('DealReleaseReference').txt(product.releaseReference)
+      
+      const deal = releaseDeal.ele('Deal')
+      deal.ele('DealId').txt(`${product.releaseReference}_DEAL_${index + 1}`)
+      
+      const dealTerms = deal.ele('DealTerms')
+      
+      const territory = dealTerms.ele('Territory')
+      territory.ele('TerritoryCode').txt(product.territoryCode)
+      
+      const validityPeriod = dealTerms.ele('ValidityPeriod')
+      validityPeriod.ele('StartDate').txt(startDate)
+      
+      if (product.dealEndDate) {
+        validityPeriod.ele('EndDate').txt(product.dealEndDate)
+      }
+      
+      dealTerms.ele('CommercialModelType').txt(model.type)
+      
+      for (const useType of model.usageTypes) {
+        dealTerms.ele('Usage').ele('UseType').txt(useType)
+      }
+      
+      if (model.price && model.type === 'PayAsYouGoModel') {
+        const priceInfo = dealTerms.ele('PriceInformation')
+        priceInfo.ele('PriceType').txt('WholePrice')
+        
+        const price = priceInfo.ele('Price')
+        price.ele('Amount', {
+          'CurrencyCode': model.currency || 'USD'
+        }).txt(String(model.price))
+      }
+    })
   }
 
   // Helper methods
@@ -695,16 +787,6 @@ export class ERNService {
   extractMessageId(ernXml) {
     const match = ernXml.match(/<MessageId>([^<]+)<\/MessageId>/)
     return match ? match[1] : null
-  }
-
-  escapeXml(text) {
-    if (!text) return ''
-    return text.toString()
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&apos;')
   }
 
   // Database operations
