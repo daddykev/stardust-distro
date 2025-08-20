@@ -25,7 +25,7 @@ const deliveryData = ref({
   scheduledAt: new Date().toISOString().split('T')[0],
   scheduledTime: new Date().toTimeString().split(' ')[0].slice(0, 5),
   priority: 'normal',
-  testMode: true,
+  testMode: false,  // ← Changed from true to false
   notes: ''
 })
 
@@ -300,7 +300,7 @@ const queueDelivery = async () => {
         status: 'queued',
         priority: deliveryData.value.priority,
         scheduledAt: new Date(scheduledDateTime.value),
-        testMode: deliveryData.value.testMode || target.testMode,
+        testMode: deliveryData.value.testMode,
         notes: deliveryData.value.notes,
         
         // ERN data
