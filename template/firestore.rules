@@ -40,5 +40,21 @@ service cloud.firestore {
     match /{document=**} {
       allow read, write: if false;
     }
+
+    // Delivery History - tracks what messages have been sent to which targets
+    match /deliveryHistory/{document=**} {
+      // Allow authenticated users to read - queries will be filtered client-side
+      allow read: if request.auth != null;
+      
+      // Only allow creating documents with the user's tenantId
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.tenantId;
+        
+      // Only allow updating your own documents
+      allow update: if request.auth != null && 
+        request.auth.uid == resource.data.tenantId;
+        
+      allow delete: if false; // Prevent deletion of history
+    }
   }
 }

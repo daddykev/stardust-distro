@@ -6,7 +6,7 @@ import { useCatalog } from '../composables/useCatalog'
 import deliveryTargetService from '../services/deliveryTargets'
 import ernService from '../services/ern'
 import { db } from '../firebase'
-import { collection, addDoc, updateDoc, doc } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, doc, query, where, getDocs, orderBy } from 'firebase/firestore'
 import { validateXmlUrls } from '@/utils/urlUtils'
 
 const route = useRoute()
@@ -25,7 +25,7 @@ const deliveryData = ref({
   scheduledAt: new Date().toISOString().split('T')[0],
   scheduledTime: new Date().toTimeString().split(' ')[0].slice(0, 5),
   priority: 'normal',
-  testMode: false,  // ← Changed from true to false
+  testMode: false,
   notes: ''
 })
 
@@ -43,6 +43,11 @@ const ernErrors = ref({})
 const showERNPreview = ref(false)
 const previewERN = ref(null)
 const previewTargetName = ref('')
+
+// Message type management
+const messageTypes = ref({})
+const takedownDates = ref({})
+const deliveryHistory = ref({})
 
 // Delivery queue
 const isQueuingDelivery = ref(false)
@@ -158,6 +163,9 @@ const toggleTarget = (targetId) => {
     deliveryData.value.selectedTargets.splice(index, 1)
     // Remove generated ERN if exists
     delete generatedERNs.value[targetId]
+    delete messageTypes.value[targetId]
+    delete takedownDates.value[targetId]
+    delete deliveryHistory.value[targetId]
   } else {
     deliveryData.value.selectedTargets.push(targetId)
   }
@@ -170,13 +178,60 @@ const selectAllTargets = () => {
 const deselectAllTargets = () => {
   deliveryData.value.selectedTargets = []
   generatedERNs.value = {}
+  messageTypes.value = {}
+  takedownDates.value = {}
+  deliveryHistory.value = {}
 }
 
-// Update the generateERNs function starting at line 241:
+// Check delivery history for a release/target combination
+const checkDeliveryHistory = async () => {
+  for (const targetId of deliveryData.value.selectedTargets) {
+    try {
+      // Query delivery history
+      const q = query(
+        collection(db, 'deliveryHistory'),
+        where('releaseId', '==', deliveryData.value.releaseId),
+        where('targetId', '==', targetId),
+        where('status', '==', 'completed'),
+        where('messageSubType', 'in', ['Initial', 'Update']),
+        orderBy('deliveredAt', 'desc')
+      )
+      
+      const snapshot = await getDocs(q)
+      const hasBeenDelivered = !snapshot.empty
+      
+      let lastDelivery = null
+      if (hasBeenDelivered && snapshot.docs.length > 0) {
+        lastDelivery = snapshot.docs[0].data()
+      }
+      
+      deliveryHistory.value[targetId] = {
+        hasBeenDelivered,
+        lastDelivery: lastDelivery?.deliveredAt
+      }
+      
+      // Set default message type based on history
+      messageTypes.value[targetId] = hasBeenDelivered ? 'Update' : 'Initial'
+    } catch (error) {
+      console.error(`Error checking delivery history for target ${targetId}:`, error)
+      // Default to Initial if we can't check history
+      messageTypes.value[targetId] = 'Initial'
+      deliveryHistory.value[targetId] = {
+        hasBeenDelivered: false,
+        lastDelivery: null
+      }
+    }
+  }
+}
+
 const generateERNs = async () => {
   isGeneratingERN.value = true
   error.value = null
   generatedERNs.value = {}
+  ernErrors.value = {}
+  
+  // Check delivery history first
+  await checkDeliveryHistory()
   
   try {
     // Generate ERN for each selected target
@@ -184,8 +239,10 @@ const generateERNs = async () => {
       const target = availableTargets.value.find(t => t.id === targetId)
       if (!target) continue
       
+      const messageType = messageTypes.value[targetId] || 'Initial'
+      
       try {
-        const result = await ernService.generateERN(
+        const result = await ernService.generateERNWithType(
           deliveryData.value.releaseId,
           {
             ...target,
@@ -200,6 +257,12 @@ const generateERNs = async () => {
               type: target.commercialModelType || 'PayAsYouGoModel',
               usageTypes: target.usageTypes || ['PermanentDownload', 'OnDemandStream']
             }]
+          },
+          {
+            messageType: 'NewReleaseMessage',
+            messageSubType: messageType,
+            includeDeals: messageType !== 'Takedown',
+            takedownDate: takedownDates.value[targetId]
           }
         )
         
@@ -207,12 +270,15 @@ const generateERNs = async () => {
         const validation = validateXmlUrls(result.ern)
         if (!validation.valid) {
           console.warn(`URL validation issues in ERN for ${target.name}:`, validation.issues)
-          // URLs should already be escaped, but log if there are issues
         }
         
-        generatedERNs.value[targetId] = result
+        generatedERNs.value[targetId] = {
+          ...result,
+          messageSubType: messageType
+        }
       } catch (err) {
         console.error(`Error generating ERN for ${target.name}:`, err)
+        ernErrors.value[targetId] = err.message
         error.value = `Failed to generate ERN for ${target.name}: ${err.message}`
       }
     }
@@ -227,7 +293,7 @@ const generateERNs = async () => {
       for (const [targetId, ernResult] of Object.entries(generatedERNs.value)) {
         const target = availableTargets.value.find(t => t.id === targetId)
         if (target) {
-          console.log(`ERN generated for ${target.name}: Message ID ${ernResult.messageId}`)
+          console.log(`ERN generated for ${target.name}: Message ID ${ernResult.messageId}, Type: ${ernResult.messageSubType}`)
         }
       }
     }
@@ -265,7 +331,7 @@ const downloadERN = (targetId) => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${selectedRelease.value.basic?.title}_${target.name}_ERN.xml`.replace(/[^a-z0-9]/gi, '_')
+    a.download = `${selectedRelease.value.basic?.title}_${target.name}_${ern.messageSubType}_ERN.xml`.replace(/[^a-z0-9]/gi, '_')
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -273,7 +339,6 @@ const downloadERN = (targetId) => {
   }
 }
 
-// Replace the queueDelivery function starting at line 481:
 const queueDelivery = async () => {
   isQueuingDelivery.value = true
   error.value = null
@@ -287,15 +352,16 @@ const queueDelivery = async () => {
       
       if (!target || !ern) continue
       
-      // Create delivery record with proper DSP configuration
+      // Create delivery record with proper DSP configuration and message type
       const delivery = {
         releaseId: deliveryData.value.releaseId,
         releaseTitle: selectedRelease.value.basic?.title,
         releaseArtist: selectedRelease.value.basic?.displayArtist,
+        upc: selectedRelease.value.basic?.barcode,
         targetId: target.id,
         targetName: target.name,
         targetProtocol: target.protocol,
-        targetType: target.type || 'DSP', // Add target type
+        targetType: target.type || 'DSP',
         tenantId: user.value.uid,
         status: 'queued',
         priority: deliveryData.value.priority,
@@ -303,8 +369,12 @@ const queueDelivery = async () => {
         testMode: deliveryData.value.testMode,
         notes: deliveryData.value.notes,
         
+        // Message type information
+        messageType: 'NewReleaseMessage',
+        messageSubType: messageTypes.value[target.id] || 'Initial',
+        
         // ERN data
-        ernVersion: target.ernVersion,
+        ernVersion: target.ernVersion || '4.3',
         ernMessageId: ern.messageId,
         ernXml: ern.ern,
         
@@ -325,7 +395,7 @@ const queueDelivery = async () => {
           partyId: target.partyId,
           partyName: target.partyName,
           apiKey: target.config?.apiKey || target.apiKey,
-          ...target.config // Include any other config from target
+          ...target.config
         },
         
         createdAt: new Date(),
@@ -337,6 +407,7 @@ const queueDelivery = async () => {
       console.log('Creating delivery:', {
         targetName: delivery.targetName,
         targetProtocol: delivery.targetProtocol,
+        messageSubType: delivery.messageSubType,
         distributorId: delivery.config.distributorId,
         endpoint: delivery.connection.endpoint,
         testMode: delivery.testMode
@@ -344,6 +415,22 @@ const queueDelivery = async () => {
       
       const docRef = await addDoc(collection(db, 'deliveries'), delivery)
       deliveries.push({ id: docRef.id, ...delivery })
+      
+      // Record in delivery history (initial record - will be updated when completed)
+      await addDoc(collection(db, 'deliveryHistory'), {
+        releaseId: delivery.releaseId,
+        targetId: delivery.targetId,
+        targetName: delivery.targetName,
+        messageType: delivery.messageType,
+        messageSubType: delivery.messageSubType,
+        ernVersion: delivery.ernVersion,
+        messageId: delivery.ernMessageId,
+        deliveryId: docRef.id,
+        tenantId: delivery.tenantId,
+        status: 'queued',
+        deliveredAt: null,
+        createdAt: new Date()
+      })
     }
     
     // Update release status
@@ -363,7 +450,7 @@ const queueDelivery = async () => {
     
     setTimeout(() => {
       router.push('/deliveries')
-    }, 3000) // Give a bit more time to read the message
+    }, 3000)
   } catch (err) {
     console.error('Error queuing delivery:', err)
     error.value = `Failed to queue delivery: ${err.message}`
@@ -398,7 +485,7 @@ const formatFileSize = (bytes) => {
 
 const formatDate = (date) => {
   if (!date) return 'N/A'
-  const d = new Date(date)
+  const d = date?.toDate ? date.toDate() : new Date(date)
   return d.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
@@ -673,22 +760,88 @@ onMounted(() => {
           
           <!-- Step 3: Generate & Review ERN -->
           <div v-else-if="currentStep === 3" class="wizard-step">
-            <p class="step-description">Generate and review ERN messages for each target</p>
+            <p class="step-description">Configure message type and generate ERN messages</p>
+            
+            <!-- Message Type Selection -->
+            <div v-if="!isGeneratingERN && Object.keys(generatedERNs).length === 0" class="message-type-section">
+              <h3>Message Type Configuration</h3>
+              <div class="message-type-grid">
+                <div 
+                  v-for="target in selectedTargetDetails" 
+                  :key="target.id"
+                  class="message-type-card"
+                >
+                  <div class="target-name">{{ target.name }}</div>
+                  
+                  <div class="message-type-selector">
+                    <label class="radio-option">
+                      <input 
+                        type="radio" 
+                        :name="`messageType_${target.id}`"
+                        value="Initial"
+                        v-model="messageTypes[target.id]"
+                        :disabled="deliveryHistory[target.id]?.hasBeenDelivered"
+                      />
+                      <span>New Release</span>
+                      <span class="option-hint" v-if="!deliveryHistory[target.id]?.hasBeenDelivered">
+                        First time delivery
+                      </span>
+                    </label>
+                    
+                    <label class="radio-option">
+                      <input 
+                        type="radio" 
+                        :name="`messageType_${target.id}`"
+                        value="Update"
+                        v-model="messageTypes[target.id]"
+                        :disabled="!deliveryHistory[target.id]?.hasBeenDelivered"
+                      />
+                      <span>Update</span>
+                      <span class="option-hint" v-if="deliveryHistory[target.id]?.hasBeenDelivered">
+                        Last delivered: {{ formatDate(deliveryHistory[target.id].lastDelivery) }}
+                      </span>
+                    </label>
+                    
+                    <label class="radio-option">
+                      <input 
+                        type="radio" 
+                        :name="`messageType_${target.id}`"
+                        value="Takedown"
+                        v-model="messageTypes[target.id]"
+                      />
+                      <span>Takedown</span>
+                      <span class="option-hint">Remove from DSP</span>
+                    </label>
+                  </div>
+                  
+                  <!-- Takedown date for takedown messages -->
+                  <div v-if="messageTypes[target.id] === 'Takedown'" class="takedown-config">
+                    <label class="form-label">Takedown Date</label>
+                    <input 
+                      v-model="takedownDates[target.id]" 
+                      type="date"
+                      class="form-input"
+                      :min="new Date().toISOString().split('T')[0]"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <button 
+                @click="generateERNs" 
+                class="btn btn-primary btn-lg"
+                style="margin-top: var(--space-lg);"
+              >
+                Generate ERN Messages
+              </button>
+            </div>
             
             <div v-if="isGeneratingERN" class="generating-status">
               <div class="loading-spinner"></div>
               <p>Generating ERN messages...</p>
             </div>
             
-            <div v-else-if="Object.keys(generatedERNs).length === 0" class="empty-state">
-              <font-awesome-icon icon="file-code" />
-              <p>No ERN messages generated yet</p>
-              <button @click="generateERNs" class="btn btn-primary">
-                Generate ERN Messages
-              </button>
-            </div>
-            
-            <div v-else class="ern-results">
+            <div v-else-if="Object.keys(generatedERNs).length > 0" class="ern-results">
               <div 
                 v-for="target in selectedTargetDetails" 
                 :key="target.id"
@@ -699,7 +852,7 @@ onMounted(() => {
                   <div class="ern-status">
                     <span v-if="generatedERNs[target.id]" class="badge badge-success">
                       <font-awesome-icon icon="check" />
-                      Generated
+                      {{ generatedERNs[target.id].messageSubType }}
                     </span>
                     <span v-else-if="ernErrors[target.id]" class="badge badge-error">
                       <font-awesome-icon icon="times" />
@@ -716,6 +869,10 @@ onMounted(() => {
                   <div class="detail-row">
                     <span class="detail-label">Version:</span>
                     <span>ERN {{ generatedERNs[target.id].version }}</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Type:</span>
+                    <span>{{ generatedERNs[target.id].messageSubType }} Message</span>
                   </div>
                   
                   <div class="ern-actions">
@@ -836,6 +993,14 @@ onMounted(() => {
                 <div class="summary-item">
                   <span class="summary-label">Targets:</span>
                   <span>{{ deliveryData.selectedTargets.length }} selected</span>
+                </div>
+                <div class="summary-item">
+                  <span class="summary-label">Message Types:</span>
+                  <span>
+                    {{ Object.values(messageTypes).filter(t => t === 'Initial').length }} New,
+                    {{ Object.values(messageTypes).filter(t => t === 'Update').length }} Update,
+                    {{ Object.values(messageTypes).filter(t => t === 'Takedown').length }} Takedown
+                  </span>
                 </div>
                 <div class="summary-item">
                   <span class="summary-label">Scheduled:</span>
@@ -1291,6 +1456,86 @@ onMounted(() => {
   margin-top: var(--space-lg);
 }
 
+/* Message Type Section */
+.message-type-section {
+  margin-bottom: var(--space-xl);
+  padding: var(--space-lg);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+}
+
+.message-type-section h3 {
+  margin-bottom: var(--space-lg);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+}
+
+.message-type-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-lg);
+}
+
+.message-type-card {
+  background-color: var(--color-surface);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.target-name {
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-md);
+  color: var(--color-heading);
+}
+
+.message-type-selector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.radio-option:hover {
+  background-color: var(--color-bg-secondary);
+  border-color: var(--color-primary);
+}
+
+.radio-option input[type="radio"]:checked + span {
+  font-weight: var(--font-semibold);
+  color: var(--color-primary);
+}
+
+.radio-option input[type="radio"]:disabled {
+  cursor: not-allowed;
+}
+
+.radio-option input[type="radio"]:disabled + span {
+  color: var(--color-text-tertiary);
+}
+
+.option-hint {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.takedown-config {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
 /* Step 3: ERN Generation */
 .generating-status {
   text-align: center;
@@ -1661,6 +1906,10 @@ onMounted(() => {
   }
   
   .targets-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .message-type-grid {
     grid-template-columns: 1fr;
   }
   

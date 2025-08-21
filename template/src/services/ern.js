@@ -176,12 +176,33 @@ export class ERNService {
   }
 
   /**
-   * Generate ERN for a release with proper classification
+   * Generate ERN for a release with proper classification (original method for backward compatibility)
    */
   async generateERN(releaseId, targetConfig = {}) {
+    // Call the new method with default message options
+    return this.generateERNWithType(releaseId, targetConfig, {
+      messageType: 'NewReleaseMessage',
+      messageSubType: 'Initial',
+      includeDeals: true
+    })
+  }
+
+  /**
+   * Generate ERN with message type support
+   */
+  async generateERNWithType(releaseId, targetConfig = {}, messageOptions = {}) {
     try {
       // Fetch release data
       const release = await this.getRelease(releaseId)
+      
+      // Determine message type and configuration
+      const messageConfig = {
+        messageType: messageOptions.messageType || 'NewReleaseMessage',
+        messageSubType: messageOptions.messageSubType || 'Initial',
+        includeDeals: messageOptions.includeDeals !== false,
+        takedownDate: messageOptions.takedownDate,
+        updateReason: messageOptions.updateReason
+      }
       
       // Validate critical data
       if (!release.basic?.barcode) {
@@ -190,23 +211,29 @@ export class ERNService {
       
       const upc = release.basic.barcode
       
-      // Validate tracks have ISRCs
-      const tracksWithoutISRC = (release.tracks || []).filter(t => !t.isrc && !t.metadata?.isrc)
-      if (tracksWithoutISRC.length > 0) {
-        throw new Error(`${tracksWithoutISRC.length} track(s) missing ISRC codes`)
+      // Validate tracks have ISRCs (unless it's a takedown)
+      if (messageConfig.messageSubType !== 'Takedown') {
+        const tracksWithoutISRC = (release.tracks || []).filter(t => !t.isrc && !t.metadata?.isrc)
+        if (tracksWithoutISRC.length > 0) {
+          throw new Error(`${tracksWithoutISRC.length} track(s) missing ISRC codes`)
+        }
       }
       
       // Classify the release
       const classification = this.classifyRelease(release)
-      
-      // Store classification for debugging/tracking
       release.classification = classification
       
-      // Get cover image URL directly from known location
+      // Get cover image URL
       const coverImageUrl = release.assets?.coverImage?.url || null
       
-      // Transform release data with classification
+      // Transform release data
       const product = this.transformToProduct(release, targetConfig, classification)
+      
+      // For takedowns, modify the product to not include future deals
+      if (messageConfig.messageSubType === 'Takedown') {
+        product.dealEndDate = messageConfig.takedownDate || new Date().toISOString().split('T')[0]
+        product.includeDeals = false
+      }
       
       // Transform resources with MD5 calculation
       const resourceData = await this.transformToResources(
@@ -215,9 +242,13 @@ export class ERNService {
         coverImageUrl
       )
       
-      // Build ERN XML with correct profile using xmlbuilder2
-      const ernXml = await this.buildERNWithBuilder(product, resourceData, {
-        messageControlType: targetConfig.testMode ? 'TestMessage' : 'LiveMessage',
+      // Build ERN XML with message type configuration
+      const ernXml = await this.buildERNWithMessageType(product, resourceData, {
+        ...targetConfig,
+        ...messageConfig,
+        messageControlType: targetConfig.testMode ? 'TestMessage' : 
+                           messageConfig.messageSubType === 'Update' ? 'UpdateMessage' : 
+                           'LiveMessage',
         messageSender: targetConfig.senderName || release.basic?.label || 'Stardust Distro',
         messageRecipient: targetConfig.partyName || 'DSP',
         senderPartyId: targetConfig.senderPartyId,
@@ -225,8 +256,8 @@ export class ERNService {
         profile: classification.profile
       })
       
-      // Save ERN and classification to release record
-      await this.saveERN(releaseId, ernXml, targetConfig, classification)
+      // Save ERN and classification
+      await this.saveERNWithType(releaseId, ernXml, targetConfig, classification, messageConfig)
       
       return {
         success: true,
@@ -234,6 +265,8 @@ export class ERNService {
         messageId: this.extractMessageId(ernXml),
         version: this.version,
         upc: upc,
+        messageType: messageConfig.messageType,
+        messageSubType: messageConfig.messageSubType,
         classification: {
           releaseType: classification.releaseType,
           commercialType: classification.commercialType,
@@ -244,7 +277,7 @@ export class ERNService {
         }
       }
     } catch (error) {
-      console.error('Error generating ERN:', error)
+      console.error('Error generating ERN with type:', error)
       throw error
     }
   }
@@ -298,8 +331,8 @@ export class ERNService {
       
       // Commercial models
       commercialModels: targetConfig.commercialModels || [{
-        type: 'PayAsYouGoModel',
-        usageTypes: ['PermanentDownload', 'OnDemandStream']
+        type: targetConfig.commercialModelType || 'PayAsYouGoModel',
+        usageTypes: targetConfig.usageTypes || ['PermanentDownload', 'OnDemandStream']
       }],
       
       // Tracks
@@ -401,17 +434,15 @@ export class ERNService {
   }
 
   /**
-   * Build ERN XML using xmlbuilder2 for safety and correctness
+   * Build ERN XML with message type support
    */
-  async buildERNWithBuilder(product, resourceData, options = {}) {
+  async buildERNWithMessageType(product, resourceData, options = {}) {
     const messageId = this.generateMessageId()
     const createdDate = new Date().toISOString()
     
-    // Use the profile from classification
     const profile = options.profile || 'Audio'
     const profileVersion = profile === 'SimpleAudioSingle' ? 'SimpleAudioSingle/23' : 'Audio/23'
     
-    // Extract resources and coverMD5
     const resources = resourceData.audioResources || resourceData
     const coverMD5 = resourceData.coverMD5 || 'PENDING'
     const coverImageUrl = resourceData.coverImageUrl
@@ -422,6 +453,9 @@ export class ERNService {
       messageRecipient: options.messageRecipient || 'Test DSP',
       senderPartyId: options.senderPartyId,
       recipientPartyId: options.recipientPartyId,
+      messageType: options.messageType || 'NewReleaseMessage',
+      messageSubType: options.messageSubType || 'Initial',
+      includeDeals: options.includeDeals !== false,
       ...options
     }
     
@@ -436,12 +470,26 @@ export class ERNService {
       'LanguageAndScriptCode': 'en'
     })
     
-    // Build MessageHeader
+    // Add update indicator for updates
+    if (config.messageSubType === 'Update') {
+      ernMessage.att('UpdateIndicator', 'OriginalMessage')
+    }
+    
+    // Build MessageHeader with appropriate control type
     const messageHeader = ernMessage.ele('MessageHeader')
     messageHeader.ele('MessageId').txt(messageId)
     messageHeader.ele('MessageCreatedDateTime').txt(createdDate)
-    messageHeader.ele('MessageControlType').txt(config.messageControlType)
     
+    // Set control type based on message subtype
+    let controlType = config.messageControlType
+    if (config.messageSubType === 'Update') {
+      controlType = 'UpdateMessage'
+    } else if (config.messageSubType === 'Takedown') {
+      controlType = 'TakedownMessage'
+    }
+    messageHeader.ele('MessageControlType').txt(controlType)
+    
+    // Add sender and recipient
     const messageSender = messageHeader.ele('MessageSender')
     if (config.senderPartyId) {
       messageSender.ele('PartyId').txt(config.senderPartyId)
@@ -454,17 +502,29 @@ export class ERNService {
     }
     messageRecipient.ele('PartyName').ele('FullName').txt(config.messageRecipient)
     
-    // Build ResourceList
+    // Build ResourceList (always included)
     this.buildResourceListWithBuilder(ernMessage, resources, product.upc, coverMD5, coverImageUrl)
     
-    // Build ReleaseList
+    // Build ReleaseList (always included)
     this.buildReleaseListWithBuilder(ernMessage, product, resources)
     
-    // Build DealList
-    this.buildDealListWithBuilder(ernMessage, product)
+    // Build DealList (conditionally based on message type)
+    if (config.includeDeals) {
+      this.buildDealListWithBuilder(ernMessage, product)
+    } else if (config.messageSubType === 'Takedown') {
+      // For takedown, include empty deal or deal with end date
+      this.buildTakedownDealList(ernMessage, product, config.takedownDate)
+    }
     
     // Convert to XML string
     return doc.end({ prettyPrint: true })
+  }
+
+  /**
+   * Build ERN XML using xmlbuilder2 for safety and correctness (original method for backward compatibility)
+   */
+  async buildERNWithBuilder(product, resourceData, options = {}) {
+    return this.buildERNWithMessageType(product, resourceData, options)
   }
 
   /**
@@ -734,6 +794,33 @@ export class ERNService {
     })
   }
 
+  /**
+   * Build takedown deal list
+   */
+  buildTakedownDealList(parent, product, takedownDate) {
+    const dealList = parent.ele('DealList')
+    
+    const releaseDeal = dealList.ele('ReleaseDeal')
+    releaseDeal.ele('DealReleaseReference').txt(product.releaseReference)
+    
+    const deal = releaseDeal.ele('Deal')
+    deal.ele('DealId').txt(`${product.releaseReference}_TAKEDOWN`)
+    
+    const dealTerms = deal.ele('DealTerms')
+    
+    // All territories
+    const territory = dealTerms.ele('Territory')
+    territory.ele('TerritoryCode').txt('Worldwide')
+    
+    // Set validity period with end date
+    const validityPeriod = dealTerms.ele('ValidityPeriod')
+    const endDate = takedownDate || new Date().toISOString().split('T')[0]
+    validityPeriod.ele('EndDate').txt(endDate)
+    
+    // No commercial model for takedown
+    dealTerms.ele('TakeDown').txt('true')
+  }
+
   // Helper methods
   mapReleaseType(type) {
     const typeMap = {
@@ -802,12 +889,24 @@ export class ERNService {
   }
 
   async saveERN(releaseId, ernXml, targetConfig, classification = null) {
+    return this.saveERNWithType(releaseId, ernXml, targetConfig, classification, {
+      messageType: 'NewReleaseMessage',
+      messageSubType: 'Initial'
+    })
+  }
+
+  /**
+   * Save ERN with message type tracking
+   */
+  async saveERNWithType(releaseId, ernXml, targetConfig, classification, messageConfig) {
     const docRef = doc(db, 'releases', releaseId)
     
     const ernData = {
       version: this.version,
       generatedAt: new Date(),
       messageId: this.extractMessageId(ernXml),
+      messageType: messageConfig.messageType,
+      messageSubType: messageConfig.messageSubType,
       target: targetConfig.name || 'Unknown',
       xml: ernXml,
       classification: classification ? {
@@ -820,11 +919,15 @@ export class ERNService {
       } : null
     }
     
+    // Track ERN history
+    const ernHistoryKey = `${targetConfig.id || 'default'}_${Date.now()}`
+    
     await updateDoc(docRef, {
       'ddex.lastGenerated': new Date(),
       'ddex.version': this.version,
       'ddex.classification': ernData.classification,
-      'ddex.erns': { [targetConfig.id || 'default']: ernData }
+      'ddex.lastMessageType': messageConfig.messageSubType,
+      [`ddex.ernHistory.${ernHistoryKey}`]: ernData
     })
     
     return ernData

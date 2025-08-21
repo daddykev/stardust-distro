@@ -92,9 +92,25 @@ async function addDeliveryLog(deliveryId, logEntry) {
       timestamp,
       level: logEntry.level || 'info', // info, warning, error, success
       step: logEntry.step || 'general',
-      message: logEntry.message,
-      details: logEntry.details || null,
-      duration: logEntry.duration || null
+      message: logEntry.message
+    }
+    
+    // Only add optional fields if they exist
+    if (logEntry.details && Object.keys(logEntry.details).length > 0) {
+      // Clean details object of undefined values
+      const cleanDetails = {}
+      for (const [key, value] of Object.entries(logEntry.details)) {
+        if (value !== undefined && value !== null) {
+          cleanDetails[key] = value
+        }
+      }
+      if (Object.keys(cleanDetails).length > 0) {
+        log.details = cleanDetails
+      }
+    }
+    
+    if (logEntry.duration !== undefined && logEntry.duration !== null) {
+      log.duration = logEntry.duration
     }
     
     // Update the delivery document with the new log
@@ -301,151 +317,6 @@ exports.deliverAPI = onCall({
 })
 
 /**
- * Specialized DSP Delivery Implementation with Enhanced Logging
- */
-async function deliverToDSP(target, deliveryPackage) {
-  const deliveryId = deliveryPackage.deliveryId || 'api_delivery'
-  
-  try {
-    // Log DSP delivery start
-    console.log(`Starting DSP delivery to ${target.endpoint}`)
-    
-    // Get the endpoint from the correct location
-    const endpoint = target.endpoint || target.connection?.endpoint
-    
-    if (!endpoint) {
-      const error = 'DSP endpoint not configured. Please configure the API endpoint in delivery target settings.'
-      console.error(error)
-      throw new Error(error)
-    }
-    
-    // Log package details
-    console.log(`DSP Package Summary:`, {
-      distributorId: deliveryPackage.distributorId,
-      messageId: deliveryPackage.metadata?.messageId,
-      audioFiles: deliveryPackage.audioFiles?.length || 0,
-      imageFiles: deliveryPackage.imageFiles?.length || 0,
-      hasERN: !!deliveryPackage.ernXml,
-      upc: deliveryPackage.upc
-    })
-    
-    // Prepare the DSP-specific payload
-    const payload = {
-      distributorId: deliveryPackage.distributorId || target.config?.distributorId || 'stardust-distro',
-      messageId: deliveryPackage.metadata?.messageId || deliveryPackage.messageId,
-      releaseTitle: deliveryPackage.releaseTitle,
-      releaseArtist: deliveryPackage.releaseArtist,
-      ernXml: deliveryPackage.ernXml || deliveryPackage.files?.find(f => f.isERN)?.content,
-      testMode: deliveryPackage.metadata?.testMode || false,
-      priority: deliveryPackage.metadata?.priority || 'normal',
-      audioFiles: deliveryPackage.audioFiles || [],
-      imageFiles: deliveryPackage.imageFiles || [],
-      timestamp: new Date().toISOString(),
-      upc: deliveryPackage.upc,
-      // ADD THESE for DSP Ingestion.vue compatibility:
-      ern: {
-        messageId: deliveryPackage.metadata?.messageId || deliveryPackage.messageId,
-        version: '4.3',
-        releaseCount: 1
-      },
-      processing: {
-        status: 'received',
-        receivedAt: new Date().toISOString()
-      },
-      // Add file transfer instructions
-      fileTransferRequired: true,
-      sourceStorage: 'firebase',
-      sourceDeliveryId: deliveryId
-    }
-    
-    // Prepare headers with authentication
-    const headers = {
-      'Content-Type': 'application/json'
-    }
-    
-    // Add Bearer token if API key is provided
-    const apiKey = target.headers?.Authorization || 
-                   target.connection?.apiKey || 
-                   target.config?.apiKey
-    
-    if (apiKey) {
-      // Handle both "Bearer xxx" format and plain token
-      headers.Authorization = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`
-    }
-    
-    console.log(`Sending to DSP endpoint: ${endpoint}`)
-    console.log(`Distributor ID: ${payload.distributorId}`)
-    console.log(`Has authentication: ${!!headers.Authorization}`)
-    console.log(`UPC: ${payload.upc}`)
-    
-    // Make the API request
-    const startTime = Date.now()
-    const response = await axios({
-      method: 'POST',
-      url: endpoint,
-      headers,
-      data: payload,
-      timeout: 30000,
-      validateStatus: function (status) {
-        // Accept any status in the 2xx or 3xx range
-        return status >= 200 && status < 400
-      }
-    })
-    
-    const duration = Date.now() - startTime
-    
-    console.log('DSP Response Status:', response.status)
-    console.log('DSP Response:', response.data)
-    console.log(`DSP API call completed in ${duration}ms`)
-    
-    // Log file transfer note
-    if (payload.audioFiles.length > 0 || payload.imageFiles.length > 0) {
-      console.log(`NOTE: ${payload.audioFiles.length} audio and ${payload.imageFiles.length} image files referenced by URL`)
-      console.log('DSP will need to download these files asynchronously')
-      
-      // Log the actual URLs for debugging
-      if (payload.audioFiles.length > 0) {
-        console.log('Audio file URLs:', payload.audioFiles)
-      }
-      if (payload.imageFiles.length > 0) {
-        console.log('Image file URLs:', payload.imageFiles)
-      }
-    }
-    
-    return {
-      success: true,
-      protocol: 'API',
-      response: response.data,
-      statusCode: response.status,
-      messageId: payload.messageId,
-      duration,
-      files: [{
-        name: 'manifest.xml',
-        status: 'completed',
-        uploadedAt: new Date().toISOString()
-      }],
-      acknowledgment: response.data?.acknowledgment || 
-                      response.data?.message || 
-                      `Delivery accepted by DSP (Status: ${response.status})`,
-      bytesTransferred: JSON.stringify(payload).length,
-      fileTransferNote: 'Files referenced by URL - DSP will download asynchronously'
-    }
-  } catch (error) {
-    console.error('DSP Delivery Error:', error.response?.data || error.message)
-    
-    if (error.response) {
-      const errorMessage = error.response.data?.error || 
-                          error.response.data?.message || 
-                          error.response.statusText || 
-                          'Unknown error'
-      console.error(`DSP rejected delivery with status ${error.response.status}: ${errorMessage}`)
-      throw new Error(`DSP rejected delivery (${error.response.status}): ${errorMessage}`)
-    }
-    throw error
-  }
-}
-
-/**
  * Azure Delivery Handler
  */
 exports.deliverAzure = onCall({
@@ -507,6 +378,7 @@ exports.getDeliveryAnalytics = onCall({
       cancelled: 0,
       byTarget: {},
       byProtocol: {},
+      byMessageType: {},
       averageDeliveryTime: 0,
       successRate: 0
     }
@@ -522,6 +394,13 @@ exports.getDeliveryAnalytics = onCall({
       if (analytics[delivery.status] !== undefined) {
         analytics[delivery.status]++
       }
+
+      // Count by message type
+      const messageSubType = delivery.messageSubType || 'Initial'
+      if (!analytics.byMessageType[messageSubType]) {
+        analytics.byMessageType[messageSubType] = 0
+      }
+      analytics.byMessageType[messageSubType]++
 
       // By target
       if (!analytics.byTarget[delivery.targetName]) {
@@ -571,23 +450,28 @@ exports.getDeliveryAnalytics = onCall({
 })
 
 // ============================================================================
-// DELIVERY PROCESSING FUNCTIONS WITH ENHANCED LOGGING
+// DELIVERY PROCESSING FUNCTIONS WITH ENHANCED LOGGING AND MESSAGE TYPE SUPPORT
 // ============================================================================
 
 /**
- * Process individual delivery with comprehensive logging
+ * Process individual delivery with comprehensive logging and message type support
  */
 async function processDelivery(deliveryId, delivery) {
   const startTime = Date.now()
   
   try {
     console.log(`Starting delivery ${deliveryId} to ${delivery.targetName}`)
+    console.log(`Message Type: ${delivery.messageType}, SubType: ${delivery.messageSubType}`)
     
     // Log: Starting delivery
     await addDeliveryLog(deliveryId, {
       level: 'info',
       step: 'initialization',
-      message: 'Starting cloud function delivery process'
+      message: `Starting cloud function delivery process (${delivery.messageSubType || 'Initial'} message)`,
+      details: {
+        messageType: delivery.messageType || 'NewReleaseMessage',
+        messageSubType: delivery.messageSubType || 'Initial'
+      }
     })
     
     // Update status to processing
@@ -631,12 +515,14 @@ async function processDelivery(deliveryId, delivery) {
       details: {
         protocol: target.protocol || delivery.targetProtocol,
         type: target.type,
-        endpoint: target.connection?.endpoint ? 'configured' : 'not configured'
+        endpoint: target.connection?.endpoint ? 'configured' : 'not configured',
+        messageSubType: delivery.messageSubType || 'Initial'
       }
     })
     
     console.log(`Target protocol: ${target.protocol || delivery.targetProtocol}`)
     console.log(`Target endpoint: ${target.connection?.endpoint || 'Not configured'}`)
+    console.log(`Message SubType: ${delivery.messageSubType || 'Initial'}`)
     
     // Use protocol from delivery if target doesn't have it
     const protocol = target.protocol || delivery.targetProtocol
@@ -645,7 +531,7 @@ async function processDelivery(deliveryId, delivery) {
     await addDeliveryLog(deliveryId, {
       level: 'info',
       step: 'package_preparation',
-      message: 'Preparing delivery package with DDEX naming'
+      message: `Preparing ${delivery.messageSubType || 'Initial'} delivery package with DDEX naming`
     })
     
     // Prepare delivery package with DSP-specific data
@@ -662,17 +548,19 @@ async function processDelivery(deliveryId, delivery) {
       deliveryPackage.audioFiles = delivery.package?.audioFiles || []
       deliveryPackage.imageFiles = delivery.package?.imageFiles || []
       deliveryPackage.upc = delivery.upc
+      deliveryPackage.messageSubType = delivery.messageSubType || 'Initial'
     }
 
     await addDeliveryLog(deliveryId, {
       level: 'success',
       step: 'package_preparation',
-      message: `Package prepared with ${deliveryPackage.files.length} files (DDEX naming applied)`,
+      message: `${delivery.messageSubType || 'Initial'} package prepared with ${deliveryPackage.files.length} files (DDEX naming applied)`,
       details: {
         audioFiles: deliveryPackage.audioFiles?.length || 0,
         imageFiles: deliveryPackage.imageFiles?.length || 0,
         ernIncluded: !!deliveryPackage.ernXml,
-        upc: deliveryPackage.upc
+        upc: deliveryPackage.upc,
+        messageSubType: delivery.messageSubType || 'Initial'
       }
     })
 
@@ -680,7 +568,7 @@ async function processDelivery(deliveryId, delivery) {
     await addDeliveryLog(deliveryId, {
       level: 'info',
       step: 'delivery_execution',
-      message: `Starting ${protocol} delivery to ${target.name}`
+      message: `Starting ${protocol} delivery of ${delivery.messageSubType || 'Initial'} message to ${target.name}`
     })
 
     // Execute delivery based on protocol
@@ -719,16 +607,26 @@ async function processDelivery(deliveryId, delivery) {
     
     const deliveryDuration = Date.now() - deliveryStartTime
 
+    // Build clean details object for log
+    const executionDetails = {
+      filesDelivered: result.files?.length || 0,
+      bytesTransferred: result.bytesTransferred || 0,
+      messageSubType: delivery.messageSubType || 'Initial'
+    }
+    
+    if (result.acknowledgmentId) {
+      executionDetails.acknowledgmentId = result.acknowledgmentId
+    }
+    if (result.deliveryId) {
+      executionDetails.deliveryId = result.deliveryId
+    }
+
     await addDeliveryLog(deliveryId, {
       level: 'success',
       step: 'delivery_execution',
-      message: `Delivery completed via ${protocol}`,
+      message: `${delivery.messageSubType || 'Initial'} delivery completed via ${protocol}`,
       duration: deliveryDuration,
-      details: {
-        filesDelivered: result.files?.length || 0,
-        bytesTransferred: result.bytesTransferred || 0,
-        acknowledgmentId: result.acknowledgmentId || result.deliveryId
-      }
+      details: executionDetails
     })
 
     // Log: Generating receipt
@@ -738,37 +636,97 @@ async function processDelivery(deliveryId, delivery) {
       message: 'Generating delivery receipt'
     })
 
-    // Update delivery as completed
+    // Update delivery as completed - FIX: Clean undefined values
     const totalDuration = Date.now() - startTime
+    
+    // Build receipt object with only defined values
+    const receipt = {
+      acknowledgment: result.acknowledgment || 'Delivery completed successfully',
+      timestamp: admin.firestore.Timestamp.now(),
+      files: result.files || [],
+      messageSubType: delivery.messageSubType || 'Initial'
+    }
+    
+    // Only add optional fields if they exist
+    if (result.messageId) {
+      receipt.dspMessageId = result.messageId
+    }
+    if (result.acknowledgmentId) {
+      receipt.acknowledgmentId = result.acknowledgmentId
+    }
+    if (result.deliveryId) {
+      receipt.deliveryId = result.deliveryId
+    }
+    if (result.bytesTransferred !== undefined && result.bytesTransferred !== null) {
+      receipt.bytesTransferred = result.bytesTransferred
+    }
     
     await db.collection('deliveries').doc(deliveryId).update({
       status: 'completed',
       completedAt: admin.firestore.Timestamp.now(),
       totalDuration,
-      receipt: {
-        acknowledgment: result.acknowledgment || 'Delivery completed successfully',
-        dspMessageId: result.messageId || `DSP_${Date.now()}`,
-        timestamp: admin.firestore.Timestamp.now(),
-        files: result.files || []
-      }
+      receipt
     })
+
+    // Record in delivery history for successful completion - FIX: Clean undefined values
+    if (delivery.status !== 'test') {
+      const historyRecord = {
+        releaseId: delivery.releaseId,
+        targetId: delivery.targetId,
+        targetName: delivery.targetName,
+        messageType: delivery.messageType || 'NewReleaseMessage',
+        messageSubType: delivery.messageSubType || 'Initial',
+        ernVersion: delivery.ernVersion || '4.3',
+        messageId: delivery.ernMessageId,
+        deliveryId: deliveryId,
+        tenantId: delivery.tenantId,
+        status: 'completed',
+        deliveredAt: admin.firestore.Timestamp.now(),
+        createdAt: admin.firestore.Timestamp.now()
+      }
+      
+      // Build receipt for history with only defined values
+      const historyReceipt = {}
+      if (result.acknowledgmentId) {
+        historyReceipt.acknowledgmentId = result.acknowledgmentId
+      }
+      if (result.messageId) {
+        historyReceipt.dspMessageId = result.messageId
+      }
+      if (result.bytesTransferred !== undefined && result.bytesTransferred !== null) {
+        historyReceipt.bytesTransferred = result.bytesTransferred
+      }
+      
+      // Only add receipt if it has properties
+      if (Object.keys(historyReceipt).length > 0) {
+        historyRecord.receipt = historyReceipt
+      }
+      
+      await db.collection('deliveryHistory').add(historyRecord)
+      
+      console.log(`Recorded ${delivery.messageSubType || 'Initial'} delivery in history for release ${delivery.releaseId}`)
+    }
 
     await addDeliveryLog(deliveryId, {
       level: 'success',
       step: 'completion',
-      message: `Delivery completed successfully in ${Math.round(totalDuration / 1000)}s`,
+      message: `${delivery.messageSubType || 'Initial'} delivery completed successfully in ${Math.round(totalDuration / 1000)}s`,
       duration: totalDuration,
       details: {
         protocol,
         targetName: target.name,
-        totalFiles: result.files?.length || 0
+        totalFiles: result.files?.length || 0,
+        messageSubType: delivery.messageSubType || 'Initial'
       }
     })
 
     // Send success notification
-    await sendNotification({ ...delivery, id: deliveryId }, 'success', result)
+    await sendNotification({ ...delivery, id: deliveryId }, 'success', {
+      ...result,
+      messageSubType: delivery.messageSubType || 'Initial'
+    })
 
-    console.log(`Delivery ${deliveryId} completed successfully`)
+    console.log(`Delivery ${deliveryId} completed successfully (${delivery.messageSubType || 'Initial'} message)`)
     return result
   } catch (error) {
     console.error(`Error processing delivery ${deliveryId}:`, error)
@@ -776,10 +734,11 @@ async function processDelivery(deliveryId, delivery) {
     await addDeliveryLog(deliveryId, {
       level: 'error',
       step: 'error_handling',
-      message: `Delivery failed: ${error.message}`,
+      message: `${delivery.messageSubType || 'Initial'} delivery failed: ${error.message}`,
       details: {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
+        messageSubType: delivery.messageSubType || 'Initial'
       }
     })
     
@@ -791,180 +750,7 @@ async function processDelivery(deliveryId, delivery) {
 }
 
 /**
- * Storage Delivery Implementation (Firebase Storage) with logging and DDEX naming
- */
-async function deliverViaStorage(target, deliveryPackage, deliveryId) {
-  try {
-    await addDeliveryLog(deliveryId, {
-      level: 'info',
-      step: 'storage_preparation',
-      message: 'Preparing Firebase Storage delivery with DDEX naming'
-    })
-    
-    const bucket = storage.bucket()
-    const uploadedFiles = []
-    
-    // Determine the storage path
-    const timestamp = Date.now()
-    const distributorId = deliveryPackage.distributorId || target.config?.distributorId || 'unknown'
-    const basePath = `deliveries/${distributorId}/${timestamp}`
-    
-    console.log(`Uploading to Storage: ${basePath}`)
-    console.log(`UPC: ${deliveryPackage.upc}`)
-    
-    await addDeliveryLog(deliveryId, {
-      level: 'info',
-      step: 'storage_upload',
-      message: `Uploading to path: ${basePath}`,
-      details: {
-        distributorId,
-        bucket: bucket.name,
-        upc: deliveryPackage.upc
-      }
-    })
-    
-    // Upload files with DDEX naming
-    for (const file of deliveryPackage.files) {
-      try {
-        let fileBuffer
-        let filePath
-        let md5Hash
-        
-        if (file.isERN) {
-          // ERN file - use its name directly
-          filePath = `${basePath}/${file.name}`
-          fileBuffer = Buffer.from(file.content, 'utf8')
-          md5Hash = calculateMD5(fileBuffer)
-        } else if (file.needsDownload) {
-          // Audio/Image files - use DDEX name
-          filePath = `${basePath}/${file.type}/${file.name}` // file.name already has DDEX naming
-          
-          console.log(`Downloading ${file.originalName} from: ${file.url}`)
-          console.log(`Will upload as: ${file.name}`)
-          
-          const response = await axios.get(file.url, { 
-            responseType: 'arraybuffer',
-            timeout: 30000
-          })
-          fileBuffer = Buffer.from(response.data)
-          md5Hash = calculateMD5(fileBuffer)
-        }
-        
-        if (fileBuffer && filePath) {
-          const storageFile = bucket.file(filePath)
-          
-          await storageFile.save(fileBuffer, {
-            metadata: {
-              contentType: file.isERN ? 'text/xml' : 
-                          file.type === 'audio' ? 'audio/mpeg' : 'image/jpeg',
-              metadata: {
-                distributorId: distributorId,
-                messageId: deliveryPackage.metadata.messageId,
-                releaseTitle: deliveryPackage.releaseTitle || 'Unknown',
-                testMode: String(deliveryPackage.metadata.testMode),
-                originalName: file.originalName || file.name,
-                ddexName: file.name,
-                upc: deliveryPackage.upc,
-                md5Hash: md5Hash
-              }
-            }
-          })
-          
-          uploadedFiles.push({
-            name: file.name, // DDEX compliant name
-            originalName: file.originalName,
-            path: filePath,
-            size: fileBuffer.length,
-            md5Hash: md5Hash,
-            uploadedAt: new Date().toISOString()
-          })
-          
-          console.log(`✅ Uploaded ${file.name} to: ${filePath} (MD5: ${md5Hash})`)
-        }
-      } catch (fileError) {
-        console.error(`Failed to upload file ${file.name}:`, fileError.message)
-        // Continue with other files
-      }
-    }
-    
-    const audioCount = uploadedFiles.filter(f => f.path.includes('/audio/')).length
-    const imageCount = uploadedFiles.filter(f => f.path.includes('/image/')).length
-    
-    await addDeliveryLog(deliveryId, {
-      level: 'success',
-      step: 'storage_upload',
-      message: `Uploaded ${uploadedFiles.length} files to Storage with DDEX naming`,
-      details: {
-        ernFiles: uploadedFiles.filter(f => f.name.endsWith('.xml')).length,
-        audioFiles: audioCount,
-        imageFiles: imageCount,
-        basePath,
-        upc: deliveryPackage.upc,
-        md5Hashes: uploadedFiles.map(f => ({ name: f.name, md5: f.md5Hash }))
-      }
-    })
-    
-    // If this is a DSP delivery, trigger the ingestion
-    if (deliveryPackage.distributorId) {
-      console.log(`Notifying DSP of new delivery in storage...`)
-      
-      await addDeliveryLog(deliveryId, {
-        level: 'info',
-        step: 'storage_notification',
-        message: 'Notifying DSP of storage delivery'
-      })
-      
-      // The DSP's processStorageDelivery function will pick this up
-      // Or we can notify via API if configured
-      if (target.connection?.notifyEndpoint) {
-        try {
-          await axios.post(target.connection.notifyEndpoint, {
-            distributorId: distributorId,
-            deliveryPath: basePath,
-            messageId: deliveryPackage.metadata.messageId,
-            timestamp: new Date().toISOString(),
-            upc: deliveryPackage.upc
-          })
-          console.log('✅ DSP notified of storage delivery')
-          
-          await addDeliveryLog(deliveryId, {
-            level: 'success',
-            step: 'storage_notification',
-            message: 'DSP notified successfully'
-          })
-        } catch (notifyError) {
-          console.error('Failed to notify DSP:', notifyError.message)
-          
-          await addDeliveryLog(deliveryId, {
-            level: 'warning',
-            step: 'storage_notification',
-            message: 'DSP notification failed, but files uploaded successfully',
-            details: { error: notifyError.message }
-          })
-          // Don't fail the delivery if notification fails
-        }
-      }
-    }
-    
-    return {
-      success: true,
-      protocol: 'Storage',
-      bucket: bucket.name,
-      basePath: basePath,
-      files: uploadedFiles,
-      messageId: deliveryPackage.metadata.messageId,
-      acknowledgment: `Uploaded ${uploadedFiles.length} files to Storage`,
-      bytesTransferred: uploadedFiles.reduce((sum, f) => sum + f.size, 0),
-      upc: deliveryPackage.upc
-    }
-  } catch (error) {
-    console.error('Storage delivery error:', error)
-    throw new Error(`Storage delivery failed: ${error.message}`)
-  }
-}
-
-/**
- * Handle delivery error with retry logic and logging
+ * Handle delivery error with retry logic and logging - FIXED
  */
 async function handleDeliveryError(deliveryId, delivery, error) {
   const attemptNumber = (delivery.attempts?.length || 0) + 1
@@ -977,6 +763,11 @@ async function handleDeliveryError(deliveryId, delivery, error) {
     endTime: admin.firestore.Timestamp.now(),
     status: 'failed',
     error: error.message
+  }
+  
+  // Only add messageSubType if it exists
+  if (delivery.messageSubType) {
+    attempt.messageSubType = delivery.messageSubType
   }
 
   if (attemptNumber < maxRetries) {
@@ -993,7 +784,8 @@ async function handleDeliveryError(deliveryId, delivery, error) {
       details: {
         attemptNumber,
         retryDelay,
-        error: error.message
+        error: error.message,
+        messageSubType: delivery.messageSubType || 'Initial'
       }
     })
 
@@ -1010,7 +802,8 @@ async function handleDeliveryError(deliveryId, delivery, error) {
     // Send retry notification - ensure delivery has id
     await sendNotification({ ...delivery, id: deliveryId }, 'retry', {
       attemptNumber,
-      nextRetryIn: retryDelay / 1000
+      nextRetryIn: retryDelay / 1000,
+      messageSubType: delivery.messageSubType || 'Initial'
     })
   } else {
     // Max retries reached
@@ -1020,7 +813,8 @@ async function handleDeliveryError(deliveryId, delivery, error) {
       message: `Maximum retries (${maxRetries}) exceeded - delivery failed permanently`,
       details: {
         attempts: attemptNumber,
-        finalError: error.message
+        finalError: error.message,
+        messageSubType: delivery.messageSubType || 'Initial'
       }
     })
 
@@ -1036,78 +830,144 @@ async function handleDeliveryError(deliveryId, delivery, error) {
     // Send failure notification - ensure delivery has id
     await sendNotification({ ...delivery, id: deliveryId }, 'failed', {
       error: error.message,
-      attempts: attemptNumber
+      attempts: attemptNumber,
+      messageSubType: delivery.messageSubType || 'Initial'
     })
   }
 }
 
 /**
- * Prepare delivery package with DDEX naming
+ * Prepare delivery package with DDEX naming and message type support - FIXED
  */
 async function prepareDeliveryPackage(delivery) {
   const files = []
 
-  // Add ERN file
+  // Get the release for UPC/barcode and track information
+  const releaseDoc = await db.collection('releases').doc(delivery.releaseId).get()
+  if (!releaseDoc.exists) {
+    throw new Error('Release not found')
+  }
+  
+  const release = releaseDoc.data()
+  const upc = release.basic?.barcode || delivery.upc || '0000000000000'
+  const discNumber = '01' // Default to disc 01 for now
+  const messageSubType = delivery.messageSubType || 'Initial'
+  
+  // Log UPC and message type being used
+  console.log(`Preparing ${messageSubType} package with UPC: ${upc}`)
+  
+  // Add ERN file (already contains properly escaped URLs and correct message type)
   if (delivery.ernXml) {
-    files.push({
+    const ernFile = {
       name: `${delivery.ernMessageId}.xml`,
       content: delivery.ernXml,
       type: 'text/xml',
       isERN: true
-    })
+    }
+    
+    // Only add messageSubType if it exists
+    if (delivery.messageSubType) {
+      ernFile.messageSubType = delivery.messageSubType
+    }
+    
+    files.push(ernFile)
   }
 
-  // Add references to audio and image files
-  // Note: These should already have DDEX names from the client-side preparePackage
-  if (delivery.package?.audioFiles) {
-    delivery.package.audioFiles.forEach((url, index) => {
-      if (url) {
-        // Extract the DDEX name if it was set, otherwise generate it
-        const ddexName = delivery.package.audioFileNames?.[index] || 
-                        `${delivery.upc || '0000000000000'}_01_${String(index + 1).padStart(3, '0')}.wav`
-        
-        files.push({
-          name: ddexName, // Use DDEX name
-          originalName: extractFileName(url),
-          url,
-          type: 'audio',
-          needsDownload: true
-        })
-      }
-    })
+  // For takedown messages, we may not need to include audio/image files
+  if (messageSubType !== 'Takedown') {
+    // Add audio files with DDEX naming
+    if (delivery.package?.audioFiles && release.tracks) {
+      delivery.package.audioFiles.forEach((audioUrl, index) => {
+        if (audioUrl) {
+          const track = release.tracks[index]
+          const trackNumber = String(track?.sequenceNumber || index + 1).padStart(3, '0')
+          
+          // Extract original extension from URL
+          const originalExt = extractFileExtension(audioUrl)
+          
+          // DDEX standard: UPC_DiscNumber_TrackNumber.extension
+          const ddexFileName = `${upc}_${discNumber}_${trackNumber}.${originalExt}`
+          
+          console.log(`Audio file ${index + 1}: ${extractFileName(audioUrl)} → ${ddexFileName}`)
+          
+          const audioFile = {
+            name: ddexFileName,  // This is what will be used for delivery
+            originalName: extractFileName(audioUrl),  // Keep for reference
+            url: audioUrl,
+            type: 'audio',
+            needsDownload: true,
+            trackNumber: track?.sequenceNumber || index + 1
+          }
+          
+          // Only add isrc if it exists
+          if (track?.isrc) {
+            audioFile.isrc = track.isrc
+          }
+          
+          files.push(audioFile)
+        }
+      })
+    }
+
+    // Add image files with DDEX naming
+    if (delivery.package?.imageFiles) {
+      delivery.package.imageFiles.forEach((imageUrl, index) => {
+        if (imageUrl) {
+          // Main cover art uses UPC as filename
+          // Additional images get numbered suffixes
+          const ddexFileName = index === 0 ? `${upc}.jpg` : `${upc}_${String(index + 1).padStart(2, '0')}.jpg`
+          
+          console.log(`Image file ${index + 1}: ${extractFileName(imageUrl)} → ${ddexFileName}`)
+          
+          files.push({
+            name: ddexFileName,  // This is what will be used for delivery
+            originalName: extractFileName(imageUrl),  // Keep for reference
+            url: imageUrl,
+            type: 'image',
+            needsDownload: true,
+            imageType: index === 0 ? 'FrontCover' : 'Additional'
+          })
+        }
+      })
+    }
   }
 
-  if (delivery.package?.imageFiles) {
-    delivery.package.imageFiles.forEach((url, index) => {
-      if (url) {
-        // Extract the DDEX name if it was set, otherwise generate it
-        const ddexName = delivery.package.imageFileNames?.[index] || 
-                        (index === 0 ? `${delivery.upc || '0000000000000'}.jpg` : 
-                                      `${delivery.upc || '0000000000000'}_${String(index + 1).padStart(2, '0')}.jpg`)
-        
-        files.push({
-          name: ddexName, // Use DDEX name
-          originalName: extractFileName(url),
-          url,
-          type: 'image',
-          needsDownload: true
-        })
-      }
-    })
-  }
-
-  return {
+  // Get target configuration to add authentication data
+  const targetDoc = await db.collection('deliveryTargets').doc(delivery.targetId).get()
+  const target = targetDoc.exists ? targetDoc.data() : null
+  
+  // Build the complete package with authentication and message type
+  const deliveryPackage = {
     deliveryId: delivery.id,
     releaseTitle: delivery.releaseTitle,
+    releaseArtist: delivery.releaseArtist,
     targetName: delivery.targetName,
+    upc,
     files,
     metadata: {
       messageId: delivery.ernMessageId,
-      testMode: delivery.testMode,
-      priority: delivery.priority
-    },
-    upc: delivery.upc
+      messageType: delivery.messageType || 'NewReleaseMessage',
+      messageSubType: messageSubType,
+      testMode: delivery.testMode || false,
+      priority: delivery.priority || 'normal',
+      timestamp: Date.now()
+    }
   }
+  
+  // Add DSP-specific authentication data if it exists
+  if (target && target.type === 'DSP' && target.config?.distributorId) {
+    deliveryPackage.distributorId = target.config.distributorId
+    deliveryPackage.metadata.distributorId = target.config.distributorId
+  }
+  
+  // Log the DDEX file naming summary
+  console.log(`DDEX File Naming Applied for ${messageSubType} message:`)
+  console.log(`  UPC: ${upc}`)
+  console.log(`  ERN: ${files.find(f => f.isERN)?.name || 'N/A'}`)
+  console.log(`  Audio files: ${files.filter(f => f.type === 'audio').map(f => f.name).join(', ') || 'None'}`)
+  console.log(`  Image files: ${files.filter(f => f.type === 'image').map(f => f.name).join(', ') || 'None'}`)
+  
+  return deliveryPackage
 }
 
 // ============================================================================
@@ -1176,13 +1036,19 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
       // Upload to FTP with DDEX name
       await client.uploadFrom(localPath, file.name)
       
-      uploadedFiles.push({
+      const uploadedFile = {
         name: file.name, // DDEX name
-        originalName: file.originalName,
         size: fileContent.length,
         md5Hash: md5Hash,
         uploadedAt: new Date().toISOString()
-      })
+      }
+      
+      // Only add originalName if it exists
+      if (file.originalName) {
+        uploadedFile.originalName = file.originalName
+      }
+      
+      uploadedFiles.push(uploadedFile)
 
       console.log(`FTP: Uploaded ${file.name} (MD5: ${md5Hash})`)
 
@@ -1287,13 +1153,19 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
                 })
               })
 
-              uploadedFiles.push({
+              const uploadedFile = {
                 name: file.name, // DDEX name
-                originalName: file.originalName,
                 size: fileContent.length,
                 md5Hash: md5Hash,
                 uploadedAt: new Date().toISOString()
-              })
+              }
+              
+              // Only add originalName if it exists
+              if (file.originalName) {
+                uploadedFile.originalName = file.originalName
+              }
+              
+              uploadedFiles.push(uploadedFile)
 
               console.log(`SFTP: Uploaded ${file.name} (MD5: ${md5Hash})`)
 
@@ -1417,6 +1289,22 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
     
     console.log(`S3: Uploading to key: ${key} (MD5: ${md5Hash})`)
     
+    // Build metadata object with only defined values
+    const metadata = {
+      'delivery-id': deliveryPackage.deliveryId || '',
+      'message-id': deliveryPackage.metadata.messageId || '',
+      'message-sub-type': deliveryPackage.metadata.messageSubType || 'Initial',
+      'test-mode': String(deliveryPackage.metadata.testMode || false),
+      'ddex-name': file.name,
+      'upc': deliveryPackage.upc || '',
+      'md5-hash': md5Hash
+    }
+    
+    // Only add originalName if it exists
+    if (file.originalName) {
+      metadata['original-name'] = file.originalName
+    }
+    
     // For large files, use multipart upload
     if (fileContent.length > 5 * 1024 * 1024) { // 5MB threshold
       const multipartUpload = new Upload({
@@ -1427,29 +1315,26 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
           Body: fileContent,
           ContentType: file.type === 'text/xml' ? 'text/xml' : 'application/octet-stream',
           ContentMD5: Buffer.from(md5Hash, 'hex').toString('base64'),
-          Metadata: {
-            'delivery-id': deliveryPackage.deliveryId,
-            'message-id': deliveryPackage.metadata.messageId,
-            'test-mode': String(deliveryPackage.metadata.testMode),
-            'original-name': file.originalName || '',
-            'ddex-name': file.name,
-            'upc': deliveryPackage.upc || '',
-            'md5-hash': md5Hash
-          }
+          Metadata: metadata
         }
       })
 
       const result = await multipartUpload.done()
       
-      uploadedFiles.push({
+      const uploadedFile = {
         name: file.name, // DDEX name
-        originalName: file.originalName,
         location: `https://${bucket}.s3.${target.region || target.connection?.region}.amazonaws.com/${key}`,
         etag: result.ETag,
         size: fileContent.length,
         md5Hash: md5Hash,
         uploadedAt: new Date().toISOString()
-      })
+      }
+      
+      if (file.originalName) {
+        uploadedFile.originalName = file.originalName
+      }
+      
+      uploadedFiles.push(uploadedFile)
     } else {
       // Regular upload for smaller files
       const command = new PutObjectCommand({
@@ -1458,28 +1343,25 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
         Body: fileContent,
         ContentType: file.type === 'text/xml' ? 'text/xml' : 'application/octet-stream',
         ContentMD5: Buffer.from(md5Hash, 'hex').toString('base64'),
-        Metadata: {
-          'delivery-id': deliveryPackage.deliveryId,
-          'message-id': deliveryPackage.metadata.messageId,
-          'test-mode': String(deliveryPackage.metadata.testMode),
-          'original-name': file.originalName || '',
-          'ddex-name': file.name,
-          'upc': deliveryPackage.upc || '',
-          'md5-hash': md5Hash
-        }
+        Metadata: metadata
       })
 
       const result = await s3Client.send(command)
       
-      uploadedFiles.push({
+      const uploadedFile = {
         name: file.name, // DDEX name
-        originalName: file.originalName,
         location: `https://${bucket}.s3.${target.region || target.connection?.region}.amazonaws.com/${key}`,
         etag: result.ETag,
         size: fileContent.length,
         md5Hash: md5Hash,
         uploadedAt: new Date().toISOString()
-      })
+      }
+      
+      if (file.originalName) {
+        uploadedFile.originalName = file.originalName
+      }
+      
+      uploadedFiles.push(uploadedFile)
     }
     
     console.log(`S3: Uploaded ${file.name} (MD5: ${md5Hash})`)
@@ -1532,13 +1414,17 @@ async function deliverViaAPI(target, deliveryPackage, deliveryId) {
     })
   }
 
-  // Add metadata including UPC
-  formData.append('metadata', JSON.stringify({
+  // Add metadata including UPC and message type - clean undefined values
+  const metadata = {
     messageId: deliveryPackage.metadata.messageId,
+    messageType: deliveryPackage.metadata.messageType || 'NewReleaseMessage',
+    messageSubType: deliveryPackage.metadata.messageSubType || 'Initial',
     releaseTitle: deliveryPackage.releaseTitle,
-    testMode: deliveryPackage.metadata.testMode,
+    testMode: deliveryPackage.metadata.testMode || false,
     upc: deliveryPackage.upc
-  }))
+  }
+  
+  formData.append('metadata', JSON.stringify(metadata))
 
   // Prepare headers
   const headers = {
@@ -1582,7 +1468,8 @@ async function deliverViaAPI(target, deliveryPackage, deliveryId) {
       details: {
         statusCode: response.status,
         responseTime: `${duration}ms`,
-        upc: deliveryPackage.upc
+        upc: deliveryPackage.upc,
+        messageSubType: deliveryPackage.metadata.messageSubType || 'Initial'
       }
     })
   }
@@ -1594,6 +1481,157 @@ async function deliverViaAPI(target, deliveryPackage, deliveryId) {
     statusCode: response.status,
     messageId: deliveryPackage.metadata.messageId,
     duration
+  }
+}
+
+/**
+ * Specialized DSP Delivery Implementation with Enhanced Logging
+ */
+async function deliverToDSP(target, deliveryPackage) {
+  const deliveryId = deliveryPackage.deliveryId || 'api_delivery'
+  
+  try {
+    // Log DSP delivery start
+    console.log(`Starting DSP delivery to ${target.endpoint}`)
+    console.log(`Message SubType: ${deliveryPackage.messageSubType || 'Initial'}`)
+    
+    // Get the endpoint from the correct location
+    const endpoint = target.endpoint || target.connection?.endpoint
+    
+    if (!endpoint) {
+      const error = 'DSP endpoint not configured. Please configure the API endpoint in delivery target settings.'
+      console.error(error)
+      throw new Error(error)
+    }
+    
+    // Log package details
+    console.log(`DSP Package Summary:`, {
+      distributorId: deliveryPackage.distributorId,
+      messageId: deliveryPackage.metadata?.messageId,
+      messageSubType: deliveryPackage.messageSubType || 'Initial',
+      audioFiles: deliveryPackage.audioFiles?.length || 0,
+      imageFiles: deliveryPackage.imageFiles?.length || 0,
+      hasERN: !!deliveryPackage.ernXml,
+      upc: deliveryPackage.upc
+    })
+    
+    // Prepare the DSP-specific payload - clean undefined values
+    const payload = {
+      distributorId: deliveryPackage.distributorId || target.config?.distributorId || 'stardust-distro',
+      messageId: deliveryPackage.metadata?.messageId || deliveryPackage.messageId,
+      messageType: deliveryPackage.metadata?.messageType || 'NewReleaseMessage',
+      messageSubType: deliveryPackage.messageSubType || 'Initial',
+      releaseTitle: deliveryPackage.releaseTitle,
+      releaseArtist: deliveryPackage.releaseArtist,
+      ernXml: deliveryPackage.ernXml || deliveryPackage.files?.find(f => f.isERN)?.content,
+      testMode: deliveryPackage.metadata?.testMode || false,
+      priority: deliveryPackage.metadata?.priority || 'normal',
+      audioFiles: deliveryPackage.audioFiles || [],
+      imageFiles: deliveryPackage.imageFiles || [],
+      timestamp: new Date().toISOString(),
+      upc: deliveryPackage.upc,
+      // ADD THESE for DSP Ingestion.vue compatibility:
+      ern: {
+        messageId: deliveryPackage.metadata?.messageId || deliveryPackage.messageId,
+        version: '4.3',
+        releaseCount: 1,
+        messageSubType: deliveryPackage.messageSubType || 'Initial'
+      },
+      processing: {
+        status: 'received',
+        receivedAt: new Date().toISOString()
+      },
+      // Add file transfer instructions
+      fileTransferRequired: true,
+      sourceStorage: 'firebase',
+      sourceDeliveryId: deliveryId
+    }
+    
+    // Prepare headers with authentication
+    const headers = {
+      'Content-Type': 'application/json'
+    }
+    
+    // Add Bearer token if API key is provided
+    const apiKey = target.headers?.Authorization || 
+                   target.connection?.apiKey || 
+                   target.config?.apiKey
+    
+    if (apiKey) {
+      // Handle both "Bearer xxx" format and plain token
+      headers.Authorization = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`
+    }
+    
+    console.log(`Sending to DSP endpoint: ${endpoint}`)
+    console.log(`Distributor ID: ${payload.distributorId}`)
+    console.log(`Has authentication: ${!!headers.Authorization}`)
+    console.log(`UPC: ${payload.upc}`)
+    console.log(`Message SubType: ${payload.messageSubType}`)
+    
+    // Make the API request
+    const startTime = Date.now()
+    const response = await axios({
+      method: 'POST',
+      url: endpoint,
+      headers,
+      data: payload,
+      timeout: 30000,
+      validateStatus: function (status) {
+        // Accept any status in the 2xx or 3xx range
+        return status >= 200 && status < 400
+      }
+    })
+    
+    const duration = Date.now() - startTime
+    
+    console.log('DSP Response Status:', response.status)
+    console.log('DSP Response:', response.data)
+    console.log(`DSP API call completed in ${duration}ms`)
+    
+    // Log file transfer note
+    if (payload.audioFiles.length > 0 || payload.imageFiles.length > 0) {
+      console.log(`NOTE: ${payload.audioFiles.length} audio and ${payload.imageFiles.length} image files referenced by URL`)
+      console.log('DSP will need to download these files asynchronously')
+      
+      // Log the actual URLs for debugging
+      if (payload.audioFiles.length > 0) {
+        console.log('Audio file URLs:', payload.audioFiles)
+      }
+      if (payload.imageFiles.length > 0) {
+        console.log('Image file URLs:', payload.imageFiles)
+      }
+    }
+    
+    return {
+      success: true,
+      protocol: 'API',
+      response: response.data,
+      statusCode: response.status,
+      messageId: payload.messageId,
+      duration,
+      files: [{
+        name: 'manifest.xml',
+        status: 'completed',
+        uploadedAt: new Date().toISOString()
+      }],
+      acknowledgment: response.data?.acknowledgment || 
+                      response.data?.message || 
+                      `Delivery accepted by DSP (Status: ${response.status})`,
+      bytesTransferred: JSON.stringify(payload).length,
+      fileTransferNote: 'Files referenced by URL - DSP will download asynchronously'
+    }
+  } catch (error) {
+    console.error('DSP Delivery Error:', error.response?.data || error.message)
+    
+    if (error.response) {
+      const errorMessage = error.response.data?.error || 
+                          error.response.data?.message || 
+                          error.response.statusText || 
+                          'Unknown error'
+      console.error(`DSP rejected delivery with status ${error.response.status}: ${errorMessage}`)
+      throw new Error(`DSP rejected delivery (${error.response.status}): ${errorMessage}`)
+    }
+    throw error
   }
 }
 
@@ -1644,6 +1682,21 @@ async function deliverViaAzure(target, deliveryPackage, deliveryId) {
     md5Hash = calculateMD5(fileContent)
     console.log(`Azure: MD5 hash: ${md5Hash}`)
 
+    // Build metadata object with only defined values
+    const metadata = {
+      deliveryId: deliveryPackage.deliveryId || '',
+      messageId: deliveryPackage.metadata.messageId || '',
+      messageSubType: deliveryPackage.metadata.messageSubType || 'Initial',
+      ddexName: file.name,
+      upc: deliveryPackage.upc || '',
+      md5Hash: md5Hash
+    }
+    
+    // Only add originalName if it exists
+    if (file.originalName) {
+      metadata.originalName = file.originalName
+    }
+
     const uploadResponse = await blockBlobClient.upload(
       fileContent,
       fileContent.length,
@@ -1651,25 +1704,23 @@ async function deliverViaAzure(target, deliveryPackage, deliveryId) {
         blobHTTPHeaders: {
           blobContentMD5: Buffer.from(md5Hash, 'hex').toString('base64')
         },
-        metadata: {
-          deliveryId: deliveryPackage.deliveryId,
-          messageId: deliveryPackage.metadata.messageId,
-          originalName: file.originalName || '',
-          ddexName: file.name,
-          upc: deliveryPackage.upc || '',
-          md5Hash: md5Hash
-        }
+        metadata: metadata
       }
     )
 
-    uploadedFiles.push({
+    const uploadedFile = {
       name: file.name, // DDEX name
-      originalName: file.originalName,
       etag: uploadResponse.etag,
       size: fileContent.length,
       md5Hash: md5Hash,
       uploadedAt: new Date().toISOString()
-    })
+    }
+    
+    if (file.originalName) {
+      uploadedFile.originalName = file.originalName
+    }
+    
+    uploadedFiles.push(uploadedFile)
     
     console.log(`Azure: Uploaded ${file.name} (MD5: ${md5Hash})`)
   }
@@ -1698,6 +1749,197 @@ async function deliverViaAzure(target, deliveryPackage, deliveryId) {
   }
 }
 
+/**
+ * Storage Delivery Implementation (Firebase Storage) with logging and DDEX naming
+ */
+async function deliverViaStorage(target, deliveryPackage, deliveryId) {
+  try {
+    await addDeliveryLog(deliveryId, {
+      level: 'info',
+      step: 'storage_preparation',
+      message: 'Preparing Firebase Storage delivery with DDEX naming'
+    })
+    
+    const bucket = storage.bucket()
+    const uploadedFiles = []
+    
+    // Determine the storage path
+    const timestamp = Date.now()
+    const distributorId = deliveryPackage.distributorId || target.config?.distributorId || 'unknown'
+    const basePath = `deliveries/${distributorId}/${timestamp}`
+    
+    console.log(`Uploading to Storage: ${basePath}`)
+    console.log(`UPC: ${deliveryPackage.upc}`)
+    console.log(`Message SubType: ${deliveryPackage.metadata.messageSubType || 'Initial'}`)
+    
+    await addDeliveryLog(deliveryId, {
+      level: 'info',
+      step: 'storage_upload',
+      message: `Uploading to path: ${basePath}`,
+      details: {
+        distributorId,
+        bucket: bucket.name,
+        upc: deliveryPackage.upc,
+        messageSubType: deliveryPackage.metadata.messageSubType || 'Initial'
+      }
+    })
+    
+    // Upload files with DDEX naming
+    for (const file of deliveryPackage.files) {
+      try {
+        let fileBuffer
+        let filePath
+        let md5Hash
+        
+        if (file.isERN) {
+          // ERN file - use its name directly
+          filePath = `${basePath}/${file.name}`
+          fileBuffer = Buffer.from(file.content, 'utf8')
+          md5Hash = calculateMD5(fileBuffer)
+        } else if (file.needsDownload) {
+          // Audio/Image files - use DDEX name
+          filePath = `${basePath}/${file.type}/${file.name}` // file.name already has DDEX naming
+          
+          console.log(`Downloading ${file.originalName || 'file'} from: ${file.url}`)
+          console.log(`Will upload as: ${file.name}`)
+          
+          const response = await axios.get(file.url, { 
+            responseType: 'arraybuffer',
+            timeout: 30000
+          })
+          fileBuffer = Buffer.from(response.data)
+          md5Hash = calculateMD5(fileBuffer)
+        }
+        
+        if (fileBuffer && filePath) {
+          const storageFile = bucket.file(filePath)
+          
+          // Build metadata object with only defined values
+          const metadata = {
+            distributorId: distributorId,
+            messageId: deliveryPackage.metadata.messageId,
+            messageSubType: deliveryPackage.metadata.messageSubType || 'Initial',
+            releaseTitle: deliveryPackage.releaseTitle || 'Unknown',
+            testMode: String(deliveryPackage.metadata.testMode || false),
+            ddexName: file.name,
+            upc: deliveryPackage.upc,
+            md5Hash: md5Hash
+          }
+          
+          // Only add originalName if it exists
+          if (file.originalName) {
+            metadata.originalName = file.originalName
+          }
+          
+          await storageFile.save(fileBuffer, {
+            metadata: {
+              contentType: file.isERN ? 'text/xml' : 
+                          file.type === 'audio' ? 'audio/mpeg' : 'image/jpeg',
+              metadata: metadata
+            }
+          })
+          
+          const uploadedFile = {
+            name: file.name, // DDEX compliant name
+            path: filePath,
+            size: fileBuffer.length,
+            md5Hash: md5Hash,
+            uploadedAt: new Date().toISOString()
+          }
+          
+          if (file.originalName) {
+            uploadedFile.originalName = file.originalName
+          }
+          
+          uploadedFiles.push(uploadedFile)
+          
+          console.log(`✅ Uploaded ${file.name} to: ${filePath} (MD5: ${md5Hash})`)
+        }
+      } catch (fileError) {
+        console.error(`Failed to upload file ${file.name}:`, fileError.message)
+        // Continue with other files
+      }
+    }
+    
+    const audioCount = uploadedFiles.filter(f => f.path.includes('/audio/')).length
+    const imageCount = uploadedFiles.filter(f => f.path.includes('/image/')).length
+    
+    await addDeliveryLog(deliveryId, {
+      level: 'success',
+      step: 'storage_upload',
+      message: `Uploaded ${uploadedFiles.length} files to Storage with DDEX naming`,
+      details: {
+        ernFiles: uploadedFiles.filter(f => f.name.endsWith('.xml')).length,
+        audioFiles: audioCount,
+        imageFiles: imageCount,
+        basePath,
+        upc: deliveryPackage.upc,
+        messageSubType: deliveryPackage.metadata.messageSubType || 'Initial',
+        md5Hashes: uploadedFiles.map(f => ({ name: f.name, md5: f.md5Hash }))
+      }
+    })
+    
+    // If this is a DSP delivery, trigger the ingestion
+    if (deliveryPackage.distributorId) {
+      console.log(`Notifying DSP of new delivery in storage...`)
+      
+      await addDeliveryLog(deliveryId, {
+        level: 'info',
+        step: 'storage_notification',
+        message: 'Notifying DSP of storage delivery'
+      })
+      
+      // The DSP's processStorageDelivery function will pick this up
+      // Or we can notify via API if configured
+      if (target.connection?.notifyEndpoint) {
+        try {
+          await axios.post(target.connection.notifyEndpoint, {
+            distributorId: distributorId,
+            deliveryPath: basePath,
+            messageId: deliveryPackage.metadata.messageId,
+            messageSubType: deliveryPackage.metadata.messageSubType || 'Initial',
+            timestamp: new Date().toISOString(),
+            upc: deliveryPackage.upc
+          })
+          console.log('✅ DSP notified of storage delivery')
+          
+          await addDeliveryLog(deliveryId, {
+            level: 'success',
+            step: 'storage_notification',
+            message: 'DSP notified successfully'
+          })
+        } catch (notifyError) {
+          console.error('Failed to notify DSP:', notifyError.message)
+          
+          await addDeliveryLog(deliveryId, {
+            level: 'warning',
+            step: 'storage_notification',
+            message: 'DSP notification failed, but files uploaded successfully',
+            details: { error: notifyError.message }
+          })
+          // Don't fail the delivery if notification fails
+        }
+      }
+    }
+    
+    return {
+      success: true,
+      protocol: 'Storage',
+      bucket: bucket.name,
+      basePath: basePath,
+      files: uploadedFiles,
+      messageId: deliveryPackage.metadata.messageId,
+      acknowledgment: `Uploaded ${uploadedFiles.length} files to Storage`,
+      bytesTransferred: uploadedFiles.reduce((sum, f) => sum + f.size, 0),
+      upc: deliveryPackage.upc,
+      messageSubType: deliveryPackage.metadata.messageSubType || 'Initial'
+    }
+  } catch (error) {
+    console.error('Storage delivery error:', error)
+    throw new Error(`Storage delivery failed: ${error.message}`)
+  }
+}
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -1706,19 +1948,63 @@ async function deliverViaAzure(target, deliveryPackage, deliveryId) {
  * Download file from URL to local path
  */
 async function downloadFile(url, localPath) {
+  const writer = fs.createWriteStream(localPath)
   const response = await axios({
     method: 'GET',
     url: url,
     responseType: 'stream'
   })
   
-  const writer = fs.createWriteStream(localPath)
   response.data.pipe(writer)
   
   return new Promise((resolve, reject) => {
     writer.on('finish', resolve)
     writer.on('error', reject)
   })
+}
+
+/**
+ * Extract file extension from URL
+ */
+function extractFileExtension(url) {
+  try {
+    const urlObj = new URL(url)
+    const pathname = urlObj.pathname
+    const parts = pathname.split('/')
+    let filename = parts[parts.length - 1]
+    
+    // Remove URL parameters
+    filename = filename.split('?')[0]
+    
+    // Decode URL encoding
+    filename = decodeURIComponent(filename)
+    
+    // Handle Firebase Storage URLs that might have encoded parts
+    if (filename.includes('%2F')) {
+      const decodedParts = filename.split('%2F')
+      filename = decodedParts[decodedParts.length - 1]
+    }
+    
+    // Extract extension
+    const extMatch = filename.match(/\.([^.]+)$/)
+    if (extMatch) {
+      const ext = extMatch[1].toLowerCase()
+      // Map common audio formats
+      if (ext === 'mp3' || ext === 'mpeg') return 'mp3'
+      if (ext === 'wav' || ext === 'wave') return 'wav'
+      if (ext === 'flac') return 'flac'
+      if (ext === 'jpg' || ext === 'jpeg') return 'jpg'
+      if (ext === 'png') return 'png'
+      return ext
+    }
+    
+    // Default extensions based on context
+    console.warn(`Could not determine extension for ${url}, defaulting to wav`)
+    return 'wav'
+  } catch (error) {
+    console.error('Error extracting file extension:', error)
+    return 'wav'
+  }
 }
 
 /**
@@ -1735,7 +2021,7 @@ function extractFileName(url) {
 }
 
 /**
- * Send notifications
+ * Send notifications - FIXED to handle undefined values
  */
 async function sendNotification(delivery, type, data) {
   try {
@@ -1745,18 +2031,38 @@ async function sendNotification(delivery, type, data) {
       return
     }
     
-    // Store notification in Firestore
-    await db.collection('notifications').add({
+    // Build notification object with only defined values
+    const notification = {
       type,
       deliveryId: delivery.id,
       releaseTitle: delivery.releaseTitle || 'Unknown',
       targetName: delivery.targetName || 'Unknown',
       tenantId: delivery.tenantId,
-      timestamp: admin.firestore.Timestamp.now(),
-      data
-    })
+      timestamp: admin.firestore.Timestamp.now()
+    }
+    
+    // Only add optional fields if they exist
+    if (delivery.messageSubType) {
+      notification.messageSubType = delivery.messageSubType
+    }
+    
+    // Clean the data object to remove undefined values
+    if (data) {
+      const cleanData = {}
+      for (const [key, value] of Object.entries(data)) {
+        if (value !== undefined && value !== null) {
+          cleanData[key] = value
+        }
+      }
+      if (Object.keys(cleanData).length > 0) {
+        notification.data = cleanData
+      }
+    }
+    
+    // Store notification in Firestore
+    await db.collection('notifications').add(notification)
 
-    console.log(`Notification sent: ${type} for delivery ${delivery.id}`)
+    console.log(`Notification sent: ${type} for delivery ${delivery.id} (${delivery.messageSubType || 'Initial'} message)`)
     
     // TODO: Implement email notifications with SendGrid/SES
     // if (type === 'failed' || type === 'success') {
