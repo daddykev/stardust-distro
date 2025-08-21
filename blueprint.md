@@ -648,6 +648,12 @@ interface Delivery {
   
   status: 'queued' | 'processing' | 'delivering' | 'completed' | 'failed';
   
+  messageType: 'NewReleaseMessage' | 'CatalogListMessage' | 'PurgeReleaseMessage';
+  messageSubType: 'Initial' | 'Update' | 'Takedown';
+  
+  ernVersion: '3.8.2' | '4.2' | '4.3'; // ERN version used
+  ernMessageId: string; // DDEX Message ID
+  
   package: {
     ernFile: string;
     audioFiles: string[];
@@ -775,6 +781,74 @@ interface ValidationError {
   code: string;
 }
 ```
+
+## DDEX Standards & Message Types
+
+### ERN 4.3 Implementation
+Our platform currently implements the DDEX ERN 4.3 standard for electronic release notifications. This version provides enhanced support for modern digital distribution requirements.
+
+### Message Types
+
+#### NewReleaseMessage
+The primary message type for communicating release information to DSPs.
+
+**Supported SubTypes:**
+- **Initial**: First-time delivery of a release to a DSP
+  - Includes full metadata, audio files, and artwork
+  - Contains commercial deals and territory information
+  - Sets up the release in the DSP's catalog
+  
+- **Update**: Metadata or asset updates to existing releases
+  - Used for corrections or enhancements
+  - May include new tracks, updated artwork, or metadata changes
+  - Preserves existing commercial terms unless explicitly changed
+  
+- **Takedown**: Request to remove a release from distribution
+  - Triggers removal from DSP platforms
+  - Does not include audio/image assets
+  - Sets `includeDeals: false` in the message
+
+### Message Type Determination Logic
+The system automatically determines the appropriate message type based on delivery history:
+
+```javascript
+// Automatic determination based on delivery history
+if (isTakedown) {
+  messageType = 'NewReleaseMessage'
+  messageSubType = 'Takedown'
+  includeDeals = false
+} else if (!hasBeenDelivered) {
+  messageType = 'NewReleaseMessage'
+  messageSubType = 'Initial'
+  includeDeals = true
+} else {
+  messageType = 'NewReleaseMessage'
+  messageSubType = 'Update'
+  includeDeals = true
+}
+```
+
+### DDEX File Naming Convention
+All files follow DDEX-compliant naming standards:
+- **Audio**: `{UPC}_{DiscNumber}_{TrackNumber}.{extension}`
+  - Example: `1234567890123_01_001.wav`
+- **Cover Art**: `{UPC}.jpg` (main), `{UPC}_{XX}.jpg` (additional)
+  - Example: `1234567890123.jpg`, `1234567890123_02.jpg`
+- **ERN XML**: `{MessageID}.xml`
+  - Example: `MSG-2025-01-15-12345.xml`
+
+### Delivery History Tracking
+Each delivery is tracked in the `deliveryHistory` collection to maintain:
+- Message type history per release/target combination
+- Delivery timestamps and receipts
+- DSP acknowledgment IDs
+- Support for incremental updates vs full redeliveries
+
+### DSP-Specific Adaptations
+Different DSPs may require specific ERN profiles or message variations:
+- **Standard DSPs**: Use ERN 4.3 with AudioAlbum profile
+- **Aggregators**: May accept ERN 3.8.2 for backward compatibility
+- **Test Environments**: Support all message subtypes for validation
 
 ## API Architecture
 
@@ -1473,6 +1547,7 @@ const results = await delivery.deliver(stardustRelease);
 - [x] **ENHANCED: MD5 hash validation for file integrity**
 - [x] **ENHANCED: Comprehensive delivery logging system**
 - [x] **ENHANCED: Real-time log streaming to UI**
+- [x] **ENHANCED: Message type tracking (Initial/Update/Takedown) for delivery history**
 
 - **Firebase Functions v2**: Complete migration to Functions v2 with improved performance
   - **NEW**: calculateFileMD5 callable function for hash generation
