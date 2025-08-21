@@ -278,6 +278,15 @@ stardust-distro/
 │   │   ├── package-lock.json      # Locked dependencies ✅
 │   │   ├── .env                   # Environment variables (optional) 📝
 │   │   └── node_modules/          # Dependencies (git-ignored) ✅
+│   ├── docs/                      # Documentation ❌
+│   │   ├── DDEX.md                # DDEX standards implementation
+│   │   ├── getting-started.md     # Quick start guide
+│   │   ├── configuration.md       # Configuration guide
+│   │   ├── delivery-setup.md      # Delivery target setup
+│   │   ├── api-reference.md       # API documentation
+│   │   ├── customization.md       # Customization guide
+│   │   ├── plugin-development.md  # Plugin developer guide
+│   │   └── troubleshooting.md     # Common issues
 │   ├── public/                    # Static assets ✅
 │   │   └── index.html             # HTML template ✅
 │   ├── node_modules/              # Dependencies (git-ignored) ✅
@@ -293,14 +302,6 @@ stardust-distro/
 │   ├── package-lock.json          # Locked dependencies ✅
 │   ├── vite.config.js             # Vite configuration ✅
 │   └── README.md                  # Project documentation ✅
-├── docs/                          # Documentation ❌
-│   ├── getting-started.md         # Quick start guide
-│   ├── configuration.md           # Configuration guide
-│   ├── delivery-setup.md          # Delivery target setup
-│   ├── api-reference.md           # API documentation
-│   ├── customization.md           # Customization guide
-│   ├── plugin-development.md      # Plugin developer guide
-│   └── troubleshooting.md         # Common issues
 ├── examples/                      # Example configurations ❌
 │   ├── indie-label/               # Indie label setup
 │   ├── aggregator/                # Aggregator setup
