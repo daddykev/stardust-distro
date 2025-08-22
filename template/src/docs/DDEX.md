@@ -1,4 +1,4 @@
-# **DDEX Standards - Stardust Ecosystem Enhanced**
+# **DDEX Standards - Stardust Ecosystem**
 
 ## **Overview**
 

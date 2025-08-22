@@ -1,6 +1,6 @@
 // functions/index.js
 const { onSchedule } = require('firebase-functions/v2/scheduler')
-const { onCall, HttpsError } = require('firebase-functions/v2/https')
+const { onCall, HttpsError, onRequest } = require('firebase-functions/v2/https')
 const { setGlobalOptions } = require('firebase-functions/v2')
 const admin = require('firebase-admin')
 const ftp = require('basic-ftp')
@@ -2073,3 +2073,138 @@ async function sendNotification(delivery, type, data) {
     // Don't throw - notification failure shouldn't stop delivery
   }
 }
+
+// Add test API endpoint
+exports.testAPIEndpoint = onRequest({
+  cors: true,
+  maxInstances: 10
+}, async (req, res) => {
+  // Simple test endpoint that accepts deliveries
+  if (req.method !== 'POST') {
+    res.status(405).send('Method not allowed')
+    return
+  }
+
+  const testMode = req.headers['x-test-mode'] === 'true'
+  
+  if (!testMode) {
+    res.status(403).send('Test mode only')
+    return
+  }
+
+  // Log the received data
+  console.log('Test API received:', {
+    headers: req.headers,
+    body: req.body,
+    files: req.body.files?.length || 0
+  })
+
+  // Simulate processing time
+  await new Promise(resolve => setTimeout(resolve, 1000))
+
+  // Return success response
+  res.status(200).json({
+    success: true,
+    deliveryId: req.body.deliveryId || 'TEST_' + Date.now(),
+    acknowledgment: 'TEST_ACK_' + Date.now(),
+    timestamp: new Date().toISOString(),
+    filesReceived: req.body.files?.length || 0
+  })
+})
+
+// Add test connection function
+exports.testDeliveryConnection = onCall({
+  timeoutSeconds: 30,
+  maxInstances: 10
+}, async (request) => {
+  const { protocol, config, testMode } = request.data
+
+  if (!testMode) {
+    throw new HttpsError('invalid-argument', 'Test mode required')
+  }
+
+  try {
+    switch (protocol) {
+      case 'storage':
+        // Test Firebase Storage connection
+        const bucket = admin.storage().bucket()
+        await bucket.file('test/connection.txt').save('test')
+        await bucket.file('test/connection.txt').delete()
+        return { success: true, message: 'Storage connection successful' }
+
+      case 'FTP':
+        // Test FTP connection
+        const ftpClient = new ftp.Client()
+        await ftpClient.access(config)
+        await ftpClient.list('/')
+        ftpClient.close()
+        return { success: true, message: 'FTP connection successful' }
+
+      case 'SFTP':
+        // Test SFTP connection
+        const sftpConn = new Client()
+        await sftpConn.connect(config)
+        await sftpConn.list('/')
+        await sftpConn.end()
+        return { success: true, message: 'SFTP connection successful' }
+
+      case 'S3':
+        // Test S3 connection
+        const s3Client = new S3Client({
+          region: config.region,
+          endpoint: config.endpoint,
+          credentials: {
+            accessKeyId: config.accessKeyId,
+            secretAccessKey: config.secretAccessKey
+          },
+          forcePathStyle: config.forcePathStyle
+        })
+        
+        const command = new ListObjectsV2Command({
+          Bucket: config.bucket,
+          MaxKeys: 1
+        })
+        
+        await s3Client.send(command)
+        return { success: true, message: 'S3 connection successful' }
+
+      case 'API':
+        // Test API connection
+        const response = await fetch(config.endpoint, {
+          method: 'HEAD',
+          headers: config.headers || {}
+        })
+        
+        if (response.ok || response.status === 405) { // 405 is ok for HEAD
+          return { success: true, message: 'API endpoint accessible' }
+        }
+        throw new Error(`API returned ${response.status}`)
+
+      case 'Azure':
+        // Test Azure connection
+        const blobServiceClient = BlobServiceClient.fromConnectionString(
+          config.connectionString
+        )
+        const containerClient = blobServiceClient.getContainerClient(
+          config.containerName
+        )
+        
+        const exists = await containerClient.exists()
+        if (!exists) {
+          await containerClient.create()
+        }
+        
+        return { success: true, message: 'Azure connection successful' }
+
+      default:
+        throw new Error(`Unknown protocol: ${protocol}`)
+    }
+  } catch (error) {
+    console.error(`Test connection failed for ${protocol}:`, error)
+    return { 
+      success: false, 
+      message: error.message,
+      protocol 
+    }
+  }
+})

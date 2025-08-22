@@ -8,7 +8,22 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-path .gitignore",
-    "format": "prettier --write src/"
+    "format": "prettier --write src/",
+    "test:setup": "bash scripts/setup-test-env.sh",
+    "test:run": "vite --mode test",
+    "test:cleanup": "docker-compose -f docker/docker-compose.test.yml down -v",
+    "test:all": "npm run test:setup && npm run test:run",
+    "test:protocols": "npm run test:setup && vite --mode test",
+    "docker:build": "docker build -f docker/Dockerfile -t stardust-distro .",
+    "docker:run": "docker run -p 8080:8080 stardust-distro",
+    "docker:test": "docker-compose -f docker/docker-compose.test.yml up -d",
+    "docker:test:down": "docker-compose -f docker/docker-compose.test.yml down",
+    "docker:test:logs": "docker-compose -f docker/docker-compose.test.yml logs -f",
+    "serve:production": "vite preview --port 8080 --host",
+    "deploy": "npm run build && firebase deploy",
+    "deploy:hosting": "npm run build && firebase deploy --only hosting",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:all": "npm run build && firebase deploy"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^6.5.1",
