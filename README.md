@@ -420,7 +420,7 @@ stardust-distro dev              # Start development server
 - [x] Add visual test status indicators
 - [x] Create health score calculation system
 
-### Phase 6: Plugin Marketplace 📅 (Weeks 15-16) - UP NEXT
+### Phase 6: Plugin Marketplace 📅 - UP NEXT
 - [ ] Plugin architecture design
 - [ ] Marketplace infrastructure
 - [ ] Plugin SDK and documentation
@@ -428,7 +428,7 @@ stardust-distro dev              # Start development server
 - [ ] Initial core team plugins
 - [ ] Third-party developer support
 
-### Phase 7: Testing & Launch 📅 (Weeks 17-20)
+### Phase 7: Testing & Launch 📅
 - [ ] Comprehensive test suite expansion
 - [ ] Performance optimization
 - [ ] Security audit
@@ -501,7 +501,7 @@ We welcome contributions! With Phases 1-5 complete, we especially need help with
 - 📝 Documentation for all features including testing suite
 
 ### For Plugin Developers
-Start thinking about plugins you'd like to build! The Plugin SDK and marketplace infrastructure will be available in Phase 5, but you can:
+Start thinking about plugins you'd like to build! The Plugin SDK and marketplace infrastructure will be available in Phase 6, but you can:
 - Join our Discord (coming soon) to discuss plugin ideas
 - Review the core architecture to plan integrations
 - Suggest plugin APIs and hook points
@@ -511,10 +511,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## 🔗 Stardust Ecosystem
 
-Stardust Distro is part of the larger Stardust ecosystem:
+Stardust Distro is part of the larger Stardust Ecosystem:
 
-- [Stardust DSP](https://github.com/daddykev/stardust-dsp) - Streaming platform
 - [DDEX Workbench](https://github.com/daddykev/ddex-workbench) - Validation and testing tools
+- [Stardust DSP](https://github.com/daddykev/stardust-dsp) - Streaming platform
 
 All tools share unified authentication for seamless workflow integration.
 
@@ -539,7 +539,7 @@ All tools share unified authentication for seamless workflow integration.
 - ✅ Audit logging for all operations
 - ✅ MD5 hash verification for file integrity
 - ✅ Encrypted credential storage for delivery targets
-- 📅 Regular security audits *(Phase 6)*
+- 📅 Regular security audits *(Phase 7)*
 
 ## 📄 License
 
@@ -556,17 +556,6 @@ This means you can:
 ### Plugins
 Individual licenses determined by plugin developers. The marketplace will support various licensing models including MIT, GPL, commercial, and freemium.
 
-## 💬 Support
-
-### Community Support (Free)
-- **GitHub Issues**: [Bug reports and features](https://github.com/daddykev/stardust-distro/issues)
-- **Discussions**: [Community forum](https://github.com/daddykev/stardust-distro/discussions)
-- **Discord**: Coming soon
-- **Documentation**: Comprehensive guides and API docs
-
-### Plugin Support
-Support terms vary by plugin developer. Each plugin in the marketplace will clearly indicate support options.
-
 ## 🙏 Acknowledgments
 
 Built by the music industry, for the music industry. Special thanks to:
@@ -580,4 +569,4 @@ Built by the music industry, for the music industry. Special thanks to:
 
 **Join us in democratizing music distribution. True open source, no compromises.**
 
-*Star ⭐ the repo to follow our progress! With Phases 1-4 complete, we're ready to build the plugin marketplace. Interested in developing plugins? Watch this space for the Plugin SDK announcement in Phase 5!*
+*Star ⭐ the repo to follow our progress! With Phases 1-5 complete, we're ready to build the plugin marketplace. Interested in developing plugins? Watch this space for the Plugin SDK announcement in Phase 5!*
