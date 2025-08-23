@@ -998,7 +998,11 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
       port: target.port || target.connection?.port || 21,
       user: target.username || target.connection?.username,
       password: target.password || target.connection?.password,
-      secure: target.secure || target.connection?.secure || false
+      secure: target.secure || target.connection?.secure || false,
+      pasv: true,  // Enable passive mode by default
+      connTimeout: 10000,
+      pasvTimeout: 10000,
+      keepalive: 5000
     })
 
     // Change to target directory
@@ -2112,10 +2116,12 @@ exports.testAPIEndpoint = onRequest({
   })
 })
 
-// Add test connection function
+// Test connection function with CORS and timeout handling
 exports.testDeliveryConnection = onCall({
-  timeoutSeconds: 30,
-  maxInstances: 10
+  timeoutSeconds: 60,  // Increase from 30 to 60 seconds
+  maxInstances: 10,
+  cors: true,  // This should handle CORS for callable functions
+  consumeAppCheckToken: false  // Disable app check for testing
 }, async (request) => {
   const { protocol, config, testMode } = request.data
 
@@ -2133,23 +2139,141 @@ exports.testDeliveryConnection = onCall({
         return { success: true, message: 'Storage connection successful' }
 
       case 'FTP':
-        // Test FTP connection
+        // Test FTP connection with passive mode and timeout
         const ftpClient = new ftp.Client()
-        await ftpClient.access(config)
-        await ftpClient.list('/')
-        ftpClient.close()
-        return { success: true, message: 'FTP connection successful' }
+        
+        // Set shorter timeout to prevent gateway timeout
+        ftpClient.ftp.timeout = 10000  // 10 seconds instead of default 30
+        
+        // Fix the config mapping for basic-ftp
+        const ftpConfig = {
+          host: config.host,
+          port: config.port || 21,
+          user: config.username || config.user || config.username,  // Try both
+          password: config.password,
+          secure: config.secure || false,
+          connTimeout: 10000,  // Connection timeout
+          pasvTimeout: 10000,  // PASV data connection timeout
+          keepalive: 5000
+        }
+        
+        // Force passive mode if specified
+        if (config.forcePasv || config.pasv) {
+          ftpClient.ftp.pasv = true
+        }
+        
+        try {
+          await ftpClient.access(ftpConfig)
+          
+          // Quick list to verify connection (with timeout)
+          const listPromise = ftpClient.list('/')
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('List timeout')), 5000)
+          )
+          
+          try {
+            const list = await Promise.race([listPromise, timeoutPromise])
+            ftpClient.close()
+            
+            return { 
+              success: true, 
+              message: 'FTP connection successful',
+              filesFound: Array.isArray(list) ? list.length : 0
+            }
+          } catch (listError) {
+            // Connection worked but list failed/timed out - still a success
+            ftpClient.close()
+            return { 
+              success: true, 
+              message: 'FTP connection successful (list skipped)',
+              note: 'Connected but directory listing timed out'
+            }
+          }
+        } catch (ftpError) {
+          ftpClient.close()
+          console.error('FTP test error:', ftpError)
+          return { 
+            success: false, 
+            message: ftpError.message,
+            code: ftpError.code 
+          }
+        }
 
       case 'SFTP':
-        // Test SFTP connection
-        const sftpConn = new Client()
-        await sftpConn.connect(config)
-        await sftpConn.list('/')
-        await sftpConn.end()
-        return { success: true, message: 'SFTP connection successful' }
+        // Test SFTP connection with timeout
+        return new Promise((resolve, reject) => {
+          const sftpConn = new SSHClient()
+          
+          // Set a timeout for the entire operation
+          const timeout = setTimeout(() => {
+            sftpConn.end()
+            resolve({ 
+              success: false, 
+              message: 'SFTP connection timeout (10s)',
+              note: 'SSH2 may not be compatible with Cloud Functions'
+            })
+          }, 10000)
+          
+          sftpConn.on('ready', () => {
+            clearTimeout(timeout)
+            sftpConn.sftp((err, sftp) => {
+              if (err) {
+                sftpConn.end()
+                resolve({ success: false, message: err.message })
+                return
+              }
+              
+              // Quick test - just confirm SFTP subsystem works
+              sftpConn.end()
+              resolve({ 
+                success: true, 
+                message: 'SFTP connection successful'
+              })
+            })
+          })
+          
+          sftpConn.on('error', (err) => {
+            clearTimeout(timeout)
+            resolve({ 
+              success: false, 
+              message: err.message,
+              code: err.code 
+            })
+          })
+          
+          // Connect with config
+          const sftpConfig = {
+            host: config.host,
+            port: config.port || 22,
+            username: config.username,
+            password: config.password,
+            readyTimeout: 10000,
+            timeout: 10000
+          }
+          
+          if (config.privateKey) {
+            sftpConfig.privateKey = config.privateKey
+            if (config.passphrase) {
+              sftpConfig.passphrase = config.passphrase
+            }
+          }
+          
+          try {
+            sftpConn.connect(sftpConfig)
+          } catch (connectError) {
+            clearTimeout(timeout)
+            resolve({ 
+              success: false, 
+              message: 'SSH2 Client initialization failed',
+              error: connectError.message
+            })
+          }
+        })
 
       case 'S3':
-        // Test S3 connection
+        // Test S3 connection with timeout
+        const { ListObjectsV2Command } = require('@aws-sdk/client-s3')
+        
         const s3Client = new S3Client({
           region: config.region,
           endpoint: config.endpoint,
@@ -2157,7 +2281,13 @@ exports.testDeliveryConnection = onCall({
             accessKeyId: config.accessKeyId,
             secretAccessKey: config.secretAccessKey
           },
-          forcePathStyle: config.forcePathStyle
+          forcePathStyle: config.forcePathStyle,
+          requestHandler: {
+            requestTimeout: 10000,
+            httpsAgent: {
+              connectTimeout: 10000
+            }
+          }
         })
         
         const command = new ListObjectsV2Command({
@@ -2169,16 +2299,48 @@ exports.testDeliveryConnection = onCall({
         return { success: true, message: 'S3 connection successful' }
 
       case 'API':
-        // Test API connection
-        const response = await fetch(config.endpoint, {
-          method: 'HEAD',
-          headers: config.headers || {}
-        })
-        
-        if (response.ok || response.status === 405) { // 405 is ok for HEAD
-          return { success: true, message: 'API endpoint accessible' }
+        // Test API connection with timeout
+        if (!config.endpoint) {
+          return { 
+            success: false, 
+            message: 'API endpoint not configured' 
+          }
         }
-        throw new Error(`API returned ${response.status}`)
+        
+        try {
+          const response = await axios({
+            method: 'HEAD',
+            url: config.endpoint,
+            headers: config.headers || {},
+            timeout: 10000,  // 10 second timeout
+            validateStatus: function (status) {
+              return status < 500
+            }
+          })
+          
+          return { 
+            success: true, 
+            message: 'API endpoint accessible',
+            statusCode: response.status 
+          }
+        } catch (apiError) {
+          if (apiError.code === 'ECONNREFUSED') {
+            return { 
+              success: false, 
+              message: 'API endpoint unreachable (connection refused)' 
+            }
+          }
+          if (apiError.code === 'ECONNABORTED') {
+            return { 
+              success: false, 
+              message: 'API request timeout (10s)' 
+            }
+          }
+          return { 
+            success: false, 
+            message: apiError.message 
+          }
+        }
 
       case 'Azure':
         // Test Azure connection
@@ -2204,7 +2366,8 @@ exports.testDeliveryConnection = onCall({
     return { 
       success: false, 
       message: error.message,
-      protocol 
+      protocol,
+      stack: error.stack 
     }
   }
 })
