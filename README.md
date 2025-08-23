@@ -11,17 +11,16 @@ Stardust Distro enables labels, artists, and distributors to deploy a fully func
 
 ## 🎯 True Open Source Philosophy
 
-Stardust Distro is a production-ready music distribution platform, built with an open-source core and MIT license. You get a fully functional system with catalog management, ERN generation, all delivery protocols (FTP, SFTP, S3, API, Azure), real-time monitoring, and comprehensive testing tools - everything needed to run a professional distribution platform.
+Stardust Distro is a production-ready music distribution platform, built with an open-source core and MIT license. You get a fully functional system with catalog management, DDEX ERN generation with life cycle tracking, all delivery protocols (FTP, SFTP, S3, API, Azure), real-time monitoring, and comprehensive testing tools - everything needed to run a professional distribution platform.
 
 ### Complete Platform, Zero Compromises
 
 A complete, production-ready distribution platform that includes:
 
 - **Full Catalog Management** - Unlimited releases, tracks, and assets  
-- **DDEX ERN Generation** - Industry-standard ERN 4.3 with MD5 hashing  
+- **DDEX ERN Generation** - Industry-standard ERN 4.3 with legacy support (3.8.2)  
 - **All Delivery Protocols** - FTP, SFTP, S3, API, and Azure support  
 - **Real-time Monitoring** - Comprehensive logging and delivery tracking  
-- **White-Label Ready** - Custom branding and multi-tenant support  
 - **Production Testing Suite** - Comprehensive tests for system health and compliance  
 
 ## 🚧 Current Development Status
