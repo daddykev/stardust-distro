@@ -1,8 +1,8 @@
 <script setup>
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { useAuth } from '../composables/useAuth'
 import { db, functions, storage } from '../firebase'
-import { collection, getDocs, query, limit, doc, getDoc } from 'firebase/firestore'
+import { collection, getDocs, query, limit, doc, getDoc, setDoc, addDoc, orderBy } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { ref as storageRef, uploadString, getDownloadURL } from 'firebase/storage'
 
@@ -54,6 +54,9 @@ const testLog = ref([])
 const logContainer = ref(null)
 const testDuration = ref(0)
 const lastTestTime = ref('')
+const savedHealthScore = ref(null)
+const lastFullTestTime = ref(null)
+const loadingHistory = ref(true)
 
 // Compute tenantId from user
 const tenantId = computed(() => user.value?.uid || null)
@@ -250,6 +253,46 @@ const healthScore = computed(() => {
   return Math.round((passedTests.value / totalTests.value) * 100)
 })
 
+const healthScoreClass = computed(() => {
+  const score = savedHealthScore.value !== null ? savedHealthScore.value : healthScore.value
+  if (score >= 90) return 'health-excellent'
+  if (score >= 70) return 'health-good'
+  return 'health-poor'
+})
+
+// Load last test result on mount
+onMounted(async () => {
+  try {
+    // Try to load latest system health
+    const healthDoc = await getDoc(doc(db, 'systemHealth', 'latest'))
+    if (healthDoc.exists()) {
+      const data = healthDoc.data()
+      savedHealthScore.value = data.healthScore
+      lastFullTestTime.value = data.lastFullTest?.toDate()
+    }
+    
+    // Also load recent test results for history
+    const resultsQuery = query(
+      collection(db, 'testResults'),
+      orderBy('timestamp', 'desc'),
+      limit(1)
+    )
+    const resultsSnapshot = await getDocs(resultsQuery)
+    
+    if (!resultsSnapshot.empty) {
+      const latestResult = resultsSnapshot.docs[0].data()
+      if (!lastFullTestTime.value) {
+        lastFullTestTime.value = latestResult.timestamp?.toDate()
+      }
+      hasResults.value = true
+    }
+  } catch (error) {
+    console.error('Error loading test history:', error)
+  } finally {
+    loadingHistory.value = false
+  }
+})
+
 // Helper methods
 const addLog = (level, message) => {
   testLog.value.push({
@@ -282,6 +325,17 @@ const formatTime = (date) => {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit'
+  })
+}
+
+const formatDateTime = (date) => {
+  if (!date) return 'Never'
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
   })
 }
 
@@ -327,6 +381,274 @@ const generateTestERN = (release, options) => {
     </Release>
   </ReleaseList>
 </ernm:NewReleaseMessage>`
+}
+
+// Add this helper function for generating more comprehensive ERN
+const generateComprehensiveTestERN = (release, options) => {
+  const messageId = options.messageId || `TEST_${Date.now()}`
+  const sender = options.sender || { partyId: 'TEST', partyName: 'Test Sender' }
+  const recipient = options.recipient || { partyId: 'DSP', partyName: 'Test DSP' }
+  
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<ernm:NewReleaseMessage xmlns:ernm="http://ddex.net/xml/ern/43" 
+  xmlns:xs="http://www.w3.org/2001/XMLSchema-instance"
+  MessageSchemaVersionId="ern/43"
+  LanguageAndScriptCode="en">
+  <MessageHeader>
+    <MessageId>${messageId}</MessageId>
+    <MessageCreatedDateTime>${new Date().toISOString()}</MessageCreatedDateTime>
+    <MessageSender>
+      <PartyId>${sender.partyId}</PartyId>
+      <PartyName>
+        <FullName>${sender.fullName || sender.partyName}</FullName>
+      </PartyName>
+    </MessageSender>
+    <MessageRecipient>
+      <PartyId>${recipient.partyId}</PartyId>
+      <PartyName>
+        <FullName>${recipient.fullName || recipient.partyName}</FullName>
+      </PartyName>
+    </MessageRecipient>
+  </MessageHeader>
+  
+  <PartyList>
+    <Party>
+      <PartyReference>P1</PartyReference>
+      <PartyName>
+        <FullName>${release.basic.displayArtist}</FullName>
+      </PartyName>
+      <PartyId>ISNI:0000000000000000</PartyId>
+    </Party>
+    <Party>
+      <PartyReference>P2</PartyReference>
+      <PartyName>
+        <FullName>${release.basic.label}</FullName>
+      </PartyName>
+    </Party>
+  </PartyList>
+  
+  <ReleaseList>
+    <Release>
+      <ReleaseReference>R1</ReleaseReference>
+      <ReleaseType>Album</ReleaseType>
+      <ReleaseId>
+        <ICPN IsEan="false">${release.basic.barcode}</ICPN>
+        <CatalogNumber>${release.basic.catalogNumber}</CatalogNumber>
+      </ReleaseId>
+      <ReferenceTitle>
+        <TitleText>${release.basic.title}</TitleText>
+      </ReferenceTitle>
+      <ReleaseDetailsByTerritory>
+        <TerritoryCode>Worldwide</TerritoryCode>
+        <DisplayArtistName>${release.basic.displayArtist}</DisplayArtistName>
+        <LabelName>${release.basic.label}</LabelName>
+        <Title TitleType="DisplayTitle">
+          <TitleText>${release.basic.title}</TitleText>
+        </Title>
+        <Genre>
+          <GenreText>${release.metadata.primaryGenre}</GenreText>
+          ${release.metadata.subGenre ? `<SubGenre>${release.metadata.subGenre}</SubGenre>` : ''}
+        </Genre>
+        <OriginalReleaseDate>${release.metadata.originalReleaseDate || release.basic.releaseDate}</OriginalReleaseDate>
+        <PLine>
+          <Year>${new Date(release.basic.releaseDate).getFullYear()}</Year>
+          <PLineText>${release.metadata.copyright}</PLineText>
+        </PLine>
+      </ReleaseDetailsByTerritory>
+    </Release>
+  </ReleaseList>
+  
+  <ResourceList>
+    ${release.tracks.map((track, index) => `
+    <SoundRecording>
+      <SoundRecordingReference>A${index + 1}</SoundRecordingReference>
+      <SoundRecordingType>MusicalWorkSoundRecording</SoundRecordingType>
+      <SoundRecordingId>
+        <ISRC>${track.isrc}</ISRC>
+      </SoundRecordingId>
+      <ReferenceTitle>
+        <TitleText>${track.metadata.title}</TitleText>
+      </ReferenceTitle>
+      <Duration>PT${Math.floor(track.metadata.duration / 60)}M${track.metadata.duration % 60}S</Duration>
+      <SoundRecordingDetailsByTerritory>
+        <TerritoryCode>Worldwide</TerritoryCode>
+        <DisplayArtist>
+          <PartyName>
+            <FullName>${track.metadata.displayArtist}</FullName>
+          </PartyName>
+        </DisplayArtist>
+        <ResourceContributor>
+          ${track.metadata.performers?.map(p => `
+          <PartyName>
+            <FullName>${p}</FullName>
+          </PartyName>
+          <ResourceContributorRole>Performer</ResourceContributorRole>`).join('')}
+        </ResourceContributor>
+      </SoundRecordingDetailsByTerritory>
+      <TechnicalSoundRecordingDetails>
+        <TechnicalResourceDetailsReference>T${index + 1}</TechnicalResourceDetailsReference>
+        <AudioCodecType>WAV</AudioCodecType>
+        <IsPreview>false</IsPreview>
+        <File>
+          <FileName>${release.basic.barcode}_01_${String(index + 1).padStart(3, '0')}.wav</FileName>
+          <FilePath>audio/</FilePath>
+          <HashSum>
+            <HashSumAlgorithmType>MD5</HashSumAlgorithmType>
+            <HashSum>${'0'.repeat(32)}</HashSum>
+          </HashSum>
+        </File>
+      </TechnicalSoundRecordingDetails>
+    </SoundRecording>`).join('')}
+    
+    <Image>
+      <ImageReference>IMG1</ImageReference>
+      <ImageType>FrontCoverImage</ImageType>
+      <ImageId>
+        <ProprietaryId Namespace="Label">${release.basic.barcode}_COVER</ProprietaryId>
+      </ImageId>
+      <TechnicalImageDetails>
+        <TechnicalResourceDetailsReference>TIMG1</TechnicalResourceDetailsReference>
+        <ImageCodecType>JPEG</ImageCodecType>
+        <ImageHeight>3000</ImageHeight>
+        <ImageWidth>3000</ImageWidth>
+        <File>
+          <FileName>${release.basic.barcode}.jpg</FileName>
+          <FilePath>images/</FilePath>
+        </File>
+      </TechnicalImageDetails>
+    </Image>
+  </ResourceList>
+  
+  <DealList>
+    ${release.commercial?.models?.map((model, index) => `
+    <ReleaseDeal>
+      <DealReleaseReference>R1</DealReleaseReference>
+      <Deal>
+        <DealReference>DEAL${index + 1}</DealReference>
+        <DealTerms>
+          <CommercialModelType>${model.type}</CommercialModelType>
+          ${model.usageTypes?.map(usage => `<UseType>${usage}</UseType>`).join('')}
+          ${model.territories?.map(territory => `<TerritoryCode>${territory}</TerritoryCode>`).join('')}
+          <ValidityPeriod>
+            <StartDate>${model.startDate}</StartDate>
+          </ValidityPeriod>
+          ${model.price ? `
+          <PriceInformation>
+            <PriceType>WholePrice</PriceType>
+            <Price>
+              <Amount CurrencyCode="${model.currency || 'USD'}">${model.price}</Amount>
+            </Price>
+          </PriceInformation>` : ''}
+        </DealTerms>
+      </Deal>
+    </ReleaseDeal>`).join('')}
+  </DealList>
+</ernm:NewReleaseMessage>`
+}
+
+// Helper function to clean undefined values from objects
+const cleanForFirestore = (obj) => {
+  if (obj === null || obj === undefined) return null
+  if (obj instanceof Date) return obj
+  if (typeof obj !== 'object') return obj
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => cleanForFirestore(item)).filter(item => item !== undefined)
+  }
+  
+  const cleaned = {}
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      cleaned[key] = cleanForFirestore(value)
+    }
+  }
+  return cleaned
+}
+
+// Save test results to Firestore
+const saveTestResults = async () => {
+  try {
+    const testResult = {
+      timestamp: new Date(),
+      runBy: user.value?.uid || 'anonymous',
+      runByEmail: user.value?.email || 'unknown',
+      environment: isProduction.value ? 'production' : 'development',
+      healthScore: healthScore.value,
+      totalTests: totalTests.value,
+      passedTests: passedTests.value,
+      failedTests: failedTests.value.length,
+      duration: testDuration.value,
+      results: {
+        system: systemTests.value.map(t => ({
+          id: t.id,
+          name: t.name,
+          status: t.status || 'pending',
+          duration: t.duration || 0,
+          error: t.error || null
+        })),
+        ddex: ddexTests.value.map(t => ({
+          id: t.id,
+          name: t.name,
+          status: t.status || 'pending',
+          duration: t.duration || 0,
+          details: t.details || null,
+          error: t.error || null
+        })),
+        delivery: deliveryTests.value.map(t => ({
+          id: t.id,
+          name: t.name,
+          status: t.status || 'pending',
+          duration: t.duration || 0,
+          target: t.target || null,
+          details: t.details || null,
+          error: t.error || null
+        })),
+        performance: performanceTests.value.map(t => ({
+          id: t.id,
+          name: t.name,
+          status: t.status || 'pending',
+          result: t.result ? {
+            value: t.result.value || 0,
+            target: t.result.target || 0,
+            unit: t.result.unit || 'ms',
+            passed: t.result.passed || false
+          } : null
+        }))
+      },
+      logs: testLog.value.slice(-100).map(log => ({
+        timestamp: log.timestamp || new Date(),
+        level: log.level || 'info',
+        message: log.message || ''
+      }))
+    }
+    
+    // Clean the object to remove any undefined values
+    const cleanedResult = cleanForFirestore(testResult)
+    
+    // Save detailed test result
+    await addDoc(collection(db, 'testResults'), cleanedResult)
+    
+    // Update system health summary
+    const healthData = {
+      healthScore: healthScore.value,
+      lastFullTest: new Date(),
+      lastTestRunner: user.value?.email || 'unknown',
+      passRate: `${passedTests.value}/${totalTests.value}`,
+      environment: isProduction.value ? 'production' : 'development',
+      updatedAt: new Date()
+    }
+    
+    await setDoc(doc(db, 'systemHealth', 'latest'), cleanForFirestore(healthData))
+    
+    // Update local state
+    savedHealthScore.value = healthScore.value
+    lastFullTestTime.value = new Date()
+    
+    addLog('success', 'Test results saved to Firestore')
+  } catch (error) {
+    console.error('Error saving test results:', error)
+    addLog('error', 'Failed to save test results: ' + error.message)
+  }
 }
 
 // Test implementations
@@ -749,169 +1071,6 @@ const runDDEXTests = async () => {
       addLog('error', `✗ ${test.name} failed: ${error.message}`)
     }
   }
-}
-
-// Add this helper function for generating more comprehensive ERN
-const generateComprehensiveTestERN = (release, options) => {
-  const messageId = options.messageId || `TEST_${Date.now()}`
-  const sender = options.sender || { partyId: 'TEST', partyName: 'Test Sender' }
-  const recipient = options.recipient || { partyId: 'DSP', partyName: 'Test DSP' }
-  
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<ernm:NewReleaseMessage xmlns:ernm="http://ddex.net/xml/ern/43" 
-  xmlns:xs="http://www.w3.org/2001/XMLSchema-instance"
-  MessageSchemaVersionId="ern/43"
-  LanguageAndScriptCode="en">
-  <MessageHeader>
-    <MessageId>${messageId}</MessageId>
-    <MessageCreatedDateTime>${new Date().toISOString()}</MessageCreatedDateTime>
-    <MessageSender>
-      <PartyId>${sender.partyId}</PartyId>
-      <PartyName>
-        <FullName>${sender.fullName || sender.partyName}</FullName>
-      </PartyName>
-    </MessageSender>
-    <MessageRecipient>
-      <PartyId>${recipient.partyId}</PartyId>
-      <PartyName>
-        <FullName>${recipient.fullName || recipient.partyName}</FullName>
-      </PartyName>
-    </MessageRecipient>
-  </MessageHeader>
-  
-  <PartyList>
-    <Party>
-      <PartyReference>P1</PartyReference>
-      <PartyName>
-        <FullName>${release.basic.displayArtist}</FullName>
-      </PartyName>
-      <PartyId>ISNI:0000000000000000</PartyId>
-    </Party>
-    <Party>
-      <PartyReference>P2</PartyReference>
-      <PartyName>
-        <FullName>${release.basic.label}</FullName>
-      </PartyName>
-    </Party>
-  </PartyList>
-  
-  <ReleaseList>
-    <Release>
-      <ReleaseReference>R1</ReleaseReference>
-      <ReleaseType>Album</ReleaseType>
-      <ReleaseId>
-        <ICPN IsEan="false">${release.basic.barcode}</ICPN>
-        <CatalogNumber>${release.basic.catalogNumber}</CatalogNumber>
-      </ReleaseId>
-      <ReferenceTitle>
-        <TitleText>${release.basic.title}</TitleText>
-      </ReferenceTitle>
-      <ReleaseDetailsByTerritory>
-        <TerritoryCode>Worldwide</TerritoryCode>
-        <DisplayArtistName>${release.basic.displayArtist}</DisplayArtistName>
-        <LabelName>${release.basic.label}</LabelName>
-        <Title TitleType="DisplayTitle">
-          <TitleText>${release.basic.title}</TitleText>
-        </Title>
-        <Genre>
-          <GenreText>${release.metadata.primaryGenre}</GenreText>
-          ${release.metadata.subGenre ? `<SubGenre>${release.metadata.subGenre}</SubGenre>` : ''}
-        </Genre>
-        <OriginalReleaseDate>${release.metadata.originalReleaseDate || release.basic.releaseDate}</OriginalReleaseDate>
-        <PLine>
-          <Year>${new Date(release.basic.releaseDate).getFullYear()}</Year>
-          <PLineText>${release.metadata.copyright}</PLineText>
-        </PLine>
-      </ReleaseDetailsByTerritory>
-    </Release>
-  </ReleaseList>
-  
-  <ResourceList>
-    ${release.tracks.map((track, index) => `
-    <SoundRecording>
-      <SoundRecordingReference>A${index + 1}</SoundRecordingReference>
-      <SoundRecordingType>MusicalWorkSoundRecording</SoundRecordingType>
-      <SoundRecordingId>
-        <ISRC>${track.isrc}</ISRC>
-      </SoundRecordingId>
-      <ReferenceTitle>
-        <TitleText>${track.metadata.title}</TitleText>
-      </ReferenceTitle>
-      <Duration>PT${Math.floor(track.metadata.duration / 60)}M${track.metadata.duration % 60}S</Duration>
-      <SoundRecordingDetailsByTerritory>
-        <TerritoryCode>Worldwide</TerritoryCode>
-        <DisplayArtist>
-          <PartyName>
-            <FullName>${track.metadata.displayArtist}</FullName>
-          </PartyName>
-        </DisplayArtist>
-        <ResourceContributor>
-          ${track.metadata.performers?.map(p => `
-          <PartyName>
-            <FullName>${p}</FullName>
-          </PartyName>
-          <ResourceContributorRole>Performer</ResourceContributorRole>`).join('')}
-        </ResourceContributor>
-      </SoundRecordingDetailsByTerritory>
-      <TechnicalSoundRecordingDetails>
-        <TechnicalResourceDetailsReference>T${index + 1}</TechnicalResourceDetailsReference>
-        <AudioCodecType>WAV</AudioCodecType>
-        <IsPreview>false</IsPreview>
-        <File>
-          <FileName>${release.basic.barcode}_01_${String(index + 1).padStart(3, '0')}.wav</FileName>
-          <FilePath>audio/</FilePath>
-          <HashSum>
-            <HashSumAlgorithmType>MD5</HashSumAlgorithmType>
-            <HashSum>${'0'.repeat(32)}</HashSum>
-          </HashSum>
-        </File>
-      </TechnicalSoundRecordingDetails>
-    </SoundRecording>`).join('')}
-    
-    <Image>
-      <ImageReference>IMG1</ImageReference>
-      <ImageType>FrontCoverImage</ImageType>
-      <ImageId>
-        <ProprietaryId Namespace="Label">${release.basic.barcode}_COVER</ProprietaryId>
-      </ImageId>
-      <TechnicalImageDetails>
-        <TechnicalResourceDetailsReference>TIMG1</TechnicalResourceDetailsReference>
-        <ImageCodecType>JPEG</ImageCodecType>
-        <ImageHeight>3000</ImageHeight>
-        <ImageWidth>3000</ImageWidth>
-        <File>
-          <FileName>${release.basic.barcode}.jpg</FileName>
-          <FilePath>images/</FilePath>
-        </File>
-      </TechnicalImageDetails>
-    </Image>
-  </ResourceList>
-  
-  <DealList>
-    ${release.commercial?.models?.map((model, index) => `
-    <ReleaseDeal>
-      <DealReleaseReference>R1</DealReleaseReference>
-      <Deal>
-        <DealReference>DEAL${index + 1}</DealReference>
-        <DealTerms>
-          <CommercialModelType>${model.type}</CommercialModelType>
-          ${model.usageTypes?.map(usage => `<UseType>${usage}</UseType>`).join('')}
-          ${model.territories?.map(territory => `<TerritoryCode>${territory}</TerritoryCode>`).join('')}
-          <ValidityPeriod>
-            <StartDate>${model.startDate}</StartDate>
-          </ValidityPeriod>
-          ${model.price ? `
-          <PriceInformation>
-            <PriceType>WholePrice</PriceType>
-            <Price>
-              <Amount CurrencyCode="${model.currency || 'USD'}">${model.price}</Amount>
-            </Price>
-          </PriceInformation>` : ''}
-        </DealTerms>
-      </Deal>
-    </ReleaseDeal>`).join('')}
-  </DealList>
-</ernm:NewReleaseMessage>`
 }
 
 const runDeliveryTests = async () => {
@@ -1456,6 +1615,9 @@ const runAllTests = async () => {
   addLog('info', `Health Score: ${healthScore.value}%`)
   addLog('info', `Duration: ${Math.round(testDuration.value / 1000)}s`)
   addLog('info', '════════════════════════════════════════')
+  
+  // Save results to Firestore
+  await saveTestResults()
 }
 
 const exportResults = () => {
@@ -1500,7 +1662,6 @@ const toggleAutoScroll = () => {
 </script>
 
 <template>
-  <!-- Keep existing template unchanged -->
   <div class="testing">
     <div class="container">
       <!-- Page Header -->
@@ -1524,6 +1685,40 @@ const toggleAutoScroll = () => {
         </div>
       </div>
 
+      <!-- Health Score Card -->
+      <div class="health-score-card" :class="healthScoreClass">
+        <div class="health-score-content">
+          <div class="health-score-main">
+            <div class="health-label">System Health Score</div>
+            <div class="health-value">
+              <span class="health-number">{{ savedHealthScore !== null ? savedHealthScore : (hasResults ? healthScore : '—') }}</span>
+              <span class="health-percent">{{ savedHealthScore !== null || hasResults ? '%' : '' }}</span>
+            </div>
+            <div class="health-status">
+              <span v-if="savedHealthScore !== null || hasResults">
+                {{ savedHealthScore >= 90 || healthScore >= 90 ? 'Excellent' : 
+                   savedHealthScore >= 70 || healthScore >= 70 ? 'Good' : 'Needs Attention' }}
+              </span>
+              <span v-else>No tests run yet</span>
+            </div>
+          </div>
+          <div class="health-score-details">
+            <div class="health-detail-item">
+              <font-awesome-icon icon="clock" />
+              <span>Last Full Test: {{ formatDateTime(lastFullTestTime) }}</span>
+            </div>
+            <div v-if="lastFullTestTime" class="health-detail-item">
+              <font-awesome-icon icon="user" />
+              <span>Run by: {{ user?.email?.split('@')[0] || 'Unknown' }}</span>
+            </div>
+            <div v-if="hasResults" class="health-detail-item">
+              <font-awesome-icon icon="chart-bar" />
+              <span>{{ passedTests }}/{{ totalTests }} tests passing</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Test Results Summary -->
       <div v-if="hasResults" class="test-summary">
         <div class="summary-grid">
@@ -1537,7 +1732,7 @@ const toggleAutoScroll = () => {
           </div>
           <div class="summary-card" :class="{ success: healthScore >= 90, warning: healthScore >= 70 && healthScore < 90, error: healthScore < 70 }">
             <div class="summary-value">{{ healthScore }}%</div>
-            <div class="summary-label">Health Score</div>
+            <div class="summary-label">Current Run Score</div>
           </div>
           <div class="summary-card">
             <div class="summary-value">{{ lastTestTime }}</div>
@@ -1732,7 +1927,6 @@ const toggleAutoScroll = () => {
 </template>
 
 <style scoped>
-/* Keep existing styles unchanged */
 .testing {
   padding: var(--space-xl) 0;
   min-height: 100vh;
@@ -1782,6 +1976,125 @@ const toggleAutoScroll = () => {
 .header-actions {
   display: flex;
   gap: var(--space-md);
+}
+
+/* Health Score Card */
+.health-score-card {
+  margin-bottom: var(--space-xl);
+  padding: var(--space-xl);
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  border: 3px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.health-score-card.health-excellent {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border-color: #22c55e;
+}
+
+.health-score-card.health-good {
+  background: linear-gradient(135deg, #fefce8 0%, #fef3c7 100%);
+  border-color: #f59e0b;
+}
+
+.health-score-card.health-poor {
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+  border-color: #ef4444;
+}
+
+[data-theme="dark"] .health-score-card.health-excellent {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(34, 197, 94, 0.2) 100%);
+}
+
+[data-theme="dark"] .health-score-card.health-good {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.2) 100%);
+}
+
+[data-theme="dark"] .health-score-card.health-poor {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.2) 100%);
+}
+
+.health-score-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-xl);
+}
+
+.health-score-main {
+  text-align: center;
+  flex: 0 0 auto;
+  min-width: 200px;
+}
+
+.health-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--space-sm);
+}
+
+.health-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 2px;
+}
+
+.health-number {
+  font-size: 4rem;
+  font-weight: var(--font-bold);
+  color: var(--color-heading);
+  line-height: 1;
+}
+
+.health-percent {
+  font-size: 2rem;
+  font-weight: var(--font-semibold);
+  color: var(--color-text-secondary);
+}
+
+.health-status {
+  margin-top: var(--space-sm);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+}
+
+.health-excellent .health-status {
+  color: #22c55e;
+}
+
+.health-good .health-status {
+  color: #f59e0b;
+}
+
+.health-poor .health-status {
+  color: #ef4444;
+}
+
+.health-score-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding-left: var(--space-xl);
+  border-left: 2px solid var(--color-border);
+}
+
+.health-detail-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--text-base);
+  color: var(--color-text-secondary);
+}
+
+.health-detail-item svg {
+  color: var(--color-text-tertiary);
+  width: 16px;
 }
 
 /* Summary */
@@ -1896,6 +2209,11 @@ const toggleAutoScroll = () => {
   border-left: 3px solid var(--color-error);
 }
 
+.test-item.test-warning {
+  background: rgba(251, 191, 36, 0.05);
+  border-left: 3px solid var(--color-warning);
+}
+
 .test-item.test-running {
   background: rgba(59, 130, 246, 0.05);
   border-left: 3px solid var(--color-info);
@@ -1942,6 +2260,10 @@ const toggleAutoScroll = () => {
 
 .status-icon.failed {
   color: var(--color-error);
+}
+
+.status-icon.warning {
+  color: var(--color-warning);
 }
 
 .status-icon.running {
@@ -2099,15 +2421,6 @@ const toggleAutoScroll = () => {
   color: var(--color-text-secondary);
 }
 
-.status-icon.warning {
-  color: var(--color-warning);
-}
-
-.test-item.test-warning {
-  background: rgba(251, 191, 36, 0.05);
-  border-left: 3px solid var(--color-warning);
-}
-
 /* Buttons */
 .btn {
   padding: var(--space-sm) var(--space-md);
@@ -2172,6 +2485,26 @@ const toggleAutoScroll = () => {
   
   .header-actions .btn {
     flex: 1;
+  }
+  
+  .health-score-content {
+    flex-direction: column;
+  }
+  
+  .health-score-details {
+    padding-left: 0;
+    padding-top: var(--space-lg);
+    border-left: none;
+    border-top: 2px solid var(--color-border);
+    width: 100%;
+  }
+  
+  .health-number {
+    font-size: 3rem;
+  }
+  
+  .health-percent {
+    font-size: 1.5rem;
   }
 }
 </style>
