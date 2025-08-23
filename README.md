@@ -146,14 +146,13 @@ A complete, production-ready distribution platform that includes:
 - **Admin Access Control**: Restricted to authenticated administrators in production
 
 ### 📅 Phase 6: Testing & Launch (Weeks 15-16)
-- [ ] Comprehensive testing suite expansion
-- [ ] Performance optimization
-- [ ] Security audit
-- [ ] Documentation completion
-- [ ] Demo site deployment
-- [ ] npm package publication
 - [ ] Multi-ERN version support (3.8.2, 4.2)
 - [ ] DDEX Workbench API integration for validation
+- [ ] Comprehensive testing suite expansion
+- [ ] Security audit
+- [ ] Performance optimization
+- [ ] Documentation completion
+- [ ] npm package publication
 
 ### 🚀 Phase 7: Plugin Marketplace (Post-Launch)
 - [ ] Build plugin architecture
@@ -417,12 +416,13 @@ stardust-distro dev              # Start development server
 - [x] Create health score calculation system
 
 ### Phase 6: Testing & Launch 📅 - UP NEXT
-- [ ] Comprehensive test suite expansion
-- [ ] Performance optimization
+- [ ] Multi-ERN version support (3.8.2, 4.2)
+- [ ] DDEX Workbench API integration for validation
+- [ ] Comprehensive testing suite expansion
 - [ ] Security audit
+- [ ] Performance optimization
 - [ ] Documentation completion
 - [ ] npm package publication
-- [ ] Public beta launch
 
 ### Phase 7: Plugin Marketplace 📅 (Post-Launch)
 - [ ] Plugin architecture design

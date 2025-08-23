@@ -1,1301 +1,1254 @@
+<template>
+  <div class="delivery-target-form">
+    <form @submit.prevent="handleSubmit">
+      <!-- Basic Information -->
+      <div class="form-section">
+        <h3>Basic Information</h3>
+        
+        <div class="form-group">
+          <label class="form-label required">Target Name</label>
+          <input
+            v-model="formData.name"
+            type="text"
+            class="form-input"
+            placeholder="e.g., Spotify, Apple Music"
+            required
+          />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Target Type</label>
+            <select v-model="formData.type" class="form-select" @change="handleTypeChange">
+              <option value="custom">Custom</option>
+              <option value="spotify">Spotify</option>
+              <option value="apple">Apple Music</option>
+              <option value="amazon">Amazon Music</option>
+              <option value="youtube">YouTube Music</option>
+              <option value="tidal">TIDAL</option>
+              <option value="deezer">Deezer</option>
+              <option value="soundcloud">SoundCloud</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select v-model="formData.enabled" class="form-select">
+              <option :value="true">Enabled</option>
+              <option :value="false">Disabled</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- ERN Version Selection -->
+        <div class="form-group">
+          <label class="form-label required">ERN Version</label>
+          <select 
+            v-model="formData.ernVersion" 
+            class="form-select"
+            @change="handleVersionChange"
+          >
+            <option value="4.3">ERN 4.3 (Latest - Immersive Audio, UGC)</option>
+            <option value="4.2">ERN 4.2 (Enhanced Encoding)</option>
+            <option value="3.8.2">ERN 3.8.2 (Most Compatible)</option>
+          </select>
+          
+          <!-- Version Compatibility Warning -->
+          <div v-if="versionCompatibilityWarning" class="alert alert-warning mt-sm">
+            <i class="fas fa-exclamation-triangle"></i>
+            {{ versionCompatibilityWarning }}
+          </div>
+          
+          <!-- Version Features Info -->
+          <div class="version-features mt-sm">
+            <small class="text-muted">
+              <strong>{{ ernVersionFeatures[formData.ernVersion].name }}:</strong>
+              {{ ernVersionFeatures[formData.ernVersion].description }}
+            </small>
+          </div>
+        </div>
+
+        <!-- Version Recommendation -->
+        <div v-if="recommendedVersion && formData.type !== 'custom'" class="alert alert-info">
+          <i class="fas fa-info-circle"></i>
+          Recommended ERN version for {{ formData.type }}: <strong>{{ recommendedVersion }}</strong>
+          <button 
+            v-if="formData.ernVersion !== recommendedVersion"
+            type="button"
+            class="btn btn-sm btn-text ml-sm"
+            @click="formData.ernVersion = recommendedVersion"
+          >
+            Use Recommended
+          </button>
+        </div>
+      </div>
+
+      <!-- DDEX Party Configuration -->
+      <div class="form-section">
+        <h3>DDEX Party Configuration</h3>
+        
+        <div class="form-group">
+          <label class="form-label required">Party Name (DSP Name)</label>
+          <input
+            v-model="formData.partyName"
+            type="text"
+            class="form-input"
+            placeholder="e.g., Spotify AB"
+            required
+          />
+          <small class="text-muted">The official company name of the DSP</small>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label required">Party ID (DPID)</label>
+          <input
+            v-model="formData.partyId"
+            type="text"
+            class="form-input"
+            placeholder="e.g., PADPIDA2023XXXXXX"
+            required
+          />
+          <small class="text-muted">The DDEX Party ID assigned to this DSP</small>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Distributor ID (Your DPID)</label>
+          <input
+            v-model="formData.config.distributorId"
+            type="text"
+            class="form-input"
+            placeholder="e.g., PADPIDA2023081501R"
+          />
+          <small class="text-muted">Your DDEX Party ID as the distributor (optional)</small>
+        </div>
+      </div>
+
+      <!-- ERN 4.3 Specific Features -->
+      <div v-if="formData.ernVersion === '4.3'" class="form-section">
+        <h3>ERN 4.3 Advanced Features</h3>
+        
+        <!-- UGC Clip Authorization -->
+        <div class="form-group">
+          <label class="form-label">
+            <input
+              v-model="formData.allowUGCClips"
+              type="checkbox"
+              class="form-checkbox"
+            />
+            Allow UGC Clips
+          </label>
+          <small class="text-muted">Enable user-generated content clips (30-second clips for social media)</small>
+        </div>
+
+        <!-- Immersive Audio Support -->
+        <div class="form-group">
+          <label class="form-label">
+            <input
+              v-model="formData.supportsImmersiveAudio"
+              type="checkbox"
+              class="form-checkbox"
+            />
+            Supports Immersive Audio
+          </label>
+          <small class="text-muted">DSP can receive Dolby Atmos and spatial audio tracks</small>
+        </div>
+
+        <!-- MEAD/PIE Hooks -->
+        <div class="form-group">
+          <label class="form-label">MEAD URL (Media Enrichment)</label>
+          <input
+            v-model="formData.meadUrl"
+            type="url"
+            class="form-input"
+            placeholder="https://example.com/mead/{messageId}"
+          />
+          <small class="text-muted">URL template for Media Enrichment and Description messages</small>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">PIE URL (Party Enrichment)</label>
+          <input
+            v-model="formData.pieUrl"
+            type="url"
+            class="form-input"
+            placeholder="https://example.com/pie/{partyId}"
+          />
+          <small class="text-muted">URL template for Party Identification and Enrichment messages</small>
+        </div>
+
+        <!-- Exclusivity Settings -->
+        <div class="form-group">
+          <label class="form-label">Exclusivity Type</label>
+          <select v-model="formData.exclusivity" class="form-select">
+            <option value="">None</option>
+            <option value="Exclusive">Exclusive</option>
+            <option value="NonExclusive">Non-Exclusive</option>
+          </select>
+          <small class="text-muted">Territory exclusivity for this DSP</small>
+        </div>
+
+        <!-- Pre-order Support -->
+        <div class="form-group">
+          <label class="form-label">
+            <input
+              v-model="formData.supportsPreOrder"
+              type="checkbox"
+              class="form-checkbox"
+            />
+            Supports Pre-orders
+          </label>
+          <small class="text-muted">DSP can handle pre-order release dates</small>
+        </div>
+      </div>
+
+      <!-- ERN 4.2 Specific Features -->
+      <div v-if="formData.ernVersion === '4.2'" class="form-section">
+        <h3>ERN 4.2 Features</h3>
+        
+        <div class="alert alert-info">
+          <i class="fas fa-info-circle"></i>
+          <strong>Important:</strong> ERN 4.2 requires the <code>IsProvidedInDelivery</code> flag for all resources.
+          This is handled automatically by the system.
+        </div>
+
+        <!-- Enhanced Audio Encoding -->
+        <div class="form-group">
+          <label class="form-label">Supported Audio Formats</label>
+          <div class="checkbox-group">
+            <label>
+              <input type="checkbox" v-model="formData.audioFormats" value="WAV" />
+              WAV
+            </label>
+            <label>
+              <input type="checkbox" v-model="formData.audioFormats" value="FLAC" />
+              FLAC (Lossless)
+            </label>
+            <label>
+              <input type="checkbox" v-model="formData.audioFormats" value="MP3" />
+              MP3
+            </label>
+            <label>
+              <input type="checkbox" v-model="formData.audioFormats" value="AAC" />
+              AAC
+            </label>
+          </div>
+          <small class="text-muted">Audio formats this DSP can receive</small>
+        </div>
+      </div>
+
+      <!-- ERN 3.8.2 Specific Information -->
+      <div v-if="formData.ernVersion === '3.8.2'" class="form-section">
+        <h3>ERN 3.8.2 Configuration</h3>
+        
+        <div class="alert alert-success">
+          <i class="fas fa-check-circle"></i>
+          <strong>Maximum Compatibility:</strong> ERN 3.8.2 is supported by 80%+ of DSPs worldwide.
+          Ideal for legacy systems and maximum reach.
+        </div>
+
+        <!-- Simplified Deal Structure Notice -->
+        <div class="form-group">
+          <small class="text-muted">
+            <strong>Note:</strong> ERN 3.8.2 uses a simplified deal structure. 
+            Some advanced features like immersive audio and UGC clips are not available.
+          </small>
+        </div>
+      </div>
+
+      <!-- Protocol Configuration -->
+      <div class="form-section">
+        <h3>Delivery Protocol</h3>
+        
+        <div class="form-group">
+          <label class="form-label required">Protocol</label>
+          <select v-model="formData.protocol" class="form-select" required>
+            <option value="ftp">FTP</option>
+            <option value="sftp">SFTP</option>
+            <option value="s3">Amazon S3</option>
+            <option value="api">REST API</option>
+            <option value="azure">Azure Blob Storage</option>
+            <option value="storage">Firebase Storage (Testing)</option>
+          </select>
+        </div>
+
+        <!-- Protocol-specific fields -->
+        <!-- FTP Configuration -->
+        <div v-if="formData.protocol === 'ftp'" class="protocol-config">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label required">FTP Host</label>
+              <input
+                v-model="formData.config.host"
+                type="text"
+                class="form-input"
+                placeholder="ftp.example.com"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Port</label>
+              <input
+                v-model.number="formData.config.port"
+                type="number"
+                class="form-input"
+                placeholder="21"
+              />
+            </div>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label required">Username</label>
+              <input
+                v-model="formData.config.username"
+                type="text"
+                class="form-input"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label required">Password</label>
+              <input
+                v-model="formData.config.password"
+                type="password"
+                class="form-input"
+                required
+              />
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Directory</label>
+            <input
+              v-model="formData.config.directory"
+              type="text"
+              class="form-input"
+              placeholder="/uploads"
+            />
+          </div>
+        </div>
+
+        <!-- SFTP Configuration -->
+        <div v-if="formData.protocol === 'sftp'" class="protocol-config">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label required">SFTP Host</label>
+              <input
+                v-model="formData.config.host"
+                type="text"
+                class="form-input"
+                placeholder="sftp.example.com"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Port</label>
+              <input
+                v-model.number="formData.config.port"
+                type="number"
+                class="form-input"
+                placeholder="22"
+              />
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label required">Username</label>
+            <input
+              v-model="formData.config.username"
+              type="text"
+              class="form-input"
+              required
+            />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Authentication Method</label>
+            <select v-model="formData.config.authMethod" class="form-select">
+              <option value="password">Password</option>
+              <option value="privateKey">Private Key</option>
+            </select>
+          </div>
+          
+          <div v-if="formData.config.authMethod === 'password'" class="form-group">
+            <label class="form-label required">Password</label>
+            <input
+              v-model="formData.config.password"
+              type="password"
+              class="form-input"
+              required
+            />
+          </div>
+          
+          <div v-if="formData.config.authMethod === 'privateKey'" class="form-group">
+            <label class="form-label required">Private Key</label>
+            <textarea
+              v-model="formData.config.privateKey"
+              class="form-textarea"
+              rows="4"
+              placeholder="-----BEGIN RSA PRIVATE KEY-----"
+              required
+            ></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Directory</label>
+            <input
+              v-model="formData.config.directory"
+              type="text"
+              class="form-input"
+              placeholder="/home/user/uploads"
+            />
+          </div>
+        </div>
+
+        <!-- S3 Configuration -->
+        <div v-if="formData.protocol === 's3'" class="protocol-config">
+          <div class="form-group">
+            <label class="form-label required">Bucket Name</label>
+            <input
+              v-model="formData.config.bucket"
+              type="text"
+              class="form-input"
+              placeholder="my-music-bucket"
+              required
+            />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label required">AWS Region</label>
+            <select v-model="formData.config.region" class="form-select" required>
+              <option value="us-east-1">US East (N. Virginia)</option>
+              <option value="us-west-2">US West (Oregon)</option>
+              <option value="eu-west-1">EU (Ireland)</option>
+              <option value="eu-central-1">EU (Frankfurt)</option>
+              <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+              <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+            </select>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label required">Access Key ID</label>
+              <input
+                v-model="formData.config.accessKeyId"
+                type="text"
+                class="form-input"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label required">Secret Access Key</label>
+              <input
+                v-model="formData.config.secretAccessKey"
+                type="password"
+                class="form-input"
+                required
+              />
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Prefix/Path</label>
+            <input
+              v-model="formData.config.prefix"
+              type="text"
+              class="form-input"
+              placeholder="releases/"
+            />
+          </div>
+        </div>
+
+        <!-- API Configuration -->
+        <div v-if="formData.protocol === 'api'" class="protocol-config">
+          <div class="form-group">
+            <label class="form-label required">API Endpoint</label>
+            <input
+              v-model="formData.config.endpoint"
+              type="url"
+              class="form-input"
+              placeholder="https://api.example.com/v1/releases"
+              required
+            />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Authentication Type</label>
+            <select v-model="formData.config.authType" class="form-select">
+              <option value="bearer">Bearer Token</option>
+              <option value="basic">Basic Auth</option>
+              <option value="apiKey">API Key</option>
+              <option value="oauth2">OAuth 2.0</option>
+            </select>
+          </div>
+          
+          <div v-if="formData.config.authType === 'bearer'" class="form-group">
+            <label class="form-label required">Bearer Token</label>
+            <input
+              v-model="formData.config.bearerToken"
+              type="password"
+              class="form-input"
+              required
+            />
+          </div>
+          
+          <div v-if="formData.config.authType === 'basic'" class="form-row">
+            <div class="form-group">
+              <label class="form-label required">Username</label>
+              <input
+                v-model="formData.config.username"
+                type="text"
+                class="form-input"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label required">Password</label>
+              <input
+                v-model="formData.config.password"
+                type="password"
+                class="form-input"
+                required
+              />
+            </div>
+          </div>
+          
+          <div v-if="formData.config.authType === 'apiKey'" class="form-group">
+            <label class="form-label required">API Key</label>
+            <input
+              v-model="formData.config.apiKey"
+              type="password"
+              class="form-input"
+              required
+            />
+          </div>
+        </div>
+
+        <!-- Azure Configuration -->
+        <div v-if="formData.protocol === 'azure'" class="protocol-config">
+          <div class="form-group">
+            <label class="form-label required">Account Name</label>
+            <input
+              v-model="formData.config.accountName"
+              type="text"
+              class="form-input"
+              placeholder="mystorageaccount"
+              required
+            />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label required">Account Key</label>
+            <input
+              v-model="formData.config.accountKey"
+              type="password"
+              class="form-input"
+              required
+            />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label required">Container Name</label>
+            <input
+              v-model="formData.config.containerName"
+              type="text"
+              class="form-input"
+              placeholder="releases"
+              required
+            />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Prefix/Path</label>
+            <input
+              v-model="formData.config.prefix"
+              type="text"
+              class="form-input"
+              placeholder="music/"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- Commercial Configuration -->
+      <div class="form-section">
+        <h3>Commercial Configuration</h3>
+        
+        <!-- Commercial Models -->
+        <div class="form-group">
+          <label class="form-label">Commercial Models</label>
+          <div class="commercial-models">
+            <div
+              v-for="(model, index) in formData.commercialModels"
+              :key="index"
+              class="commercial-model"
+            >
+              <select v-model="model.type" class="form-select">
+                <option value="SubscriptionModel">Subscription</option>
+                <option value="PayAsYouGoModel">Pay As You Go</option>
+                <option value="AdvertisementSupportedModel">Ad-Supported</option>
+                <option value="FreeOfChargeModel">Free</option>
+              </select>
+              
+              <div class="usage-types">
+                <label class="checkbox-label">
+                  <input
+                    type="checkbox"
+                    :checked="model.usageTypes.includes('PermanentDownload')"
+                    @change="toggleUsageType(index, 'PermanentDownload')"
+                  />
+                  Download
+                </label>
+                <label class="checkbox-label">
+                  <input
+                    type="checkbox"
+                    :checked="model.usageTypes.includes('OnDemandStream')"
+                    @change="toggleUsageType(index, 'OnDemandStream')"
+                  />
+                  Stream
+                </label>
+                <label v-if="formData.ernVersion !== '3.8.2'" class="checkbox-label">
+                  <input
+                    type="checkbox"
+                    :checked="model.usageTypes.includes('ConditionalDownload')"
+                    @change="toggleUsageType(index, 'ConditionalDownload')"
+                  />
+                  Offline
+                </label>
+              </div>
+              
+              <!-- Quality Tier for ERN 4.3 -->
+              <div v-if="formData.ernVersion === '4.3' && model.usageTypes.includes('OnDemandStream')" class="form-group mt-sm">
+                <select v-model="model.qualityTier" class="form-select form-select-sm">
+                  <option value="">Standard Quality</option>
+                  <option value="HighQuality">High Quality</option>
+                  <option value="Lossless">Lossless</option>
+                </select>
+              </div>
+              
+              <button
+                v-if="formData.commercialModels.length > 1"
+                type="button"
+                class="btn-icon"
+                @click="removeCommercialModel(index)"
+                title="Remove model"
+              >
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+            
+            <button
+              type="button"
+              class="btn btn-sm btn-secondary"
+              @click="addCommercialModel"
+            >
+              <i class="fas fa-plus mr-sm"></i>
+              Add Model
+            </button>
+          </div>
+        </div>
+
+        <!-- Territories -->
+        <div class="form-group">
+          <label class="form-label">Territories</label>
+          <select v-model="formData.territories" class="form-select" multiple>
+            <option value="Worldwide">Worldwide</option>
+            <option value="US">United States</option>
+            <option value="CA">Canada</option>
+            <option value="GB">United Kingdom</option>
+            <option value="DE">Germany</option>
+            <option value="FR">France</option>
+            <option value="JP">Japan</option>
+            <option value="AU">Australia</option>
+          </select>
+          <small class="text-muted">Hold Ctrl/Cmd to select multiple territories</small>
+        </div>
+
+        <!-- Deal Dates -->
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Deal Start Date</label>
+            <input
+              v-model="formData.dealStartDate"
+              type="date"
+              class="form-input"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Deal End Date</label>
+            <input
+              v-model="formData.dealEndDate"
+              type="date"
+              class="form-input"
+            />
+          </div>
+        </div>
+
+        <!-- Display Start Date for ERN 4.3 -->
+        <div v-if="formData.ernVersion === '4.3'" class="form-group">
+          <label class="form-label">Display Start Date</label>
+          <input
+            v-model="formData.displayStartDate"
+            type="datetime-local"
+            class="form-input"
+          />
+          <small class="text-muted">When the release should become visible (separate from availability)</small>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" @click="handleCancel">
+          Cancel
+        </button>
+        <button 
+          v-if="!isNew" 
+          type="button" 
+          class="btn btn-outline"
+          @click="testConnection"
+          :disabled="testing"
+        >
+          <i v-if="testing" class="fas fa-spinner fa-spin mr-sm"></i>
+          <i v-else class="fas fa-bolt mr-sm"></i>
+          Test Connection
+        </button>
+        <button type="submit" class="btn btn-primary" :disabled="saving">
+          <i v-if="saving" class="fas fa-spinner fa-spin mr-sm"></i>
+          <span>{{ isNew ? 'Create' : 'Update' }} Target</span>
+        </button>
+      </div>
+    </form>
+
+    <!-- Test Results -->
+    <div v-if="testResult" class="test-result mt-lg">
+      <div :class="['alert', testResult.success ? 'alert-success' : 'alert-error']">
+        <i :class="['fas', testResult.success ? 'fa-check-circle' : 'fa-times-circle', 'mr-sm']"></i>
+        <div>
+          <strong>{{ testResult.success ? 'Connection Successful' : 'Connection Failed' }}</strong>
+          <p>{{ testResult.message }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import deliveryTargetService from '../../services/deliveryTargets'
+import ernService from '../../services/ern'
 
 const props = defineProps({
-  modelValue: {
+  target: {
     type: Object,
-    default: () => ({})
-  },
-  mode: {
-    type: String,
-    default: 'create' // 'create' or 'edit'
+    default: null
   }
 })
 
-const emit = defineEmits(['update:modelValue', 'save', 'cancel'])
+const emit = defineEmits(['save', 'cancel'])
 
-const localTarget = ref({
+const router = useRouter()
+const saving = ref(false)
+const testing = ref(false)
+const testResult = ref(null)
+
+const isNew = computed(() => !props.target?.id)
+
+// Form data with ERN version support
+const formData = ref({
   name: '',
-  type: 'DSP',
+  type: 'custom',
+  enabled: true,
+  ernVersion: '4.3', // Default to latest
+  protocol: 'ftp',
   partyName: '',
   partyId: '',
-  protocol: 'SFTP',
-  ernVersion: '4.3',
-  testMode: true,
-  active: true,
-  
-  // DSP-specific configuration
   config: {
     distributorId: '',
-    apiKey: ''
-  },
-  
-  // Connection details
-  connection: {
     host: '',
-    port: 22,
+    port: null,
     username: '',
     password: '',
-    path: '/',
-    
-    // S3 specific
+    directory: '',
+    authMethod: 'password',
+    privateKey: '',
     bucket: '',
     region: 'us-east-1',
-    accessKey: '',
-    secretKey: '',
-    
-    // API specific
+    accessKeyId: '',
+    secretAccessKey: '',
+    prefix: '',
     endpoint: '',
-    authType: 'Bearer',
+    authType: 'bearer',
+    bearerToken: '',
     apiKey: '',
-    
-    // Firebase Storage specific
-    projectId: ''
+    accountName: '',
+    accountKey: '',
+    containerName: ''
   },
-  
-  // DDEX Deal configuration
   commercialModels: [
     {
-      type: 'PayAsYouGoModel',
-      usageTypes: ['PermanentDownload'],
-      territories: ['Worldwide'],
-      price: null,
-      currency: 'USD'
+      type: 'SubscriptionModel',
+      usageTypes: ['OnDemandStream'],
+      qualityTier: ''
     }
   ],
-  
-  // Advanced settings
-  settings: {
-    autoDeliver: false,
-    validateBeforeDelivery: true,
-    requireAcknowledgment: false,
-    retryAttempts: 3,
-    retryDelay: 60 // minutes
-  },
-  
-  ...props.modelValue
+  territories: ['Worldwide'],
+  dealStartDate: '',
+  dealEndDate: '',
+  // ERN 4.3 specific fields
+  allowUGCClips: false,
+  supportsImmersiveAudio: false,
+  meadUrl: '',
+  pieUrl: '',
+  exclusivity: '',
+  supportsPreOrder: false,
+  displayStartDate: '',
+  // ERN 4.2 specific fields
+  audioFormats: ['WAV', 'FLAC']
 })
 
-// JSON import state
-const showJsonImport = ref(false)
-const jsonInput = ref('')
-const jsonError = ref('')
-const showApiKey = ref(false)
-
-// Common DSP presets
-const dspPresets = [
-  { 
-    value: 'custom', 
-    label: 'Custom Configuration' 
+// ERN version features
+const ernVersionFeatures = {
+  '4.3': {
+    name: 'ERN 4.3',
+    description: 'Latest standard with immersive audio, UGC clips, MEAD/PIE hooks, and enhanced metadata support.'
   },
-  { 
-    value: 'stardust-dsp', 
-    label: 'Import from Stardust DSP...' 
+  '4.2': {
+    name: 'ERN 4.2',
+    description: 'Enhanced encoding support with mandatory IsProvidedInDelivery flag for all resources.'
   },
-  { 
-    value: 'spotify', 
-    label: 'Spotify' 
-  },
-  { 
-    value: 'apple', 
-    label: 'Apple Music' 
-  },
-  { 
-    value: 'amazon', 
-    label: 'Amazon Music' 
-  }
-]
-
-const selectedPreset = ref('custom')
-
-// ERN version options
-const ernVersionOptions = [
-  { value: '4.3', label: 'ERN 4.3 (Latest)' },
-  { value: '4.2', label: 'ERN 4.2' },
-  { value: '4.1', label: 'ERN 4.1' },
-  { value: '3.8.2', label: 'ERN 3.8.2' }
-]
-
-// Protocol options
-const protocolOptions = [
-  { value: 'SFTP', label: 'SFTP' },
-  { value: 'FTP', label: 'FTP' },
-  { value: 'S3', label: 'AWS S3' },
-  { value: 'API', label: 'REST API' },
-  { value: 'storage', label: 'Firebase Storage' }
-]
-
-// Test connection state
-const isTestingConnection = ref(false)
-const connectionTestResult = ref(null)
-
-// Computed properties
-const defaultPort = computed(() => {
-  switch (localTarget.value.protocol) {
-    case 'FTP': return 21
-    case 'SFTP': return 22
-    case 'API': return 443
-    default: return null
-  }
-})
-
-// Apply preset configuration
-const applyPreset = () => {
-  if (selectedPreset.value === 'stardust-dsp') {
-    showJsonImport.value = true
-    return
-  }
-  
-  const presets = {
-    spotify: {
-      name: 'Spotify Production',
-      partyName: 'Spotify AB',
-      partyId: 'PADPIDA2014120301E',
-      protocol: 'SFTP',
-      connection: {
-        host: 'sftp.spotify.com',
-        port: 22,
-        path: '/incoming/'
-      }
-    },
-    apple: {
-      name: 'Apple Music',
-      partyName: 'Apple Inc.',
-      partyId: 'PADPIDA2003060301A',
-      protocol: 'API',
-      connection: {
-        endpoint: 'https://api.music.apple.com/v1/catalog'
-      }
-    },
-    amazon: {
-      name: 'Amazon Music',
-      partyName: 'Amazon.com Inc.',
-      partyId: 'PADPIDA2010070701A',
-      protocol: 'S3',
-      connection: {
-        bucket: 'amazon-music-deliveries',
-        region: 'us-east-1'
-      }
-    }
-  }
-  
-  if (presets[selectedPreset.value]) {
-    Object.assign(localTarget.value, presets[selectedPreset.value])
+  '3.8.2': {
+    name: 'ERN 3.8.2',
+    description: 'Industry standard with 80%+ DSP support. Simplified structure, maximum compatibility.'
   }
 }
 
-// Parse JSON configuration from Stardust DSP
-const parseJsonConfig = () => {
-  try {
-    const config = JSON.parse(jsonInput.value)
-    
-    // Map the imported config to our target structure
-    localTarget.value.name = config.name || localTarget.value.name
-    localTarget.value.type = config.type || localTarget.value.type
-    localTarget.value.protocol = config.protocol || localTarget.value.protocol
-    
-    // Map DSP-specific config
-    if (config.config) {
-      localTarget.value.config = {
-        distributorId: config.config.distributorId || '',
-        apiKey: config.config.apiKey || ''
+// Version compatibility warnings
+const versionCompatibilityWarning = computed(() => {
+  if (!formData.value.type || formData.value.type === 'custom') return null
+  
+  const compatibility = ernService.isVersionCompatible(
+    formData.value.ernVersion,
+    formData.value.type
+  )
+  
+  if (!compatibility) {
+    return `${formData.value.type} may not fully support ERN ${formData.value.ernVersion}. Consider using the recommended version.`
+  }
+  
+  return null
+})
+
+// Recommended version based on DSP type
+const recommendedVersion = computed(() => {
+  if (!formData.value.type || formData.value.type === 'custom') return null
+  return ernService.getRecommendedVersion(formData.value.type)
+})
+
+// DSP Presets with ERN version recommendations
+const dspPresets = {
+  spotify: {
+    name: 'Spotify',
+    partyName: 'Spotify AB',
+    partyId: 'PADPIDA20230615SPO',
+    ernVersion: '4.3',
+    protocol: 'api',
+    commercialModels: [
+      {
+        type: 'SubscriptionModel',
+        usageTypes: ['OnDemandStream', 'ConditionalDownload'],
+        qualityTier: 'Lossless'
+      },
+      {
+        type: 'AdvertisementSupportedModel',
+        usageTypes: ['OnDemandStream']
       }
+    ],
+    supportsImmersiveAudio: true,
+    allowUGCClips: true
+  },
+  apple: {
+    name: 'Apple Music',
+    partyName: 'Apple Inc.',
+    partyId: 'PADPIDA20230615APL',
+    ernVersion: '4.3',
+    protocol: 's3',
+    commercialModels: [
+      {
+        type: 'SubscriptionModel',
+        usageTypes: ['OnDemandStream', 'ConditionalDownload'],
+        qualityTier: 'Lossless'
+      },
+      {
+        type: 'PayAsYouGoModel',
+        usageTypes: ['PermanentDownload']
+      }
+    ],
+    supportsImmersiveAudio: true,
+    supportsPreOrder: true
+  },
+  amazon: {
+    name: 'Amazon Music',
+    partyName: 'Amazon.com Inc.',
+    partyId: 'PADPIDA20230615AMZ',
+    ernVersion: '3.8.2', // Amazon still prefers 3.8.2
+    protocol: 's3',
+    commercialModels: [
+      {
+        type: 'SubscriptionModel',
+        usageTypes: ['OnDemandStream', 'ConditionalDownload']
+      }
+    ]
+  },
+  deezer: {
+    name: 'Deezer',
+    partyName: 'Deezer SA',
+    partyId: 'PADPIDA20230615DEE',
+    ernVersion: '3.8.2', // Deezer prefers 3.8.2
+    protocol: 'ftp',
+    commercialModels: [
+      {
+        type: 'SubscriptionModel',
+        usageTypes: ['OnDemandStream', 'ConditionalDownload']
+      }
+    ]
+  }
+}
+
+// Handle DSP type change
+const handleTypeChange = () => {
+  if (formData.value.type !== 'custom') {
+    const preset = dspPresets[formData.value.type]
+    if (preset) {
+      // Apply preset values
+      formData.value.name = preset.name
+      formData.value.partyName = preset.partyName
+      formData.value.partyId = preset.partyId
+      formData.value.ernVersion = preset.ernVersion
+      formData.value.protocol = preset.protocol
+      formData.value.commercialModels = [...preset.commercialModels]
       
-      // Map connection settings based on protocol
-      if (config.protocol === 'storage') {
-        localTarget.value.connection.bucket = config.config.bucket || ''
-        localTarget.value.connection.path = config.config.path || ''
-      } else if (config.protocol === 'api' || config.protocol === 'API') {
-        localTarget.value.protocol = 'API' // Normalize to uppercase
-        localTarget.value.connection.endpoint = config.config.endpoint || ''
-        if (config.config.apiKey) {
-          localTarget.value.connection.authType = 'Bearer'
-          localTarget.value.connection.apiKey = config.config.apiKey
-        }
+      // Apply version-specific features
+      if (preset.ernVersion === '4.3') {
+        formData.value.supportsImmersiveAudio = preset.supportsImmersiveAudio || false
+        formData.value.allowUGCClips = preset.allowUGCClips || false
+        formData.value.supportsPreOrder = preset.supportsPreOrder || false
       }
     }
+  }
+}
+
+// Handle ERN version change
+const handleVersionChange = () => {
+  // Reset version-specific fields when changing versions
+  if (formData.value.ernVersion !== '4.3') {
+    formData.value.allowUGCClips = false
+    formData.value.supportsImmersiveAudio = false
+    formData.value.meadUrl = ''
+    formData.value.pieUrl = ''
+    formData.value.exclusivity = ''
+    formData.value.supportsPreOrder = false
+    formData.value.displayStartDate = ''
     
-    // Copy other config properties as needed
-    if (config.requirements) {
-      localTarget.value.ernVersion = config.requirements.ernVersion || '4.3'
-    }
-    
-    if (config.commercialModel) {
-      localTarget.value.commercialModels = [{
-        type: config.commercialModel.type || 'PayAsYouGoModel',
-        usageTypes: config.commercialModel.usageTypes || ['PermanentDownload'],
-        territories: ['Worldwide']
-      }]
-    }
-    
-    jsonError.value = ''
-    showJsonImport.value = false
-    jsonInput.value = ''
-  } catch (error) {
-    jsonError.value = 'Invalid JSON format. Please check your configuration.'
-    console.error('JSON parse error:', error)
+    // Remove quality tiers from commercial models
+    formData.value.commercialModels.forEach(model => {
+      delete model.qualityTier
+    })
+  }
+  
+  if (formData.value.ernVersion === '3.8.2') {
+    // Remove ConditionalDownload from usage types (not in 3.8.2)
+    formData.value.commercialModels.forEach(model => {
+      model.usageTypes = model.usageTypes.filter(type => type !== 'ConditionalDownload')
+    })
   }
 }
 
 // Commercial model management
 const addCommercialModel = () => {
-  localTarget.value.commercialModels.push({
+  formData.value.commercialModels.push({
     type: 'PayAsYouGoModel',
     usageTypes: ['PermanentDownload'],
-    territories: ['Worldwide'],
-    price: null,
-    currency: 'USD'
+    qualityTier: ''
   })
 }
 
 const removeCommercialModel = (index) => {
-  localTarget.value.commercialModels.splice(index, 1)
+  formData.value.commercialModels.splice(index, 1)
+}
+
+const toggleUsageType = (modelIndex, usageType) => {
+  const model = formData.value.commercialModels[modelIndex]
+  const index = model.usageTypes.indexOf(usageType)
+  if (index > -1) {
+    model.usageTypes.splice(index, 1)
+  } else {
+    model.usageTypes.push(usageType)
+  }
 }
 
 // Test connection
 const testConnection = async () => {
-  isTestingConnection.value = true
-  connectionTestResult.value = null
+  testing.value = true
+  testResult.value = null
   
   try {
-    // TODO: Implement actual connection test
-    // For now, just simulate
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    
-    connectionTestResult.value = {
-      success: true,
-      message: 'Connection successful!'
-    }
+    const result = await deliveryTargetService.testConnection(formData.value)
+    testResult.value = result
   } catch (error) {
-    connectionTestResult.value = {
+    testResult.value = {
       success: false,
-      message: error.message || 'Connection failed'
+      message: error.message
     }
   } finally {
-    isTestingConnection.value = false
+    testing.value = false
   }
 }
 
-const handleSave = () => {
-  // If DSP with API protocol, sync the API key to connection for backward compatibility
-  if (localTarget.value.type === 'DSP' && localTarget.value.protocol === 'API' && localTarget.value.config.apiKey) {
-    localTarget.value.connection.authType = 'Bearer'
-    localTarget.value.connection.apiKey = localTarget.value.config.apiKey
+// Handle form submission
+const handleSubmit = async () => {
+  saving.value = true
+  try {
+    if (isNew.value) {
+      await deliveryTargetService.create(formData.value)
+    } else {
+      await deliveryTargetService.update(props.target.id, formData.value)
+    }
+    emit('save')
+  } catch (error) {
+    console.error('Error saving target:', error)
+    alert('Failed to save delivery target. Please try again.')
+  } finally {
+    saving.value = false
   }
-  
-  emit('update:modelValue', localTarget.value)
-  emit('save', localTarget.value)
 }
 
 const handleCancel = () => {
   emit('cancel')
 }
 
-// Watch for preset changes
-watch(selectedPreset, (newPreset) => {
-  if (newPreset !== 'custom') {
-    applyPreset()
-  }
-})
-
-// Watch for protocol changes to update port
-watch(() => localTarget.value.protocol, (newProtocol) => {
-  if (defaultPort.value) {
-    localTarget.value.connection.port = defaultPort.value
-  }
-})
-
+// Initialize form with existing data
 onMounted(() => {
-  if (props.modelValue && Object.keys(props.modelValue).length > 0) {
-    localTarget.value = { ...localTarget.value, ...props.modelValue }
+  if (props.target) {
+    // Merge existing target data with defaults
+    formData.value = {
+      ...formData.value,
+      ...props.target,
+      config: {
+        ...formData.value.config,
+        ...props.target.config
+      },
+      // Ensure ERN version is set
+      ernVersion: props.target.ernVersion || '4.3'
+    }
   }
 })
 </script>
 
-<template>
-  <div class="delivery-target-form">
-    <!-- DSP Preset Selection -->
-    <div v-if="mode === 'create'" class="form-section">
-      <h3 class="section-title">Quick Setup</h3>
-      <div class="form-group">
-        <label class="form-label">Select DSP Preset</label>
-        <select v-model="selectedPreset" class="form-select">
-          <option v-for="preset in dspPresets" :key="preset.value" :value="preset.value">
-            {{ preset.label }}
-          </option>
-        </select>
-        <p class="form-help">Select a preset to auto-fill common DSP configurations or import from Stardust DSP</p>
-      </div>
-    </div>
-
-    <!-- JSON Import Modal -->
-    <div v-if="showJsonImport" class="modal-overlay" @click.self="showJsonImport = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>Import Stardust DSP Configuration</h3>
-          <button @click="showJsonImport = false" class="btn-icon">
-            <font-awesome-icon icon="times" />
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="import-instructions">
-            <h4>How to import from Stardust DSP:</h4>
-            <ol>
-              <li>Go to Ingestion → Distributors in Stardust DSP</li>
-              <li>Click "View Integration" on your distributor</li>
-              <li>Go to the "Stardust Distro" tab</li>
-              <li>Copy the configuration JSON</li>
-              <li>Paste it below</li>
-            </ol>
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Configuration JSON</label>
-            <textarea 
-              v-model="jsonInput" 
-              class="form-textarea"
-              placeholder='Paste your Stardust DSP configuration JSON here...
-
-Example:
-{
-  "name": "Stardust DSP",
-  "type": "DSP",
-  "protocol": "api",
-  "config": {
-    "distributorId": "dist_abc123xyz",
-    "endpoint": "https://us-central1-stardust-dsp.cloudfunctions.net/receiveDelivery",
-    "apiKey": "sk_live_..."
-  }
-}'
-              rows="12"
-            ></textarea>
-            <div v-if="jsonError" class="form-error">
-              <font-awesome-icon icon="exclamation-triangle" />
-              {{ jsonError }}
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button @click="showJsonImport = false" class="btn btn-secondary">
-            Cancel
-          </button>
-          <button @click="parseJsonConfig" class="btn btn-primary">
-            <font-awesome-icon icon="upload" />
-            Import Configuration
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Basic Information -->
-    <div class="form-section">
-      <h3 class="section-title">Basic Information</h3>
-      
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label required">Target Name</label>
-          <input 
-            v-model="localTarget.name" 
-            type="text" 
-            class="form-input"
-            placeholder="e.g., Spotify Production"
-            required
-          />
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Target Type</label>
-          <select v-model="localTarget.type" class="form-select">
-            <option value="DSP">DSP (Digital Service Provider)</option>
-            <option value="Aggregator">Aggregator</option>
-            <option value="Test">Test Environment</option>
-          </select>
-        </div>
-      </div>
-    </div>
-
-    <!-- DSP Authentication (NEW SECTION) -->
-    <div v-if="localTarget.type === 'DSP'" class="form-section">
-      <h3 class="section-title">DSP Authentication</h3>
-      
-      <div class="form-group">
-        <label class="form-label required">Distributor ID</label>
-        <input 
-          v-model="localTarget.config.distributorId" 
-          type="text" 
-          class="form-input"
-          placeholder="e.g., dist_abc123xyz"
-          required
-        />
-        <p class="form-help">Get this from your DSP's Distributor settings (Ingestion → Distributors)</p>
-      </div>
-
-      <div v-if="localTarget.protocol === 'API'" class="form-group">
-        <label class="form-label required">API Key</label>
-        <div class="input-group">
-          <input 
-            v-model="localTarget.config.apiKey" 
-            :type="showApiKey ? 'text' : 'password'"
-            class="form-input"
-            placeholder="sk_live_..."
-            required
-          />
-          <button 
-            type="button" 
-            @click="showApiKey = !showApiKey"
-            class="btn-icon"
-          >
-            <font-awesome-icon :icon="showApiKey ? 'eye-slash' : 'eye'" />
-          </button>
-        </div>
-        <p class="form-help">Your secret API key from the DSP (keep this secure!)</p>
-      </div>
-
-      <div v-if="localTarget.protocol === 'storage'" class="info-banner">
-        <font-awesome-icon icon="info-circle" />
-        <div>
-          <strong>Storage Authentication</strong>
-          <p>Files will be uploaded to: <code>/deliveries/{{ localTarget.config.distributorId || '{DISTRIBUTOR_ID}' }}/{timestamp}/</code></p>
-          <p>The DSP will automatically detect and process files uploaded to this path.</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- DDEX Configuration -->
-    <div class="form-section">
-      <h3 class="section-title">DDEX Configuration</h3>
-      
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label required">DDEX Party Name</label>
-          <input 
-            v-model="localTarget.partyName" 
-            type="text" 
-            class="form-input"
-            placeholder="e.g., Spotify AB"
-            required
-          />
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label required">DDEX Party ID</label>
-          <input 
-            v-model="localTarget.partyId" 
-            type="text" 
-            class="form-input"
-            placeholder="e.g., PADPIDA2014120301E"
-            required
-          />
-          <p class="form-help">DPID format: PADPIDA + date + unique identifier</p>
-        </div>
-      </div>
-      
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">ERN Version</label>
-          <select v-model="localTarget.ernVersion" class="form-select">
-            <option v-for="version in ernVersionOptions" :key="version.value" :value="version.value">
-              {{ version.label }}
-            </option>
-          </select>
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Mode</label>
-          <div class="radio-group">
-            <label class="radio-label">
-              <input 
-                v-model="localTarget.testMode" 
-                type="radio" 
-                :value="true"
-              />
-              Test Mode
-            </label>
-            <label class="radio-label">
-              <input 
-                v-model="localTarget.testMode" 
-                type="radio" 
-                :value="false"
-              />
-              Live Mode
-            </label>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Delivery Protocol -->
-    <div class="form-section">
-      <h3 class="section-title">Delivery Protocol</h3>
-      
-      <div class="form-group">
-        <label class="form-label">Protocol</label>
-        <select v-model="localTarget.protocol" class="form-select">
-          <option v-for="protocol in protocolOptions" :key="protocol.value" :value="protocol.value">
-            {{ protocol.label }}
-          </option>
-        </select>
-      </div>
-      
-      <!-- SFTP Configuration -->
-      <div v-if="localTarget.protocol === 'SFTP'" class="protocol-config">
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label required">Host</label>
-            <input 
-              v-model="localTarget.connection.host" 
-              type="text" 
-              class="form-input"
-              placeholder="sftp.example.com"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Port</label>
-            <input 
-              v-model.number="localTarget.connection.port" 
-              type="number" 
-              class="form-input"
-              placeholder="22"
-            />
-          </div>
-        </div>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label required">Username</label>
-            <input 
-              v-model="localTarget.connection.username" 
-              type="text" 
-              class="form-input"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label required">Password</label>
-            <input 
-              v-model="localTarget.connection.password" 
-              type="password" 
-              class="form-input"
-              required
-            />
-          </div>
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Remote Path</label>
-          <input 
-            v-model="localTarget.connection.path" 
-            type="text" 
-            class="form-input"
-            placeholder="/incoming/releases/"
-          />
-        </div>
-      </div>
-      
-      <!-- FTP Configuration -->
-      <div v-else-if="localTarget.protocol === 'FTP'" class="protocol-config">
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label required">Host</label>
-            <input 
-              v-model="localTarget.connection.host" 
-              type="text" 
-              class="form-input"
-              placeholder="ftp.example.com"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Port</label>
-            <input 
-              v-model.number="localTarget.connection.port" 
-              type="number" 
-              class="form-input"
-              placeholder="21"
-            />
-          </div>
-        </div>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label required">Username</label>
-            <input 
-              v-model="localTarget.connection.username" 
-              type="text" 
-              class="form-input"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label required">Password</label>
-            <input 
-              v-model="localTarget.connection.password" 
-              type="password" 
-              class="form-input"
-              required
-            />
-          </div>
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Remote Path</label>
-          <input 
-            v-model="localTarget.connection.path" 
-            type="text" 
-            class="form-input"
-            placeholder="/incoming/releases/"
-          />
-        </div>
-      </div>
-      
-      <!-- S3 Configuration -->
-      <div v-else-if="localTarget.protocol === 'S3'" class="protocol-config">
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label required">Bucket Name</label>
-            <input 
-              v-model="localTarget.connection.bucket" 
-              type="text" 
-              class="form-input"
-              placeholder="my-delivery-bucket"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label required">Region</label>
-            <select v-model="localTarget.connection.region" class="form-select" required>
-              <option value="us-east-1">US East (N. Virginia)</option>
-              <option value="us-west-2">US West (Oregon)</option>
-              <option value="eu-west-1">EU West (Ireland)</option>
-              <option value="eu-central-1">EU Central (Frankfurt)</option>
-              <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
-            </select>
-          </div>
-        </div>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label required">Access Key ID</label>
-            <input 
-              v-model="localTarget.connection.accessKey" 
-              type="text" 
-              class="form-input"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label required">Secret Access Key</label>
-            <input 
-              v-model="localTarget.connection.secretKey" 
-              type="password" 
-              class="form-input"
-              required
-            />
-          </div>
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Remote Path</label>
-          <input 
-            v-model="localTarget.connection.path" 
-            type="text" 
-            class="form-input"
-            placeholder="/incoming/releases/"
-          />
-        </div>
-      </div>
-      
-      <!-- Firebase Storage Configuration (Stardust DSP) -->
-      <div v-else-if="localTarget.protocol === 'storage'" class="protocol-config">
-        <div class="info-banner">
-          <font-awesome-icon icon="info-circle" />
-          <div>
-            <strong>Stardust DSP Integration</strong>
-            <p>This configuration is for integration with Stardust DSP test instances.</p>
-          </div>
-        </div>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label required">Storage Bucket</label>
-            <input 
-              v-model="localTarget.connection.bucket" 
-              type="text" 
-              class="form-input"
-              placeholder="stardust-dsp.firebasestorage.app"
-              required
-            />
-            <p class="form-help">Firebase Storage bucket URL</p>
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Project ID</label>
-            <input 
-              v-model="localTarget.connection.projectId" 
-              type="text" 
-              class="form-input"
-              placeholder="stardust-dsp"
-            />
-            <p class="form-help">Firebase project ID (optional)</p>
-          </div>
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Delivery Path Template</label>
-          <code class="path-display">
-            /deliveries/{{ localTarget.config.distributorId || '{DISTRIBUTOR_ID}' }}/{timestamp}/
-          </code>
-          <p class="form-help">Files will be uploaded to this path pattern. {timestamp} will be replaced with the delivery timestamp.</p>
-        </div>
-      </div>
-      
-      <!-- API Configuration -->
-      <div v-else-if="localTarget.protocol === 'API'" class="protocol-config">
-        <div class="form-group">
-          <label class="form-label required">API Endpoint</label>
-          <input 
-            v-model="localTarget.connection.endpoint" 
-            type="url" 
-            class="form-input"
-            :placeholder="localTarget.type === 'DSP' ? 'https://us-central1-stardust-dsp.cloudfunctions.net/receiveDelivery' : 'https://api.dsp.com/v1/releases'"
-            required
-          />
-          <p v-if="localTarget.type === 'DSP'" class="form-help">
-            For Stardust DSP, use the receiveDelivery endpoint
-          </p>
-        </div>
-        
-        <div v-if="localTarget.type !== 'DSP'" class="form-row">
-          <div class="form-group">
-            <label class="form-label">Authentication Type</label>
-            <select v-model="localTarget.connection.authType" class="form-select">
-              <option value="Bearer">Bearer Token</option>
-              <option value="Basic">Basic Auth</option>
-              <option value="OAuth2">OAuth 2.0</option>
-              <option value="ApiKey">API Key</option>
-            </select>
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label required">API Key/Token</label>
-            <input 
-              v-model="localTarget.connection.apiKey" 
-              type="password" 
-              class="form-input"
-              placeholder="Your API key or token"
-              required
-            />
-          </div>
-        </div>
-        
-        <!-- For DSP, authentication is handled in the DSP Authentication section -->
-        <div v-if="localTarget.type === 'DSP'" class="info-banner">
-          <font-awesome-icon icon="info-circle" />
-          <p>Authentication is configured in the DSP Authentication section above.</p>
-        </div>
-      </div>
-      
-      <!-- Test Connection Button -->
-      <div class="test-connection">
-        <button 
-          @click="testConnection" 
-          class="btn btn-secondary"
-          :disabled="isTestingConnection"
-        >
-          <font-awesome-icon :icon="isTestingConnection ? 'spinner' : 'plug'" :spin="isTestingConnection" />
-          {{ isTestingConnection ? 'Testing...' : 'Test Connection' }}
-        </button>
-        
-        <div v-if="connectionTestResult" class="test-result" :class="{ success: connectionTestResult.success, error: !connectionTestResult.success }">
-          <font-awesome-icon :icon="connectionTestResult.success ? 'check-circle' : 'times-circle'" />
-          {{ connectionTestResult.message }}
-        </div>
-      </div>
-    </div>
-
-    <!-- Commercial Models -->
-    <div class="form-section">
-      <div class="section-header">
-        <h3 class="section-title">Commercial Models</h3>
-        <button @click="addCommercialModel" class="btn btn-sm btn-secondary">
-          <font-awesome-icon icon="plus" /> Add Model
-        </button>
-      </div>
-      
-      <div v-for="(model, index) in localTarget.commercialModels" :key="index" class="commercial-model-card">
-        <div class="model-header">
-          <select v-model="model.type" class="form-select">
-            <option value="PayAsYouGoModel">Pay As You Go</option>
-            <option value="SubscriptionModel">Subscription</option>
-            <option value="AdvertisementSupportedModel">Advertisement Supported</option>
-            <option value="FreeOfChargeModel">Free of Charge</option>
-          </select>
-          
-          <button @click="removeCommercialModel(index)" class="btn-icon" :disabled="localTarget.commercialModels.length === 1">
-            <font-awesome-icon icon="trash" />
-          </button>
-        </div>
-        
-        <div class="model-usage-types">
-          <label class="form-label">Usage Types</label>
-          <div class="checkbox-group">
-            <label class="checkbox-label">
-              <input type="checkbox" value="PermanentDownload" v-model="model.usageTypes" />
-              Permanent Download
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" value="OnDemandStream" v-model="model.usageTypes" />
-              On-Demand Stream
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" value="NonInteractiveStream" v-model="model.usageTypes" />
-              Non-Interactive Stream
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" value="Subscription" v-model="model.usageTypes" />
-              Subscription
-            </label>
-          </div>
-        </div>
-        
-        <div v-if="model.type === 'PayAsYouGoModel'" class="price-section">
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Price (optional)</label>
-              <input 
-                v-model.number="model.price" 
-                type="number" 
-                step="0.01" 
-                class="form-input"
-                placeholder="0.99"
-              />
-            </div>
-            
-            <div class="form-group">
-              <label class="form-label">Currency</label>
-              <select v-model="model.currency" class="form-select">
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="GBP">GBP</option>
-                <option value="JPY">JPY</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Advanced Settings -->
-    <div class="form-section">
-      <h3 class="section-title">Advanced Settings</h3>
-      
-      <div class="settings-grid">
-        <label class="checkbox-label">
-          <input type="checkbox" v-model="localTarget.settings.autoDeliver" />
-          Auto-deliver new releases
-        </label>
-        
-        <label class="checkbox-label">
-          <input type="checkbox" v-model="localTarget.settings.validateBeforeDelivery" />
-          Validate ERN before delivery
-        </label>
-        
-        <label class="checkbox-label">
-          <input type="checkbox" v-model="localTarget.settings.requireAcknowledgment" />
-          Require delivery acknowledgment
-        </label>
-        
-        <label class="checkbox-label">
-          <input type="checkbox" v-model="localTarget.active" />
-          Target is active
-        </label>
-      </div>
-      
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Retry Attempts</label>
-          <input 
-            v-model.number="localTarget.settings.retryAttempts" 
-            type="number" 
-            class="form-input"
-            min="0"
-            max="10"
-          />
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Retry Delay (minutes)</label>
-          <input 
-            v-model.number="localTarget.settings.retryDelay" 
-            type="number" 
-            class="form-input"
-            min="1"
-            max="1440"
-          />
-        </div>
-      </div>
-    </div>
-
-    <!-- Form Actions -->
-    <div class="form-actions">
-      <button @click="handleCancel" class="btn btn-secondary">
-        Cancel
-      </button>
-      <button @click="handleSave" class="btn btn-primary">
-        <font-awesome-icon icon="save" />
-        {{ mode === 'create' ? 'Create Target' : 'Save Changes' }}
-      </button>
-    </div>
-  </div>
-</template>
-
 <style scoped>
 .delivery-target-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xl);
+  max-width: 800px;
 }
 
 .form-section {
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
+  margin-bottom: var(--space-2xl);
+  padding-bottom: var(--space-xl);
+  border-bottom: 1px solid var(--color-border);
 }
 
-.section-title {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  color: var(--color-heading);
-  margin-bottom: var(--space-lg);
+.form-section:last-of-type {
+  border-bottom: none;
 }
 
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.form-section h3 {
   margin-bottom: var(--space-lg);
+  color: var(--color-text);
 }
 
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-md);
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
-.form-label {
-  font-weight: var(--font-medium);
-  color: var(--color-text);
-}
-
-.form-label.required::after {
-  content: ' *';
-  color: var(--color-error);
-}
-
-.form-help {
-  font-size: var(--text-sm);
-  color: var(--color-text-tertiary);
-}
-
-.form-textarea {
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: var(--text-base);
-  font-family: var(--font-mono);
-  background-color: var(--color-surface);
-  color: var(--color-text);
-  transition: all var(--transition-base);
-  resize: vertical;
-  min-height: 200px;
-}
-
-.form-textarea:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-light);
-}
-
-.form-error {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  color: var(--color-error);
-  font-size: var(--text-sm);
-  margin-top: var(--space-xs);
-}
-
-/* Info Banner */
-.info-banner {
-  display: flex;
-  gap: var(--space-md);
-  padding: var(--space-md);
-  background-color: var(--color-info-light);
-  border: 1px solid var(--color-info);
-  border-radius: var(--radius-md);
-  color: var(--color-info-dark);
-}
-
-.info-banner svg {
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-/* Protocol Configuration */
-.protocol-config {
-  margin-top: var(--space-lg);
-  padding-top: var(--space-lg);
-  border-top: 1px solid var(--color-border);
-}
-
-/* Test Connection */
-.test-connection {
-  margin-top: var(--space-lg);
-  padding-top: var(--space-lg);
-  border-top: 1px solid var(--color-border);
-}
-
-.test-result {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  margin-top: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-}
-
-.test-result.success {
-  background-color: var(--color-success-light);
-  color: var(--color-success-dark);
-  border: 1px solid var(--color-success);
-}
-
-.test-result.error {
-  background-color: var(--color-error-light);
-  color: var(--color-error-dark);
-  border: 1px solid var(--color-error);
-}
-
-/* Modal */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal {
-  background-color: var(--color-surface);
-  border-radius: var(--radius-lg);
-  width: 90%;
-  max-width: 600px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-lg);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: var(--text-xl);
-  color: var(--color-heading);
-}
-
-.modal-body {
-  padding: var(--space-lg);
-  overflow-y: auto;
-  flex: 1;
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-md);
-  padding: var(--space-lg);
-  border-top: 1px solid var(--color-border);
-}
-
-.import-instructions {
-  background-color: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-  margin-bottom: var(--space-lg);
-}
-
-.import-instructions h4 {
-  margin: 0 0 var(--space-sm) 0;
-  color: var(--color-heading);
-}
-
-.import-instructions ol {
-  margin: 0;
-  padding-left: var(--space-lg);
-}
-
-.import-instructions li {
-  margin-bottom: var(--space-xs);
-  color: var(--color-text-secondary);
-}
-
-/* Radio and Checkbox Groups */
-.radio-group {
-  display: flex;
   gap: var(--space-lg);
 }
 
-.radio-label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  cursor: pointer;
-}
-
-/* Commercial Models */
-.commercial-model-card {
-  background-color: var(--color-bg);
-  border: 1px solid var(--color-border);
+.protocol-config {
+  padding: var(--space-lg);
+  background: var(--color-bg-secondary);
   border-radius: var(--radius-md);
-  padding: var(--space-md);
-  margin-bottom: var(--space-md);
+  margin-top: var(--space-lg);
 }
 
-.model-header {
-  display: flex;
-  gap: var(--space-sm);
-  margin-bottom: var(--space-md);
-}
-
-.model-header .form-select {
-  flex: 1;
-}
-
-.model-usage-types {
-  margin-bottom: var(--space-md);
-}
-
-.checkbox-group {
+.commercial-models {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
-  margin-top: var(--space-sm);
+  gap: var(--space-md);
+}
+
+.commercial-model {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.usage-types {
+  display: flex;
+  gap: var(--space-md);
+  flex: 1;
 }
 
 .checkbox-label {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  cursor: pointer;
+  gap: var(--space-xs);
+  font-size: var(--text-sm);
 }
 
-.price-section {
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--color-border);
-}
-
-/* Settings */
-.settings-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-md);
-  margin-bottom: var(--space-lg);
-}
-
-/* Form Actions */
 .form-actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-md);
-  padding-top: var(--space-lg);
+  margin-top: var(--space-2xl);
+  padding-top: var(--space-xl);
   border-top: 1px solid var(--color-border);
 }
 
+.test-result {
+  animation: slideIn 0.3s ease;
+}
+
+.test-result .alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.test-result .alert i {
+  font-size: 1.25rem;
+  margin-top: 2px;
+}
+
+.version-features {
+  padding: var(--space-sm);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.form-checkbox {
+  margin-right: var(--space-xs);
+}
+
+.checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.form-select-sm {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--text-sm);
+}
+
 .btn-icon {
-  background: none;
+  background: transparent;
   border: none;
   color: var(--color-text-secondary);
   cursor: pointer;
   padding: var(--space-xs);
-  transition: color var(--transition-base);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-base);
 }
 
 .btn-icon:hover {
-  color: var(--color-error);
+  color: var(--color-danger);
+  background: var(--color-bg-tertiary);
 }
 
-.btn-icon:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+/* Font Awesome specific styles */
+.fa-spin {
+  animation: fa-spin 1s infinite linear;
 }
 
-/* Input Group */
-.input-group {
-  display: flex;
-  gap: var(--space-sm);
+@keyframes fa-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
-.input-group .form-input {
-  flex: 1;
+.mr-sm {
+  margin-right: var(--space-sm);
 }
 
-.input-group .btn-icon {
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg);
-  color: var(--color-text-secondary);
+.ml-sm {
+  margin-left: var(--space-sm);
 }
 
-.input-group .btn-icon:hover {
-  background: var(--color-surface);
-  color: var(--color-text);
+.mt-sm {
+  margin-top: var(--space-sm);
 }
 
-/* Path Display */
-.path-display {
-  display: block;
+.mt-lg {
+  margin-top: var(--space-lg);
+}
+
+/* Alert styles from CSS architecture */
+.alert {
   padding: var(--space-md);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  font-family: var(--font-mono);
-  color: var(--color-text-secondary);
+  border: 1px solid;
+  margin-bottom: var(--space-lg);
 }
 
-/* Responsive */
+.alert-info {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: var(--color-primary);
+}
+
+.alert-success {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.3);
+  color: var(--color-success);
+}
+
+.alert-warning {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: var(--color-warning);
+}
+
+.alert-error {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--color-danger);
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 768px) {
   .form-row {
     grid-template-columns: 1fr;
   }
   
-  .settings-grid {
-    grid-template-columns: 1fr;
+  .commercial-model {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>
