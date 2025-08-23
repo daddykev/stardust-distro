@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
-// Current working features from Phases 1-4
+// Current working features from Phases 1-5
 const currentFeatures = [
   {
     icon: 'check-circle',
@@ -37,26 +37,46 @@ const currentFeatures = [
     status: 'live'
   },
   {
-    icon: 'chart-line',
-    title: 'Real-time Monitoring',
-    description: 'Live delivery tracking, analytics, and notification system',
+    icon: 'bug',
+    title: 'Production Testing',
+    description: '17 comprehensive tests across all systems with 100% pass rate',
     status: 'live'
   }
 ]
 
-// Coming soon features
-const upcomingFeatures = [
+// What's happening now
+const launchPhase = {
+  title: 'Testing & Launch',
+  status: 'IN PROGRESS',
+  tasks: [
+    { name: 'Performance optimization', status: 'active' },
+    { name: 'Security audit', status: 'active' },
+    { name: 'Documentation completion', status: 'active' },
+    { name: 'npm package preparation', status: 'upcoming' },
+    { name: 'Demo site deployment', status: 'upcoming' },
+    { name: 'Public launch', status: 'upcoming' }
+  ]
+}
+
+// Post-launch features
+const postLaunchFeatures = [
   {
     icon: 'plug',
     title: 'Plugin Marketplace',
     description: 'Open ecosystem for community and commercial plugins',
-    phase: 'Phase 5'
+    timeline: 'Post-Launch'
   },
   {
-    icon: 'rocket',
-    title: 'Testing & Launch',
-    description: 'Comprehensive testing and npm package publication',
-    phase: 'Phase 6'
+    icon: 'chart-line',
+    title: 'Advanced Analytics',
+    description: 'Revenue projections and trend analysis',
+    timeline: 'Post-Launch'
+  },
+  {
+    icon: 'globe',
+    title: 'Multi-Currency Support',
+    description: 'Pricing in multiple currencies with conversions',
+    timeline: 'Post-Launch'
   }
 ]
 
@@ -66,11 +86,12 @@ const pluginExamples = [
   'Apple Digital Masters',
   'Complex Rights Management',
   'Delivery Orchestration',
-  'Advanced Analytics'
+  'Advanced Analytics',
+  'Custom Workflows'
 ]
 
 const codeExample = ref(`# Install and deploy your distribution platform
-npx stardust-distro create my-distro  # Coming Soon
+npx stardust-distro create my-distro  # Coming Soon!
 cd my-distro
 npm run deploy
 
@@ -104,7 +125,7 @@ const copyCode = () => {
       <div class="container">
         <div class="hero-content">
           <div class="hero-badge">
-            <span class="badge-text badge-alpha">In Development</span>
+            <span class="badge-text badge-launch">🚀 Launch Imminent</span>
             <span class="badge-separator">•</span>
             <span class="badge-text">100% Open Source</span>
             <span class="badge-separator">•</span>
@@ -123,10 +144,10 @@ const copyCode = () => {
 
           <div class="development-status">
             <div class="status-bar">
-              <div class="status-progress" style="width: 67%"></div>
+              <div class="status-progress" style="width: 83%"></div>
             </div>
             <p class="status-text">
-              <strong>Development Progress:</strong> Phase 5 of 6 (Plugin Marketplace Starting)
+              <strong>Development Progress:</strong> Phase 6 of 7 (Testing & Launch)
             </p>
           </div>
           
@@ -167,8 +188,8 @@ const copyCode = () => {
               <div class="philosophy-icon">
                 <font-awesome-icon icon="plug" />
               </div>
-              <h3>Specialized Plugins</h3>
-              <p>Optional marketplace for advanced features like Dolby Atmos, complex rights, and custom workflows.</p>
+              <h3>Plugin Ecosystem (Coming)</h3>
+              <p>Post-launch marketplace for advanced features like Dolby Atmos, complex rights, and custom workflows.</p>
             </div>
           </div>
         </div>
@@ -181,7 +202,7 @@ const copyCode = () => {
         <div class="text-center mb-xl">
           <h2 class="section-title">What's Working Now</h2>
           <p class="section-description">
-            Phases 1-4 complete - these features are implemented and functional
+            Phases 1-5 complete - these features are implemented, tested, and production-ready
           </p>
         </div>
         
@@ -202,80 +223,37 @@ const copyCode = () => {
       </div>
     </section>
 
-    <!-- Plugin Marketplace Vision -->
+    <!-- Launch Phase -->
     <section class="section bg-primary-light">
       <div class="container">
-        <div class="marketplace-section">
-          <div class="marketplace-content">
-            <h2 class="section-title">
-              <font-awesome-icon icon="plug" /> 
-              Open Plugin Marketplace
-            </h2>
-            <p class="marketplace-subtitle">
-              <strong>Now in Development:</strong> An open ecosystem where developers can create and distribute plugins
+        <div class="launch-section">
+          <h2 class="section-title">
+            <font-awesome-icon icon="rocket" /> 
+            Preparing for Launch
+          </h2>
+          <p class="launch-subtitle">
+            <strong>Phase 6 in Progress:</strong> Final optimizations and npm package preparation
+          </p>
+          
+          <div class="launch-tasks">
+            <h3>Launch Checklist:</h3>
+            <div class="task-grid">
+              <div v-for="task in launchPhase.tasks" :key="task.name" class="task-item">
+                <div class="task-indicator" :class="`task-${task.status}`">
+                  <font-awesome-icon v-if="task.status === 'complete'" icon="check-circle" />
+                  <font-awesome-icon v-else-if="task.status === 'active'" icon="spinner" spin />
+                  <font-awesome-icon v-else icon="circle" />
+                </div>
+                <span class="task-name">{{ task.name }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="launch-timeline">
+            <font-awesome-icon icon="calendar" />
+            <p>
+              <strong>Expected Launch:</strong> npm package available in 2-3 weeks
             </p>
-            
-            <div class="marketplace-benefits">
-              <div class="benefit">
-                <h4>For Advanced Users</h4>
-                <ul>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Dolby Atmos Processing
-                  </li>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Complex rights and royalty management
-                  </li>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Advanced delivery orchestration
-                  </li>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Custom integrations and workflows
-                  </li>
-                </ul>
-              </div>
-              <div class="benefit">
-                <h4>For Developers</h4>
-                <ul>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Build and monetize your expertise
-                  </li>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Access comprehensive SDK and docs
-                  </li>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Reach thousands of labels globally
-                  </li>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Set your own pricing and terms
-                  </li>
-                </ul>
-              </div>
-            </div>
-
-            <div class="plugin-examples">
-              <h4>Example Plugin Categories:</h4>
-              <div class="plugin-tags">
-                <span v-for="plugin in pluginExamples" :key="plugin" class="plugin-tag">
-                  {{ plugin }}
-                </span>
-              </div>
-            </div>
-
-            <div class="marketplace-note">
-              <font-awesome-icon icon="info-circle" />
-              <p>
-                The core platform includes everything needed for standard distribution. 
-                Plugins add specialized capabilities for advanced industry needs.
-              </p>
-            </div>
           </div>
         </div>
       </div>
@@ -336,25 +314,116 @@ const copyCode = () => {
             </div>
           </div>
           
-          <div class="roadmap-item roadmap-current">
+          <div class="roadmap-item roadmap-complete">
             <div class="roadmap-marker">
-              <font-awesome-icon icon="laptop-code" />
+              <font-awesome-icon icon="check" />
             </div>
             <div class="roadmap-content">
-              <h3>Phase 5: Plugin Marketplace</h3>
-              <p>Plugin architecture, SDK, developer portal, initial plugins</p>
+              <h3>Phase 5: Production Testing</h3>
+              <p>Comprehensive testing suite with 17 tests, 100% pass rate</p>
+              <span class="roadmap-status">COMPLETE</span>
+            </div>
+          </div>
+          
+          <div class="roadmap-item roadmap-current">
+            <div class="roadmap-marker">
+              <font-awesome-icon icon="rocket" />
+            </div>
+            <div class="roadmap-content">
+              <h3>Phase 6: Testing & Launch</h3>
+              <p>Performance optimization, security audit, npm publication</p>
               <span class="roadmap-status">IN PROGRESS</span>
             </div>
           </div>
           
           <div class="roadmap-item">
             <div class="roadmap-marker">
-              <font-awesome-icon icon="calendar" />
+              <font-awesome-icon icon="plug" />
             </div>
             <div class="roadmap-content">
-              <h3>Phase 6: Testing & Launch</h3>
-              <p>Comprehensive testing, optimization, npm package publication</p>
-              <span class="roadmap-status">UPCOMING</span>
+              <h3>Phase 7: Plugin Marketplace</h3>
+              <p>Open ecosystem for extensions and integrations</p>
+              <span class="roadmap-status">POST-LAUNCH</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Plugin Marketplace Vision -->
+    <section class="section bg-secondary">
+      <div class="container">
+        <div class="marketplace-section">
+          <div class="marketplace-content">
+            <h2 class="section-title">
+              <font-awesome-icon icon="plug" /> 
+              Plugin Marketplace
+              <span class="coming-soon-badge">Coming Post-Launch</span>
+            </h2>
+            <p class="marketplace-subtitle">
+              An open ecosystem where developers can create and distribute plugins for specialized features
+            </p>
+            
+            <div class="marketplace-benefits">
+              <div class="benefit">
+                <h4>For Advanced Users</h4>
+                <ul>
+                  <li>
+                    <font-awesome-icon icon="arrow-right" />
+                    Dolby Atmos Processing
+                  </li>
+                  <li>
+                    <font-awesome-icon icon="arrow-right" />
+                    Complex rights and royalty management
+                  </li>
+                  <li>
+                    <font-awesome-icon icon="arrow-right" />
+                    Advanced delivery orchestration
+                  </li>
+                  <li>
+                    <font-awesome-icon icon="arrow-right" />
+                    Custom integrations and workflows
+                  </li>
+                </ul>
+              </div>
+              <div class="benefit">
+                <h4>For Developers</h4>
+                <ul>
+                  <li>
+                    <font-awesome-icon icon="arrow-right" />
+                    Build and monetize your expertise
+                  </li>
+                  <li>
+                    <font-awesome-icon icon="arrow-right" />
+                    Access comprehensive SDK and docs
+                  </li>
+                  <li>
+                    <font-awesome-icon icon="arrow-right" />
+                    Reach thousands of labels globally
+                  </li>
+                  <li>
+                    <font-awesome-icon icon="arrow-right" />
+                    Set your own pricing and terms
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="plugin-examples">
+              <h4>Example Plugin Categories:</h4>
+              <div class="plugin-tags">
+                <span v-for="plugin in pluginExamples" :key="plugin" class="plugin-tag">
+                  {{ plugin }}
+                </span>
+              </div>
+            </div>
+
+            <div class="marketplace-note">
+              <font-awesome-icon icon="info-circle" />
+              <p>
+                The core platform includes everything needed for standard distribution. 
+                Plugins will add specialized capabilities for advanced industry needs.
+              </p>
             </div>
           </div>
         </div>
@@ -362,7 +431,7 @@ const copyCode = () => {
     </section>
 
     <!-- Quick Start -->
-    <section class="section bg-secondary">
+    <section class="section">
       <div class="container">
         <div class="quick-start">
           <div class="quick-start-content">
@@ -382,34 +451,34 @@ const copyCode = () => {
     </section>
 
     <!-- Contribution CTA -->
-    <section class="section">
+    <section class="section bg-secondary">
       <div class="container">
         <div class="cta-section">
           <h2 class="cta-title">Join the Revolution</h2>
           <p class="cta-description">
-            Help us build the plugin ecosystem and prepare for launch!
+            Help us prepare for launch and shape the future of music distribution!
           </p>
           
           <div class="contribution-options">
             <div class="contribution-card">
-              <font-awesome-icon icon="plug" />
-              <h3>Design Plugins</h3>
-              <p>Start planning plugins for the marketplace</p>
-            </div>
-            <div class="contribution-card">
               <font-awesome-icon icon="bug" />
               <h3>Test Platform</h3>
-              <p>Test the complete distribution workflow</p>
-            </div>
-            <div class="contribution-card">
-              <font-awesome-icon icon="code" />
-              <h3>Contribute Code</h3>
-              <p>Help build the plugin architecture</p>
+              <p>Help us find and fix any remaining issues</p>
             </div>
             <div class="contribution-card">
               <font-awesome-icon icon="book" />
               <h3>Write Docs</h3>
               <p>Document features and create guides</p>
+            </div>
+            <div class="contribution-card">
+              <font-awesome-icon icon="code" />
+              <h3>Optimize Code</h3>
+              <p>Help with performance improvements</p>
+            </div>
+            <div class="contribution-card">
+              <font-awesome-icon icon="lightbulb" />
+              <h3>Suggest Features</h3>
+              <p>Share ideas for post-launch enhancements</p>
             </div>
           </div>
           
@@ -463,8 +532,8 @@ const copyCode = () => {
   color: var(--color-text-secondary);
 }
 
-.badge-alpha {
-  color: var(--color-warning);
+.badge-launch {
+  color: var(--color-success);
   font-weight: var(--font-semibold);
 }
 
@@ -623,6 +692,102 @@ const copyCode = () => {
   line-height: var(--leading-relaxed);
 }
 
+/* Launch Section */
+.launch-section {
+  padding: var(--space-2xl);
+  background-color: var(--color-surface);
+  border-radius: var(--radius-xl);
+  text-align: center;
+}
+
+.launch-subtitle {
+  font-size: var(--text-lg);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-2xl);
+}
+
+.launch-subtitle strong {
+  color: var(--color-primary);
+}
+
+.launch-tasks {
+  margin-bottom: var(--space-2xl);
+}
+
+.launch-tasks h3 {
+  font-size: var(--text-lg);
+  color: var(--color-heading);
+  margin-bottom: var(--space-lg);
+}
+
+.task-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-md);
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.task-indicator {
+  font-size: 1.25rem;
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-complete {
+  color: var(--color-success);
+}
+
+.task-active {
+  color: var(--color-warning);
+}
+
+.task-upcoming {
+  color: var(--color-text-tertiary);
+}
+
+.task-name {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+
+.launch-timeline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.launch-timeline svg {
+  color: var(--color-primary);
+}
+
+.launch-timeline p {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.launch-timeline strong {
+  color: var(--color-text);
+}
+
 /* Plugin Marketplace */
 .marketplace-section {
   padding: var(--space-2xl);
@@ -631,14 +796,23 @@ const copyCode = () => {
   text-align: center;
 }
 
+.coming-soon-badge {
+  display: inline-block;
+  margin-left: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--color-warning);
+  color: white;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
 .marketplace-subtitle {
   font-size: var(--text-lg);
   color: var(--color-text-secondary);
   margin-bottom: var(--space-2xl);
-}
-
-.marketplace-subtitle strong {
-  color: var(--color-primary);
 }
 
 .marketplace-benefits {
@@ -849,11 +1023,11 @@ const copyCode = () => {
   font-size: var(--text-sm);
   line-height: var(--leading-relaxed);
   white-space: pre-wrap;
-  text-align: left;  /* Add explicit left alignment */
+  text-align: left;
 }
 
 .code-block code {
-  text-align: left;  /* Ensure code is also left-aligned */
+  text-align: left;
   display: block;
 }
 
@@ -908,7 +1082,7 @@ const copyCode = () => {
 
 .contribution-card {
   padding: var(--space-lg);
-  background: var(--color-bg-secondary);
+  background: var(--color-surface);
   border-radius: var(--radius-lg);
   text-align: center;
 }
@@ -958,6 +1132,10 @@ const copyCode = () => {
   }
   
   .marketplace-benefits {
+    grid-template-columns: 1fr;
+  }
+  
+  .task-grid {
     grid-template-columns: 1fr;
   }
 }
