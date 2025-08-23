@@ -112,8 +112,8 @@ Example plugin categories:
 - Production-safe test isolation
 
 ### 📅 Upcoming Phases
-- Phase 6: Plugin Marketplace (Weeks 13-16) - NEXT
-- Phase 7: Testing & Launch (Weeks 17-20)
+- Phase 6: Testing & Launch (Weeks 15-16) - NEXT
+- Phase 7: Plugin Marketplace (Post-Launch)
 
 ## Technical Architecture
 
@@ -1639,23 +1639,7 @@ const results = await delivery.deliver(stardustRelease);
 - **Files Created**: src/views/Testing.vue with TestStatus component
 - **Route Added**: /testing route in router configuration
 
-### Phase 6: Plugin Marketplace (Weeks 15-16) - UP NEXT 🚧
-- [ ] Build plugin architecture
-- [ ] Create marketplace infrastructure
-- [ ] Develop Plugin SDK
-- [ ] Build developer portal
-- [ ] Create plugin submission/review system
-- [ ] Develop initial plugins:
-  - [ ] Dolby Atmos Plugin
-  - [ ] Sony 360 Reality Audio Plugin
-  - [ ] Advanced Credits Plugin
-  - [ ] Delivery Orchestrator Plugin
-- [ ] Setup third-party developer onboarding
-- [ ] Create plugin documentation
-- [ ] Build licensing system
-
-### Phase 7: Testing & Launch (Weeks 17-20)
-- [ ] Comprehensive testing suite
+### Phase 6: Testing & Launch (Weeks 15-16) - UP NEXT 🚧
 - [ ] Performance optimization
 - [ ] Security audit
 - [ ] Documentation completion
@@ -1663,6 +1647,21 @@ const results = await delivery.deliver(stardustRelease);
 - [ ] npm package publication
 - [ ] Multi-ERN version support (3.8.2, 4.2)
 - [ ] DDEX Workbench API integration for validation
+
+### Phase 7: Plugin Marketplace (Post-Launch)
+- [ ] Build plugin architecture
+- [ ] Create marketplace infrastructure
+- [ ] Develop Plugin SDK
+- [ ] Build developer portal
+- [ ] Create plugin submission/review system
+- [ ] Develop initial plugins:
+  - [ ] Dolby Atmos Plugin
+  - [ ] Apple Digital Masters Plugin
+  - [ ] Advanced Credits Plugin
+  - [ ] Delivery Orchestrator Plugin
+- [ ] Setup third-party developer onboarding
+- [ ] Create plugin documentation
+- [ ] Build licensing system
 
 ### Technical Enhancements Summary
 
