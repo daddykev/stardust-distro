@@ -1,3 +1,745 @@
+<script setup>
+import { ref, computed, nextTick } from 'vue'
+import { useAuth } from '../composables/useAuth'
+import { db, functions, storage } from '../firebase'
+import { collection, getDocs, query, limit } from 'firebase/firestore'
+import { httpsCallable } from 'firebase/functions'
+import { ref as storageRef, uploadString, getDownloadURL } from 'firebase/storage'
+
+// Import services using ES6 imports
+import ERNService from '../services/ern'
+import DeliveryService from '../services/delivery'
+import CatalogService from '../services/catalog'
+import DeliveryTargetsService from '../services/deliveryTargets'
+
+// Test Status Component (inline definition for script setup)
+const TestStatus = {
+  name: 'TestStatus',
+  props: ['status', 'duration', 'details', 'error'],
+  template: `
+    <div class="test-status-wrapper">
+      <font-awesome-icon 
+        v-if="status === 'passed'" 
+        icon="check-circle" 
+        class="status-icon passed"
+      />
+      <font-awesome-icon 
+        v-else-if="status === 'failed'" 
+        icon="times-circle" 
+        class="status-icon failed"
+      />
+      <font-awesome-icon 
+        v-else-if="status === 'running'" 
+        icon="spinner" 
+        spin
+        class="status-icon running"
+      />
+      <span v-else class="status-icon pending">—</span>
+      
+      <span v-if="duration" class="test-duration">{{ duration }}ms</span>
+      <span v-if="details" class="test-details">{{ details }}</span>
+      <span v-if="error" class="test-error">{{ error }}</span>
+    </div>
+  `
+}
+
+// Get auth user
+const { user } = useAuth()
+
+// State
+const isRunning = ref(false)
+const hasResults = ref(false)
+const showLog = ref(false)
+const autoScroll = ref(true)
+const testLog = ref([])
+const logContainer = ref(null)
+const testDuration = ref(0)
+const lastTestTime = ref('')
+
+// Compute tenantId from user
+const tenantId = computed(() => user.value?.uid || null)
+
+const isProduction = computed(() => {
+  return import.meta.env.PROD || window.location.hostname.includes('web.app')
+})
+
+// Test definitions
+const systemTests = ref([
+  {
+    id: 'sys-1',
+    name: 'Firebase Authentication',
+    description: 'Verify authentication is working',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'sys-2',
+    name: 'Firestore Database',
+    description: 'Test database read/write operations',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'sys-3',
+    name: 'Firebase Storage',
+    description: 'Test file upload/download capability',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'sys-4',
+    name: 'Cloud Functions',
+    description: 'Verify functions are responding',
+    status: null,
+    duration: null
+  }
+])
+
+const ddexTests = ref([
+  {
+    id: 'ddex-1',
+    name: 'ERN 4.3 Generation',
+    description: 'Generate valid ERN 4.3 message',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'ddex-2',
+    name: 'DDEX File Naming',
+    description: 'Verify UPC-based file naming convention',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'ddex-3',
+    name: 'MD5 Hash Generation',
+    description: 'Test MD5 calculation for files',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'ddex-4',
+    name: 'XML URL Escaping',
+    description: 'Verify proper URL escaping in ERN',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'ddex-5',
+    name: 'Message Type Handling',
+    description: 'Test Initial/Update/Takedown messages',
+    status: null,
+    duration: null
+  }
+])
+
+const deliveryTests = ref([
+  {
+    id: 'del-1',
+    name: 'Firebase Storage Delivery',
+    description: 'Test internal storage delivery',
+    target: 'Firebase Storage',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'del-2',
+    name: 'FTP Test Server',
+    description: 'Test FTP delivery to public server',
+    target: 'ftp.dlptest.com',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'del-3',
+    name: 'SFTP Test Server',
+    description: 'Test SFTP delivery to public server',
+    target: 'test.rebex.net',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'del-4',
+    name: 'Configured Targets',
+    description: 'Test user-configured delivery targets',
+    target: 'User Targets',
+    status: null,
+    duration: null
+  }
+])
+
+const performanceTests = ref([
+  {
+    id: 'perf-1',
+    name: 'ERN Generation Speed',
+    description: 'Time to generate ERN for 10-track release',
+    result: null,
+    status: null
+  },
+  {
+    id: 'perf-2',
+    name: 'Firestore Query Speed',
+    description: 'Database query performance',
+    result: null,
+    status: null
+  },
+  {
+    id: 'perf-3',
+    name: 'File Upload Speed',
+    description: 'Time to upload 1MB test file',
+    result: null,
+    status: null
+  },
+  {
+    id: 'perf-4',
+    name: 'Delivery Processing',
+    description: 'End-to-end delivery time',
+    result: null,
+    status: null
+  }
+])
+
+// Computed properties
+const totalTests = computed(() => {
+  return systemTests.value.length + 
+         ddexTests.value.length + 
+         deliveryTests.value.length + 
+         performanceTests.value.length
+})
+
+const passedTests = computed(() => {
+  let count = 0
+  const allTests = [
+    ...systemTests.value,
+    ...ddexTests.value,
+    ...deliveryTests.value,
+    ...performanceTests.value
+  ]
+  allTests.forEach(test => {
+    if (test.status === 'passed' || test.result?.passed) count++
+  })
+  return count
+})
+
+const failedTests = computed(() => {
+  const failed = []
+  const allTests = [
+    { category: 'System', tests: systemTests.value },
+    { category: 'DDEX', tests: ddexTests.value },
+    { category: 'Delivery', tests: deliveryTests.value },
+    { category: 'Performance', tests: performanceTests.value }
+  ]
+  
+  allTests.forEach(({ category, tests }) => {
+    tests.forEach(test => {
+      if (test.status === 'failed' || (test.result && !test.result.passed)) {
+        failed.push({
+          ...test,
+          category,
+          error: test.error || test.details || 'Test failed'
+        })
+      }
+    })
+  })
+  
+  return failed
+})
+
+const healthScore = computed(() => {
+  if (totalTests.value === 0) return 0
+  return Math.round((passedTests.value / totalTests.value) * 100)
+})
+
+// Helper methods
+const addLog = (level, message) => {
+  testLog.value.push({
+    timestamp: new Date(),
+    level,
+    message
+  })
+  
+  if (autoScroll.value) {
+    nextTick(() => {
+      if (logContainer.value) {
+        logContainer.value.scrollTop = logContainer.value.scrollHeight
+      }
+    })
+  }
+}
+
+const getTestClass = (test) => {
+  return {
+    'test-passed': test.status === 'passed' || test.result?.passed,
+    'test-failed': test.status === 'failed' || (test.result && !test.result.passed),
+    'test-running': test.status === 'running'
+  }
+}
+
+const formatTime = (date) => {
+  return date.toLocaleTimeString('en-US', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
+}
+
+// Test implementations
+const runSystemTests = async () => {
+  addLog('info', '=== Starting System Health Tests ===')
+  showLog.value = true
+  
+  for (const test of systemTests.value) {
+    test.status = 'running'
+    const start = Date.now()
+    
+    try {
+      switch (test.id) {
+        case 'sys-1': // Firebase Auth
+          if (!user.value) throw new Error('Not authenticated')
+          addLog('success', `✓ Authenticated as ${user.value.email}`)
+          break
+          
+        case 'sys-2': // Firestore
+          // Try to query releases collection
+          if (tenantId.value && CatalogService) {
+            const releases = await CatalogService.getReleases(tenantId.value)
+            addLog('success', `✓ Firestore access verified (${releases.length} releases found)`)
+          } else {
+            // Fallback: just try to read from Firestore
+            const testQuery = query(collection(db, 'releases'), limit(1))
+            await getDocs(testQuery)
+            addLog('success', '✓ Firestore connection verified')
+          }
+          break
+          
+        case 'sys-3': // Storage
+          // Test by creating and deleting a test file
+          const testFileRef = storageRef(storage, `test/${Date.now()}.txt`)
+          await uploadString(testFileRef, 'test content')
+          const url = await getDownloadURL(testFileRef)
+          if (!url) throw new Error('Storage upload failed')
+          addLog('success', '✓ Firebase Storage accessible')
+          break
+          
+        case 'sys-4': // Functions
+          const testFn = httpsCallable(functions, 'testDeliveryConnection')
+          const result = await testFn({ protocol: 'storage', config: {}, testMode: true })
+          if (!result.data) throw new Error('Function test failed')
+          addLog('success', '✓ Cloud Functions responding')
+          break
+      }
+      
+      test.status = 'passed'
+      test.duration = Date.now() - start
+      addLog('success', `✓ ${test.name} passed (${test.duration}ms)`)
+    } catch (error) {
+      test.status = 'failed'
+      test.duration = Date.now() - start
+      test.error = error.message
+      addLog('error', `✗ ${test.name} failed: ${error.message}`)
+    }
+  }
+}
+
+const runDDEXTests = async () => {
+  addLog('info', '=== Starting DDEX Compliance Tests ===')
+  showLog.value = true
+  
+  // Create a test release with proper structure
+  const testRelease = {
+    id: 'TEST_' + Date.now(),
+    basic: {
+      title: 'Test Release',
+      displayArtist: 'Test Artist',
+      barcode: '1234567890123',
+      releaseDate: new Date().toISOString().split('T')[0],
+      label: 'Test Label',
+      catalogNumber: 'TEST001'
+    },
+    tracks: [
+      {
+        sequenceNumber: 1,
+        isrc: 'USTEST000001',
+        metadata: {
+          title: 'Test Track',
+          displayArtist: 'Test Artist',
+          duration: 180,
+          performers: [],
+          writers: []
+        },
+        audioFile: null
+      }
+    ],
+    metadata: {
+      label: 'Test Label',
+      copyright: '2025 Test Label',
+      primaryGenre: 'Electronic',
+      language: 'en'
+    },
+    assets: {
+      coverImage: null,
+      audioFiles: []
+    }
+  }
+  
+  for (const test of ddexTests.value) {
+    test.status = 'running'
+    const start = Date.now()
+    
+    try {
+      switch (test.id) {
+        case 'ddex-1': // ERN Generation
+          if (ERNService) {
+            const options = {
+              messageId: `TEST_${Date.now()}`,
+              sender: { 
+                partyId: 'PADPIDA2023112901E', 
+                partyName: 'Test Distributor' 
+              },
+              recipient: { 
+                partyId: 'PADPIDA2023112901R', 
+                partyName: 'Test DSP' 
+              },
+              commercialModels: [
+                {
+                  type: 'SubscriptionModel',
+                  usageTypes: ['Stream', 'OnDemandStream'],
+                  territories: ['Worldwide'],
+                  startDate: '2025-01-01'
+                }
+              ]
+            }
+            const ern = await ERNService.generateERN(testRelease, options)
+            if (!ern || !ern.includes('<?xml version="1.0"')) {
+              throw new Error('Invalid ERN generated')
+            }
+            addLog('success', '✓ ERN 4.3 generated successfully')
+          } else {
+            throw new Error('ERN Service not available')
+          }
+          break
+          
+        case 'ddex-2': // File naming
+          const upc = '1234567890123'
+          const fileName = `${upc}_01_001.wav`
+          if (!fileName.match(/^\d{13}_\d{2}_\d{3}\.\w+$/)) {
+            throw new Error('Invalid DDEX file naming')
+          }
+          break
+          
+        case 'ddex-3': // MD5 Hash
+          // Just test that we can call the function
+          try {
+            const calculateMD5 = httpsCallable(functions, 'calculateFileMD5')
+            // Don't actually call it since it might not exist
+            addLog('info', 'MD5 function available')
+          } catch (err) {
+            addLog('warning', 'MD5 function not deployed yet')
+          }
+          break
+          
+        case 'ddex-4': // URL Escaping
+          const testUrl = 'https://example.com?test=1&other=2'
+          const escaped = testUrl.replace(/&/g, '&amp;')
+          if (!escaped.includes('&amp;')) throw new Error('URL escaping failed')
+          break
+          
+        case 'ddex-5': // Message types
+          const messageTypes = ['Initial', 'Update', 'Takedown']
+          messageTypes.forEach(type => {
+            if (!type) throw new Error(`Invalid message type: ${type}`)
+          })
+          break
+      }
+      
+      test.status = 'passed'
+      test.duration = Date.now() - start
+      addLog('success', `✓ ${test.name} passed (${test.duration}ms)`)
+    } catch (error) {
+      test.status = 'failed'
+      test.duration = Date.now() - start
+      test.error = error.message
+      addLog('error', `✗ ${test.name} failed: ${error.message}`)
+    }
+  }
+}
+
+const runDeliveryTests = async () => {
+  addLog('info', '=== Starting Delivery Protocol Tests ===')
+  showLog.value = true
+  
+  for (const test of deliveryTests.value) {
+    test.status = 'running'
+    const start = Date.now()
+    
+    try {
+      const testConnection = httpsCallable(functions, 'testDeliveryConnection')
+      
+      switch (test.id) {
+        case 'del-1': // Firebase Storage
+          const storageResult = await testConnection({
+            protocol: 'storage',
+            config: { path: '/test-deliveries' },
+            testMode: true
+          })
+          if (!storageResult.data?.success) {
+            throw new Error(storageResult.data?.message || 'Storage test failed')
+          }
+          break
+          
+        case 'del-2': // FTP - Skip for now as credentials are wrong
+          addLog('warning', 'FTP test skipped - credentials need updating')
+          test.status = 'passed'
+          test.details = 'Skipped'
+          break
+          
+        case 'del-3': // SFTP - Skip if function doesn't support it
+          try {
+            const sftpResult = await testConnection({
+              protocol: 'SFTP',
+              config: {
+                host: 'test.rebex.net',
+                port: 22,
+                username: 'demo',
+                password: 'password'
+              },
+              testMode: true
+            })
+            if (!sftpResult.data?.success) {
+              throw new Error(sftpResult.data?.message || 'SFTP test failed')
+            }
+          } catch (err) {
+            addLog('warning', 'SFTP test skipped - SSH2 client issue in Cloud Function')
+            test.status = 'passed'
+            test.details = 'Skipped'
+          }
+          break
+          
+        case 'del-4': // User targets
+          if (tenantId.value && DeliveryTargetsService) {
+            const targets = await DeliveryTargetsService.getTargets(tenantId.value)
+            if (targets.length === 0) {
+              test.details = 'No configured targets'
+            } else {
+              const target = targets[0]
+              const targetResult = await testConnection({
+                protocol: target.protocol,
+                config: target.connection,
+                testMode: true
+              })
+              if (!targetResult.data?.success) {
+                throw new Error(targetResult.data?.message || 'Target test failed')
+              }
+              test.details = `Tested: ${target.name}`
+            }
+          } else {
+            test.details = 'No user targets to test'
+          }
+          break
+      }
+      
+      if (test.status !== 'passed') {
+        test.status = 'passed'
+      }
+      test.duration = Date.now() - start
+      addLog('success', `✓ ${test.name} passed (${test.duration}ms)`)
+    } catch (error) {
+      test.status = 'failed'
+      test.duration = Date.now() - start
+      test.error = error.message
+      addLog('error', `✗ ${test.name} failed: ${error.message}`)
+    }
+  }
+}
+
+const runPerformanceTests = async () => {
+  addLog('info', '=== Starting Performance Tests ===')
+  showLog.value = true
+  
+  for (const test of performanceTests.value) {
+    test.status = 'running'
+    const start = Date.now()
+    
+    try {
+      let value, target, unit
+      
+      switch (test.id) {
+        case 'perf-1': // ERN Generation
+          if (ERNService) {
+            const ernStart = Date.now()
+            const testRelease = {
+              basic: { 
+                title: 'Test', 
+                displayArtist: 'Artist', 
+                barcode: '1234567890123',
+                releaseDate: '2025-01-01',
+                label: 'Test Label',
+                catalogNumber: 'TEST001'
+              },
+              tracks: Array(10).fill(null).map((_, i) => ({
+                sequenceNumber: i + 1,
+                isrc: `USTEST00000${i + 1}`,
+                metadata: { 
+                  title: `Track ${i + 1}`, 
+                  displayArtist: 'Artist', 
+                  duration: 180 
+                },
+                audioFile: null
+              })),
+              metadata: {
+                label: 'Test Label',
+                copyright: '2025 Test',
+                primaryGenre: 'Pop',
+                language: 'en'
+              },
+              assets: {
+                coverImage: null,
+                audioFiles: []
+              }
+            }
+            const options = {
+              messageId: 'TEST',
+              sender: { partyId: 'TEST', partyName: 'Test' },
+              recipient: { partyId: 'DSP', partyName: 'DSP' }
+            }
+            await ERNService.generateERN(testRelease, options)
+            value = Date.now() - ernStart
+            target = 5000
+            unit = 'ms'
+          } else {
+            value = 0
+            target = 5000
+            unit = 'ms'
+          }
+          break
+          
+        case 'perf-2': // Firestore Query
+          const queryStart = Date.now()
+          const testQuery = query(collection(db, 'releases'), limit(10))
+          await getDocs(testQuery)
+          value = Date.now() - queryStart
+          target = 500
+          unit = 'ms'
+          break
+          
+        case 'perf-3': // File Upload
+          // Simulate file upload timing
+          value = 250 // Mock for now
+          target = 1000
+          unit = 'ms'
+          break
+          
+        case 'perf-4': // Delivery Processing
+          if (tenantId.value && DeliveryService) {
+            const deliveries = await DeliveryService.getDeliveries(tenantId.value)
+            if (deliveries.length > 0) {
+              const recent = deliveries.slice(0, 5)
+              const times = recent.map(d => d.totalDuration || 0).filter(t => t > 0)
+              value = times.length > 0 ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0
+            } else {
+              value = 0
+            }
+          } else {
+            value = 0
+          }
+          target = 60000
+          unit = 'ms'
+          break
+      }
+      
+      test.result = {
+        value,
+        target,
+        unit,
+        passed: value <= target
+      }
+      test.status = test.result.passed ? 'passed' : 'failed'
+      
+      addLog(
+        test.result.passed ? 'success' : 'warning',
+        `${test.result.passed ? '✓' : '⚠'} ${test.name}: ${value}${unit} (target: ${target}${unit})`
+      )
+    } catch (error) {
+      test.status = 'failed'
+      test.error = error.message
+      addLog('error', `✗ ${test.name} failed: ${error.message}`)
+    }
+  }
+}
+
+const runAllTests = async () => {
+  isRunning.value = true
+  testLog.value = []
+  showLog.value = true
+  const startTime = Date.now()
+  
+  addLog('info', '════════════════════════════════════════')
+  addLog('info', '    PRODUCTION TEST SUITE STARTING     ')
+  addLog('info', '════════════════════════════════════════')
+  addLog('info', `Environment: ${isProduction.value ? 'Production' : 'Development'}`)
+  addLog('info', `User: ${user.value?.email}`)
+  addLog('info', `Tenant: ${tenantId.value}`)
+  
+  // Run all test categories
+  await runSystemTests()
+  await runDDEXTests()
+  await runDeliveryTests()
+  await runPerformanceTests()
+  
+  testDuration.value = Date.now() - startTime
+  lastTestTime.value = new Date().toLocaleString()
+  hasResults.value = true
+  isRunning.value = false
+  
+  addLog('info', '════════════════════════════════════════')
+  addLog('info', `Tests Complete: ${passedTests.value}/${totalTests.value} passed`)
+  addLog('info', `Health Score: ${healthScore.value}%`)
+  addLog('info', `Duration: ${Math.round(testDuration.value / 1000)}s`)
+  addLog('info', '════════════════════════════════════════')
+}
+
+const exportResults = () => {
+  const results = {
+    timestamp: new Date().toISOString(),
+    environment: isProduction.value ? 'production' : 'development',
+    summary: {
+      total: totalTests.value,
+      passed: passedTests.value,
+      failed: failedTests.length,
+      healthScore: healthScore.value,
+      duration: testDuration.value
+    },
+    tests: {
+      system: systemTests.value,
+      ddex: ddexTests.value,
+      delivery: deliveryTests.value,
+      performance: performanceTests.value
+    },
+    failedTests: failedTests.value,
+    log: testLog.value
+  }
+  
+  const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `test-results-${Date.now()}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+const clearLog = () => {
+  testLog.value = []
+}
+
+const toggleAutoScroll = () => {
+  autoScroll.value = !autoScroll.value
+}
+</script>
+
 <template>
   <div class="testing">
     <div class="container">
@@ -228,796 +970,6 @@
     </div>
   </div>
 </template>
-
-<script>
-import { ref, computed, onMounted, nextTick } from 'vue'
-import { useAuth } from '../composables/useAuth'
-import { db, functions, storage } from '../firebase'
-import { collection, getDocs, query, where, orderBy, limit, doc, getDoc } from 'firebase/firestore'
-import { httpsCallable } from 'firebase/functions'
-import { ref as storageRef, uploadString, getDownloadURL } from 'firebase/storage'
-
-// Import services with error handling
-let ERNService, DeliveryService, CatalogService, DeliveryTargetsService
-try {
-  ERNService = require('../services/ern').default
-  DeliveryService = require('../services/delivery').default
-  CatalogService = require('../services/catalog').default
-  DeliveryTargetsService = require('../services/deliveryTargets').default
-} catch (error) {
-  console.warn('Some services could not be loaded:', error)
-}
-
-// Test Status Component
-const TestStatus = {
-  name: 'TestStatus',
-  props: ['status', 'duration', 'details', 'error'],
-  template: `
-    <div class="test-status-wrapper">
-      <font-awesome-icon 
-        v-if="status === 'passed'" 
-        icon="check-circle" 
-        class="status-icon passed"
-      />
-      <font-awesome-icon 
-        v-else-if="status === 'failed'" 
-        icon="times-circle" 
-        class="status-icon failed"
-      />
-      <font-awesome-icon 
-        v-else-if="status === 'running'" 
-        icon="spinner" 
-        spin
-        class="status-icon running"
-      />
-      <span v-else class="status-icon pending">—</span>
-      
-      <span v-if="duration" class="test-duration">{{ duration }}ms</span>
-      <span v-if="details" class="test-details">{{ details }}</span>
-      <span v-if="error" class="test-error">{{ error }}</span>
-    </div>
-  `
-}
-
-export default {
-  name: 'Testing',
-  components: { TestStatus },
-  setup() {
-    const { user } = useAuth()
-    
-    // State
-    const isRunning = ref(false)
-    const hasResults = ref(false)
-    const showLog = ref(false)
-    const autoScroll = ref(true)
-    const testLog = ref([])
-    const logContainer = ref(null)
-    const testDuration = ref(0)
-    const lastTestTime = ref('')
-    
-    // Compute tenantId from user
-    const tenantId = computed(() => user.value?.uid || null)
-    
-    const isProduction = computed(() => {
-      return import.meta.env.PROD || window.location.hostname.includes('web.app')
-    })
-    
-    // Test definitions
-    const systemTests = ref([
-      {
-        id: 'sys-1',
-        name: 'Firebase Authentication',
-        description: 'Verify authentication is working',
-        status: null,
-        duration: null
-      },
-      {
-        id: 'sys-2',
-        name: 'Firestore Database',
-        description: 'Test database read/write operations',
-        status: null,
-        duration: null
-      },
-      {
-        id: 'sys-3',
-        name: 'Firebase Storage',
-        description: 'Test file upload/download capability',
-        status: null,
-        duration: null
-      },
-      {
-        id: 'sys-4',
-        name: 'Cloud Functions',
-        description: 'Verify functions are responding',
-        status: null,
-        duration: null
-      }
-    ])
-    
-    const ddexTests = ref([
-      {
-        id: 'ddex-1',
-        name: 'ERN 4.3 Generation',
-        description: 'Generate valid ERN 4.3 message',
-        status: null,
-        duration: null
-      },
-      {
-        id: 'ddex-2',
-        name: 'DDEX File Naming',
-        description: 'Verify UPC-based file naming convention',
-        status: null,
-        duration: null
-      },
-      {
-        id: 'ddex-3',
-        name: 'MD5 Hash Generation',
-        description: 'Test MD5 calculation for files',
-        status: null,
-        duration: null
-      },
-      {
-        id: 'ddex-4',
-        name: 'XML URL Escaping',
-        description: 'Verify proper URL escaping in ERN',
-        status: null,
-        duration: null
-      },
-      {
-        id: 'ddex-5',
-        name: 'Message Type Handling',
-        description: 'Test Initial/Update/Takedown messages',
-        status: null,
-        duration: null
-      }
-    ])
-    
-    const deliveryTests = ref([
-      {
-        id: 'del-1',
-        name: 'Firebase Storage Delivery',
-        description: 'Test internal storage delivery',
-        target: 'Firebase Storage',
-        status: null,
-        duration: null
-      },
-      {
-        id: 'del-2',
-        name: 'FTP Test Server',
-        description: 'Test FTP delivery to public server',
-        target: 'ftp.dlptest.com',
-        status: null,
-        duration: null
-      },
-      {
-        id: 'del-3',
-        name: 'SFTP Test Server',
-        description: 'Test SFTP delivery to public server',
-        target: 'test.rebex.net',
-        status: null,
-        duration: null
-      },
-      {
-        id: 'del-4',
-        name: 'Configured Targets',
-        description: 'Test user-configured delivery targets',
-        target: 'User Targets',
-        status: null,
-        duration: null
-      }
-    ])
-    
-    const performanceTests = ref([
-      {
-        id: 'perf-1',
-        name: 'ERN Generation Speed',
-        description: 'Time to generate ERN for 10-track release',
-        result: null,
-        status: null
-      },
-      {
-        id: 'perf-2',
-        name: 'Firestore Query Speed',
-        description: 'Database query performance',
-        result: null,
-        status: null
-      },
-      {
-        id: 'perf-3',
-        name: 'File Upload Speed',
-        description: 'Time to upload 1MB test file',
-        result: null,
-        status: null
-      },
-      {
-        id: 'perf-4',
-        name: 'Delivery Processing',
-        description: 'End-to-end delivery time',
-        result: null,
-        status: null
-      }
-    ])
-    
-    // Computed properties
-    const totalTests = computed(() => {
-      return systemTests.value.length + 
-             ddexTests.value.length + 
-             deliveryTests.value.length + 
-             performanceTests.value.length
-    })
-    
-    const passedTests = computed(() => {
-      let count = 0
-      const allTests = [
-        ...systemTests.value,
-        ...ddexTests.value,
-        ...deliveryTests.value,
-        ...performanceTests.value
-      ]
-      allTests.forEach(test => {
-        if (test.status === 'passed' || test.result?.passed) count++
-      })
-      return count
-    })
-    
-    const failedTests = computed(() => {
-      const failed = []
-      const allTests = [
-        { category: 'System', tests: systemTests.value },
-        { category: 'DDEX', tests: ddexTests.value },
-        { category: 'Delivery', tests: deliveryTests.value },
-        { category: 'Performance', tests: performanceTests.value }
-      ]
-      
-      allTests.forEach(({ category, tests }) => {
-        tests.forEach(test => {
-          if (test.status === 'failed' || (test.result && !test.result.passed)) {
-            failed.push({
-              ...test,
-              category,
-              error: test.error || test.details || 'Test failed'
-            })
-          }
-        })
-      })
-      
-      return failed
-    })
-    
-    const healthScore = computed(() => {
-      if (totalTests.value === 0) return 0
-      return Math.round((passedTests.value / totalTests.value) * 100)
-    })
-    
-    // Helper methods
-    const addLog = (level, message) => {
-      testLog.value.push({
-        timestamp: new Date(),
-        level,
-        message
-      })
-      
-      if (autoScroll.value) {
-        nextTick(() => {
-          if (logContainer.value) {
-            logContainer.value.scrollTop = logContainer.value.scrollHeight
-          }
-        })
-      }
-    }
-    
-    const getTestClass = (test) => {
-      return {
-        'test-passed': test.status === 'passed' || test.result?.passed,
-        'test-failed': test.status === 'failed' || (test.result && !test.result.passed),
-        'test-running': test.status === 'running'
-      }
-    }
-    
-    const formatTime = (date) => {
-      return date.toLocaleTimeString('en-US', {
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      })
-    }
-    
-    // Test implementations
-    const runSystemTests = async () => {
-      addLog('info', '=== Starting System Health Tests ===')
-      showLog.value = true
-      
-      for (const test of systemTests.value) {
-        test.status = 'running'
-        const start = Date.now()
-        
-        try {
-          switch (test.id) {
-            case 'sys-1': // Firebase Auth
-              if (!user.value) throw new Error('Not authenticated')
-              addLog('success', `✓ Authenticated as ${user.value.email}`)
-              break
-              
-            case 'sys-2': // Firestore
-              // Try to query releases collection
-              if (tenantId.value && CatalogService) {
-                const releases = await CatalogService.getReleases(tenantId.value)
-                addLog('success', `✓ Firestore access verified (${releases.length} releases found)`)
-              } else {
-                // Fallback: just try to read from Firestore
-                const testQuery = query(collection(db, 'releases'), limit(1))
-                await getDocs(testQuery)
-                addLog('success', '✓ Firestore connection verified')
-              }
-              break
-              
-            case 'sys-3': // Storage
-              // Test by creating and deleting a test file
-              const testFileRef = storageRef(storage, `test/${Date.now()}.txt`)
-              await uploadString(testFileRef, 'test content')
-              const url = await getDownloadURL(testFileRef)
-              if (!url) throw new Error('Storage upload failed')
-              addLog('success', '✓ Firebase Storage accessible')
-              break
-              
-            case 'sys-4': // Functions
-              const testFn = httpsCallable(functions, 'testDeliveryConnection')
-              const result = await testFn({ protocol: 'storage', config: {}, testMode: true })
-              if (!result.data) throw new Error('Function test failed')
-              addLog('success', '✓ Cloud Functions responding')
-              break
-          }
-          
-          test.status = 'passed'
-          test.duration = Date.now() - start
-          addLog('success', `✓ ${test.name} passed (${test.duration}ms)`)
-        } catch (error) {
-          test.status = 'failed'
-          test.duration = Date.now() - start
-          test.error = error.message
-          addLog('error', `✗ ${test.name} failed: ${error.message}`)
-        }
-      }
-    }
-    
-    const runDDEXTests = async () => {
-      addLog('info', '=== Starting DDEX Compliance Tests ===')
-      showLog.value = true
-      
-      // Create a test release with proper structure
-      const testRelease = {
-        id: 'TEST_' + Date.now(),
-        basic: {
-          title: 'Test Release',
-          displayArtist: 'Test Artist',
-          barcode: '1234567890123',
-          releaseDate: new Date().toISOString().split('T')[0],
-          label: 'Test Label',
-          catalogNumber: 'TEST001'
-        },
-        tracks: [
-          {
-            sequenceNumber: 1,
-            isrc: 'USTEST000001',
-            metadata: {
-              title: 'Test Track',
-              displayArtist: 'Test Artist',
-              duration: 180,
-              performers: [],
-              writers: []
-            },
-            audioFile: null
-          }
-        ],
-        metadata: {
-          label: 'Test Label',
-          copyright: '2025 Test Label',
-          primaryGenre: 'Electronic',
-          language: 'en'
-        },
-        assets: {
-          coverImage: null,
-          audioFiles: []
-        }
-      }
-      
-      for (const test of ddexTests.value) {
-        test.status = 'running'
-        const start = Date.now()
-        
-        try {
-          switch (test.id) {
-            case 'ddex-1': // ERN Generation
-              if (ERNService) {
-                const options = {
-                  messageId: `TEST_${Date.now()}`,
-                  sender: { 
-                    partyId: 'PADPIDA2023112901E', 
-                    partyName: 'Test Distributor' 
-                  },
-                  recipient: { 
-                    partyId: 'PADPIDA2023112901R', 
-                    partyName: 'Test DSP' 
-                  },
-                  commercialModels: [
-                    {
-                      type: 'SubscriptionModel',
-                      usageTypes: ['Stream', 'OnDemandStream'],
-                      territories: ['Worldwide'],
-                      startDate: '2025-01-01'
-                    }
-                  ]
-                }
-                const ern = await ERNService.generateERN(testRelease, options)
-                if (!ern || !ern.includes('<?xml version="1.0"')) {
-                  throw new Error('Invalid ERN generated')
-                }
-                addLog('success', '✓ ERN 4.3 generated successfully')
-              } else {
-                throw new Error('ERN Service not available')
-              }
-              break
-              
-            case 'ddex-2': // File naming
-              const upc = '1234567890123'
-              const fileName = `${upc}_01_001.wav`
-              if (!fileName.match(/^\d{13}_\d{2}_\d{3}\.\w+$/)) {
-                throw new Error('Invalid DDEX file naming')
-              }
-              break
-              
-            case 'ddex-3': // MD5 Hash
-              // Just test that we can call the function
-              try {
-                const calculateMD5 = httpsCallable(functions, 'calculateFileMD5')
-                // Don't actually call it since it might not exist
-                addLog('info', 'MD5 function available')
-              } catch (err) {
-                addLog('warning', 'MD5 function not deployed yet')
-              }
-              break
-              
-            case 'ddex-4': // URL Escaping
-              const testUrl = 'https://example.com?test=1&other=2'
-              const escaped = testUrl.replace(/&/g, '&amp;')
-              if (!escaped.includes('&amp;')) throw new Error('URL escaping failed')
-              break
-              
-            case 'ddex-5': // Message types
-              const messageTypes = ['Initial', 'Update', 'Takedown']
-              messageTypes.forEach(type => {
-                if (!type) throw new Error(`Invalid message type: ${type}`)
-              })
-              break
-          }
-          
-          test.status = 'passed'
-          test.duration = Date.now() - start
-          addLog('success', `✓ ${test.name} passed (${test.duration}ms)`)
-        } catch (error) {
-          test.status = 'failed'
-          test.duration = Date.now() - start
-          test.error = error.message
-          addLog('error', `✗ ${test.name} failed: ${error.message}`)
-        }
-      }
-    }
-    
-    const runDeliveryTests = async () => {
-      addLog('info', '=== Starting Delivery Protocol Tests ===')
-      showLog.value = true
-      
-      for (const test of deliveryTests.value) {
-        test.status = 'running'
-        const start = Date.now()
-        
-        try {
-          const testConnection = httpsCallable(functions, 'testDeliveryConnection')
-          
-          switch (test.id) {
-            case 'del-1': // Firebase Storage
-              const storageResult = await testConnection({
-                protocol: 'storage',
-                config: { path: '/test-deliveries' },
-                testMode: true
-              })
-              if (!storageResult.data?.success) {
-                throw new Error(storageResult.data?.message || 'Storage test failed')
-              }
-              break
-              
-            case 'del-2': // FTP - Skip for now as credentials are wrong
-              addLog('warning', 'FTP test skipped - credentials need updating')
-              test.status = 'passed'
-              test.details = 'Skipped'
-              break
-              
-            case 'del-3': // SFTP - Skip if function doesn't support it
-              try {
-                const sftpResult = await testConnection({
-                  protocol: 'SFTP',
-                  config: {
-                    host: 'test.rebex.net',
-                    port: 22,
-                    username: 'demo',
-                    password: 'password'
-                  },
-                  testMode: true
-                })
-                if (!sftpResult.data?.success) {
-                  throw new Error(sftpResult.data?.message || 'SFTP test failed')
-                }
-              } catch (err) {
-                addLog('warning', 'SFTP test skipped - SSH2 client issue in Cloud Function')
-                test.status = 'passed'
-                test.details = 'Skipped'
-              }
-              break
-              
-            case 'del-4': // User targets
-              if (tenantId.value && DeliveryTargetsService) {
-                const targets = await DeliveryTargetsService.getTargets(tenantId.value)
-                if (targets.length === 0) {
-                  test.details = 'No configured targets'
-                } else {
-                  const target = targets[0]
-                  const targetResult = await testConnection({
-                    protocol: target.protocol,
-                    config: target.connection,
-                    testMode: true
-                  })
-                  if (!targetResult.data?.success) {
-                    throw new Error(targetResult.data?.message || 'Target test failed')
-                  }
-                  test.details = `Tested: ${target.name}`
-                }
-              } else {
-                test.details = 'No user targets to test'
-              }
-              break
-          }
-          
-          if (test.status !== 'passed') {
-            test.status = 'passed'
-          }
-          test.duration = Date.now() - start
-          addLog('success', `✓ ${test.name} passed (${test.duration}ms)`)
-        } catch (error) {
-          test.status = 'failed'
-          test.duration = Date.now() - start
-          test.error = error.message
-          addLog('error', `✗ ${test.name} failed: ${error.message}`)
-        }
-      }
-    }
-    
-    const runPerformanceTests = async () => {
-      addLog('info', '=== Starting Performance Tests ===')
-      showLog.value = true
-      
-      for (const test of performanceTests.value) {
-        test.status = 'running'
-        const start = Date.now()
-        
-        try {
-          let value, target, unit
-          
-          switch (test.id) {
-            case 'perf-1': // ERN Generation
-              if (ERNService) {
-                const ernStart = Date.now()
-                const testRelease = {
-                  basic: { 
-                    title: 'Test', 
-                    displayArtist: 'Artist', 
-                    barcode: '1234567890123',
-                    releaseDate: '2025-01-01',
-                    label: 'Test Label',
-                    catalogNumber: 'TEST001'
-                  },
-                  tracks: Array(10).fill(null).map((_, i) => ({
-                    sequenceNumber: i + 1,
-                    isrc: `USTEST00000${i + 1}`,
-                    metadata: { 
-                      title: `Track ${i + 1}`, 
-                      displayArtist: 'Artist', 
-                      duration: 180 
-                    },
-                    audioFile: null
-                  })),
-                  metadata: {
-                    label: 'Test Label',
-                    copyright: '2025 Test',
-                    primaryGenre: 'Pop',
-                    language: 'en'
-                  },
-                  assets: {
-                    coverImage: null,
-                    audioFiles: []
-                  }
-                }
-                const options = {
-                  messageId: 'TEST',
-                  sender: { partyId: 'TEST', partyName: 'Test' },
-                  recipient: { partyId: 'DSP', partyName: 'DSP' }
-                }
-                await ERNService.generateERN(testRelease, options)
-                value = Date.now() - ernStart
-                target = 5000
-                unit = 'ms'
-              } else {
-                value = 0
-                target = 5000
-                unit = 'ms'
-              }
-              break
-              
-            case 'perf-2': // Firestore Query
-              const queryStart = Date.now()
-              const testQuery = query(collection(db, 'releases'), limit(10))
-              await getDocs(testQuery)
-              value = Date.now() - queryStart
-              target = 500
-              unit = 'ms'
-              break
-              
-            case 'perf-3': // File Upload
-              // Simulate file upload timing
-              value = 250 // Mock for now
-              target = 1000
-              unit = 'ms'
-              break
-              
-            case 'perf-4': // Delivery Processing
-              if (tenantId.value && DeliveryService) {
-                const deliveries = await DeliveryService.getDeliveries(tenantId.value)
-                if (deliveries.length > 0) {
-                  const recent = deliveries.slice(0, 5)
-                  const times = recent.map(d => d.totalDuration || 0).filter(t => t > 0)
-                  value = times.length > 0 ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0
-                } else {
-                  value = 0
-                }
-              } else {
-                value = 0
-              }
-              target = 60000
-              unit = 'ms'
-              break
-          }
-          
-          test.result = {
-            value,
-            target,
-            unit,
-            passed: value <= target
-          }
-          test.status = test.result.passed ? 'passed' : 'failed'
-          
-          addLog(
-            test.result.passed ? 'success' : 'warning',
-            `${test.result.passed ? '✓' : '⚠'} ${test.name}: ${value}${unit} (target: ${target}${unit})`
-          )
-        } catch (error) {
-          test.status = 'failed'
-          test.error = error.message
-          addLog('error', `✗ ${test.name} failed: ${error.message}`)
-        }
-      }
-    }
-    
-    const runAllTests = async () => {
-      isRunning.value = true
-      testLog.value = []
-      showLog.value = true
-      const startTime = Date.now()
-      
-      addLog('info', '════════════════════════════════════════')
-      addLog('info', '    PRODUCTION TEST SUITE STARTING     ')
-      addLog('info', '════════════════════════════════════════')
-      addLog('info', `Environment: ${isProduction.value ? 'Production' : 'Development'}`)
-      addLog('info', `User: ${user.value?.email}`)
-      addLog('info', `Tenant: ${tenantId.value}`)
-      
-      // Run all test categories
-      await runSystemTests()
-      await runDDEXTests()
-      await runDeliveryTests()
-      await runPerformanceTests()
-      
-      testDuration.value = Date.now() - startTime
-      lastTestTime.value = new Date().toLocaleString()
-      hasResults.value = true
-      isRunning.value = false
-      
-      addLog('info', '════════════════════════════════════════')
-      addLog('info', `Tests Complete: ${passedTests.value}/${totalTests.value} passed`)
-      addLog('info', `Health Score: ${healthScore.value}%`)
-      addLog('info', `Duration: ${Math.round(testDuration.value / 1000)}s`)
-      addLog('info', '════════════════════════════════════════')
-    }
-    
-    const exportResults = () => {
-      const results = {
-        timestamp: new Date().toISOString(),
-        environment: isProduction.value ? 'production' : 'development',
-        summary: {
-          total: totalTests.value,
-          passed: passedTests.value,
-          failed: failedTests.length,
-          healthScore: healthScore.value,
-          duration: testDuration.value
-        },
-        tests: {
-          system: systemTests.value,
-          ddex: ddexTests.value,
-          delivery: deliveryTests.value,
-          performance: performanceTests.value
-        },
-        failedTests: failedTests.value,
-        log: testLog.value
-      }
-      
-      const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `test-results-${Date.now()}.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    }
-    
-    const clearLog = () => {
-      testLog.value = []
-    }
-    
-    const toggleAutoScroll = () => {
-      autoScroll.value = !autoScroll.value
-    }
-    
-    return {
-      // State
-      isRunning,
-      hasResults,
-      showLog,
-      autoScroll,
-      testLog,
-      logContainer,
-      testDuration,
-      lastTestTime,
-      isProduction,
-      
-      // Test data
-      systemTests,
-      ddexTests,
-      deliveryTests,
-      performanceTests,
-      
-      // Computed
-      totalTests,
-      passedTests,
-      failedTests,
-      healthScore,
-      
-      // Methods
-      runAllTests,
-      runSystemTests,
-      runDDEXTests,
-      runDeliveryTests,
-      runPerformanceTests,
-      exportResults,
-      clearLog,
-      toggleAutoScroll,
-      getTestClass,
-      formatTime,
-      addLog
-    }
-  }
-}
-</script>
 
 <style scoped>
 /* (Same styles as before - keeping them unchanged) */
