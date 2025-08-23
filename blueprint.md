@@ -262,7 +262,7 @@ stardust-distro/
 │   │   │   ├── Deliveries.vue     # Delivery management ✅
 │   │   │   ├── NewDelivery.vue    # Create delivery ✅
 │   │   │   ├── Analytics.vue      # Usage analytics ✅
-│   │   │   ├── Testing.vue        # Internal app testing component ✅
+│   │   │   ├── Testing.vue        # Comprehensive testing suite ✅
 │   │   │   └── NotFound.vue       # 404 page ✅
 │   │   ├── composables/           # Vue composables
 │   │   │   ├── useAuth.js         # Authentication composable ✅
@@ -273,11 +273,16 @@ stardust-distro/
 │   │   │   ├── assets.js          # Asset management ✅
 │   │   │   ├── catalog.js         # Catalog operations ✅
 │   │   │   ├── ern.js             # ERN generation ✅
-│   │   │   ├── testTargets.js     # Test DSP targets ✅
+│   │   │   ├── ern/               # ERN builders by version ✅
+│   │   │   │   ├── ern-42.js      # ERN 4.2 builder ✅
+│   │   │   │   ├── ern-43.js      # ERN 4.3 builder ✅
+│   │   │   │   └── ern-382.js     # ERN 3.8.2 builder ✅
+│   │   │   ├── delivery.js        # Delivery operations ✅
 │   │   │   ├── deliveryHistory.js # Logger for delivery history ✅
 │   │   │   ├── deliveryTargets.js # Target management ✅
-│   │   │   └── delivery.js        # Delivery operations ✅
+│   │   │   └── testTargets.js     # Test DSP targets ✅
 │   │   ├── utils/                 # Utils ✅
+│   │   │   ├── releaseClassifier.js  # Classify release by DDEX standards ✅
 │   │   │   └── urlUtils.js        # Escapes URLs for safe XML ✅
 │   │   ├── router/                # Vue Router
 │   │   │   └── index.js           # Route definitions ✅
