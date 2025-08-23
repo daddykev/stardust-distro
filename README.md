@@ -274,14 +274,14 @@ An **open marketplace** for optional plugins, welcoming contributions from both 
 - **Plugin SDK**: Comprehensive development kits and documentation
 - **Community driven**: Build solutions for real industry needs
 
-### Plugin Categories *(Coming Phase 6)*
+### Plugin Categories *(Coming Phase 7 Post-Launch)*
 - 🎵 **Audio Processing**: Dolby Atmos, Apple Digital Masters
 - 📝 **Metadata Enhancement**: Session credits, studio details, custom fields
 - 🔄 **Workflow Automation**: Delivery orchestration, bulk processing, smart scheduling
 - 📊 **Analytics & Reporting**: Advanced metrics, custom reports, BI connectors
 - 🌍 **Territory & Pricing**: Windowing, dynamic pricing, geo-restrictions
 
-*The marketplace will launch with initial plugins from our team, but we encourage developers to start planning their extensions. Plugin development documentation and SDK will be available in Phase 5.*
+*The marketplace will launch with initial plugins from our team, but we encourage developers to start planning their extensions. Plugin development documentation and SDK will be available in Phase 7.*
 
 ## 🚀 Quick Start
 
