@@ -1647,13 +1647,18 @@ const results = await delivery.deliver(stardustRelease);
       - [ ] Duplicate asset detection
       - [ ] Similarity scoring for near-duplicates
 
-#### Multi-Version ERN & DSP Support
+#### Multi-Version ERN & Apple Support
 
-  - [ ] **ERN Version Management**
+  - [ ] **ERN Legacy Version Implementation**
       - [x] ERN service refactoring
       - [x] ERN 4.3, 4.2, 3.8.2 builders
       - [x] Version-specific validation rules
       - [x] Fallback version configuration
+  - [ ] **Apple Music Package Support**
+      - [x] Apple Music XML service
+      - [x] Apple Music Spec 5.3.23
+      - [ ] Integration with actual delivery services
+      - [ ] Add to Delivery UI
   - [ ] **Enhanced Delivery Receipts**
       - [ ] Normalized receipt format across protocols
       - [ ] PDF receipt generation
