@@ -1635,250 +1635,383 @@ const results = await delivery.deliver(stardustRelease);
 - **Files Created**: src/views/Testing.vue with TestStatus component
 - **Route Added**: /testing route in router configuration
 
-### Phase 6: Production Hardening & Enterprise Features (Weeks 15-16) - UP NEXT 🚧
+### Phase 6: Production Launch Essentials (Weeks 15-16) - Restructured
 
-#### Week 15: Core Production Hardening + Data Excellence
-**Critical Reliability Features**
-- [ ] **Idempotency & De-duplication** (Day 1)
-  - [ ] Add `idempotencyKey` field to delivery model
-  - [ ] Implement Firestore lock documents for delivery processing
-  - [ ] Add composite indexes for delivery queries
-  - [ ] Prevent duplicate deliveries on retries
-  
-- [ ] **Content Fingerprinting & Duplicate Detection** (Day 1-2)
-  - [ ] Implement perceptual hashing for audio/image assets
-  - [ ] Add Chromaprint integration for audio fingerprinting
-  - [ ] Create duplicate detection service with similarity scoring
-  - [ ] Build catalog-wide duplicate prevention system
-  - [ ] Add merge/block/warn actions for duplicates
-  
-- [ ] **Dual Hashing (MD5 + SHA-256)** (Day 2)
-  - [ ] Update `calculateFileMD5` to `calculateFileHashes` returning both
-  - [ ] Modify all delivery protocols to include SHA-256
-  - [ ] Update ERN generation to include both hashes
-  - [ ] Surface both hashes in delivery logs and receipts
-  
-- [ ] **Unified Receipt & Audit Trail System** (Day 2-3)
-  - [ ] Create normalized `DeliveryReceipt` model for all protocols
-  - [ ] Map protocol responses (FTP/HTTP/S3) to standard format
-  - [ ] Build blockchain-ready audit trail wrapping receipts
-  - [ ] Implement merkle tree generation for delivery packages
-  - [ ] Add cryptographic proof system with SHA-256 package hashes
-  - [ ] Create witness signature system for multi-party verification
-  - [ ] Implement DSP reconciliation for async acknowledgments
-  - [ ] Add webhook endpoints for DSP callbacks
-  - [ ] Store immutable audit records with chain-ready metadata
-  
-- [ ] **Delivery Intelligence & Predictive Analytics** (Day 4)
-  - [ ] Implement optimal delivery time detection per DSP
-  - [ ] Add congestion prediction algorithms
-  - [ ] Build anomaly detection system
-  - [ ] Create intelligent retry scheduling
-  - [ ] Add DSP maintenance window detection
-  - [ ] Implement success rate prediction model
-  
-- [ ] **Advanced Delivery Telemetry** (Day 5)
-  - [ ] Add network path analysis and hop tracking
-  - [ ] Implement bandwidth optimization metrics
-  - [ ] Create throughput monitoring system
-  - [ ] Add SLA compliance tracking
-  - [ ] Build latency heatmaps per region/DSP
-  - [ ] Implement parallel stream optimization
+#### Week 15: User Experience & Data Management
 
-**Multi-Version ERN Support**
-- [x] ERN 3.8.2 builder implementation
-- [x] ERN 4.2 builder implementation
-- [ ] Version compatibility matrix for DSPs
-- [ ] Auto-version selection based on target
-- [ ] Version-specific validation rules
-- [ ] Backward compatibility testing
+##### Day 1-2: User Onboarding & Migration
 
-#### Week 16: Enterprise Features & Launch Prep
-**Enterprise-Grade Infrastructure** 
-- [ ] **Security Audit & Hardening** (Day 1-2)
-  - [ ] Credential encryption review with key rotation
-  - [ ] Firestore rules audit with pen testing
-  - [ ] API key management verification
-  - [ ] Log scrubbing for sensitive data
-  - [ ] Add end-to-end encryption option
-  - [ ] Implement rate limiting and DDoS protection
-  
-- [ ] **Performance Optimization** (Day 2)
-  - [ ] Lazy loading for large catalogs (10k+ releases)
-  - [ ] Asset upload chunking with resumable uploads
-  - [ ] Delivery queue optimization with priority lanes
-  - [ ] Implement connection pooling for protocols
-  - [ ] Add compression for all transfers
-  
-**Documentation & Launch**
-- [ ] **Documentation Completion** (Day 3-4)
-  - [ ] Complete getting-started.md with enterprise features
-  - [ ] Add fingerprinting and deduplication guide
-  - [ ] Create audit trail and receipt documentation
-  - [ ] Finish API reference with new endpoints
-  - [ ] Add troubleshooting guide with common issues
-  - [ ] Document idempotency and hashing features
-  
-- [ ] **npm Package Publication** (Day 5)
-  - [ ] Prepare @stardust-distro/cli for npm
-  - [ ] Publish @stardust-distro/common
-  - [ ] Create npm organization
-  - [ ] Add comprehensive README files
-  - [ ] Include MIT license files
-  - [ ] Create GitHub release with changelog
+  - [ ] **First-Run Wizard** (4 hours)
+      - [ ] Interactive tutorial overlay with highlights
+      - [ ] Guided creation of first release
+      - [ ] Sample data option with demo releases
+      - [ ] Progress tracking and skip option
+  - [ ] **Catalog Import System** (6 hours)
+      - [ ] CSV/JSON/XML import wizard
+      - [ ] Field mapping interface
+      - [ ] Validation and error reporting
+      - [ ] Bulk audio file upload UI
+      - [ ] Import progress tracking
+      - [ ] Rollback capability for failed imports
 
-### Phase 6 Implementation Examples
+##### Day 2-3: Email Notifications & Communication
 
-**Unified Receipt & Audit System:**
+  - [ ] **Email Notification System** (6 hours)
+      - [ ] SendGrid/Firebase Email integration
+      - [ ] Transactional email templates:
+          - Welcome email with getting started guide
+          - Delivery success/failure notifications
+          - Password reset emails
+          - Weekly summary reports
+          - Retry failure alerts
+      - [ ] Email preferences in user settings
+      - [ ] Unsubscribe handling
+  - [ ] **In-App Notifications** (2 hours)
+      - [ ] Real-time toast notifications
+      - [ ] Notification center in navbar
+      - [ ] Mark as read functionality
+      - [ ] Notification preferences
+
+##### Day 3-4: Data Security & Export
+
+  - [ ] **Backup & Restore System** (4 hours)
+      - [ ] One-click full catalog export (JSON/CSV)
+      - [ ] Scheduled automatic backups to Storage
+      - [ ] Point-in-time recovery
+      - [ ] Export delivery history and logs
+      - [ ] Import from backup file
+  - [ ] **GDPR Compliance Package** (4 hours)
+      - [ ] Personal data export API endpoint
+      - [ ] Right to deletion implementation
+      - [ ] Data retention settings (auto-delete old logs)
+      - [ ] Cookie consent banner
+      - [ ] Privacy policy acceptance flow
+      - [ ] Audit log viewer UI
+
+##### Day 4-5: Core Reliability Features
+
+  - [ ] **Idempotency & Deduplication** (4 hours)
+      - [ ] Add `idempotencyKey` to delivery model
+      - [ ] Firestore transaction locks for processing
+      - [ ] Duplicate release detection (by UPC/ISRC)
+      - [ ] Merge/skip duplicate handling
+  - [ ] **Content Fingerprinting** (4 hours)
+      - [ ] Basic MD5/SHA-256 dual hashing
+      - [ ] Audio fingerprinting with peaks.js
+      - [ ] Duplicate asset detection
+      - [ ] Similarity scoring for near-duplicates
+
+#### Week 16: Operational Excellence & Launch Prep
+
+##### Day 1-2: Resilience & Error Recovery
+
+  - [ ] **Circuit Breaker System** (4 hours)
+      - [ ] Auto-disable failing DSP targets
+      - [ ] Configurable failure thresholds
+      - [ ] Automatic recovery testing
+      - [ ] Admin override controls
+      - [ ] Status dashboard showing circuit states
+  - [ ] **Connection Management** (3 hours)
+      - [ ] Connection pooling for FTP/SFTP
+      - [ ] Keep-alive for long transfers
+      - [ ] Automatic reconnection logic
+      - [ ] Connection limit management
+  - [ ] **Enhanced Error Recovery** (3 hours)
+      - [ ] Manual retry UI with selection
+      - [ ] Batch retry for multiple failures
+      - [ ] Skip/force options for stuck deliveries
+      - [ ] Error pattern detection
+
+##### Day 2-3: Monitoring & API
+
+  - [ ] **Health Monitoring System** (3 hours)
+      - [ ] `/health` endpoint with component status
+      - [ ] `/ready` endpoint for load balancers
+      - [ ] Public status page
+      - [ ] Uptime monitoring integration
+      - [ ] Performance metrics dashboard
+  - [ ] **API & Webhooks** (4 hours)
+      - [ ] RESTful API documentation (Swagger/OpenAPI)
+      - [ ] API key generation and management
+      - [ ] Rate limiting with quota display
+      - [ ] Webhook endpoints for DSP callbacks
+      - [ ] Webhook retry logic
+      - [ ] API usage analytics
+
+##### Day 3-4: Multi-Version ERN & DSP Support
+
+  - [ ] **ERN Version Management** (4 hours)
+      - [ ] DSP compatibility matrix UI
+      - [ ] Auto-version selection based on target
+      - [ ] Version-specific validation rules
+      - [ ] Fallback version configuration
+      - [ ] Version migration tools
+  - [ ] **Enhanced Delivery Receipts** (3 hours)
+      - [ ] Normalized receipt format across protocols
+      - [ ] PDF receipt generation
+      - [ ] Receipt archive system
+      - [ ] DSP acknowledgment tracking
+      - [ ] Reconciliation dashboard
+
+##### Day 4-5: Documentation & Launch
+
+  - [ ] **Documentation Completion** (6 hours)
+      - [ ] Getting started guide with screenshots
+      - [ ] Video tutorials for key workflows
+      - [ ] API reference with examples
+      - [ ] Troubleshooting guide
+      - [ ] FAQ section
+      - [ ] Migration guide from competitors
+  - [ ] **Launch Checklist** (4 hours)
+      - [ ] Security audit checklist
+      - [ ] Performance benchmarks
+      - [ ] Load testing results
+      - [ ] Backup verification
+      - [ ] npm package publication
+      - [ ] GitHub release preparation
+      - [ ] Launch announcement prep
+
+#### Phase 6 Implementation Examples
+
+##### Email Notification Service
+
 ```javascript
-// services/auditTrail.js
-export class AuditTrailService {
-  async createDeliveryAudit(delivery, protocolResponse) {
-    // First, normalize the receipt
-    const normalizedReceipt = this.normalizeReceipt(protocolResponse, delivery.protocol);
+// services/notifications.js
+import { getFunctions } from 'firebase/functions';
+import { httpsCallable } from 'firebase/functions';
+
+export class NotificationService {
+  constructor() {
+    this.functions = getFunctions();
+    this.emailQueue = [];
+  }
+
+  async sendDeliveryNotification(delivery, status) {
+    const template = status === 'completed' ? 
+      'delivery-success' : 'delivery-failure';
     
-    // Then wrap it in an immutable audit trail
-    const auditTrail = {
-      // Normalized receipt is part of the audit
-      receipt: normalizedReceipt,
-      
-      // Cryptographic proofs
-      proof: {
-        deliveryHash: await this.hashDeliveryPackage(delivery),
-        merkleRoot: await this.buildMerkleTree(delivery.files),
+    const emailData = {
+      to: delivery.userEmail,
+      template,
+      data: {
+        releaseName: delivery.releaseName,
+        targetName: delivery.targetName,
+        status,
+        deliveryId: delivery.id,
         timestamp: new Date().toISOString(),
-        witnesses: await this.collectWitnesses()
-      },
-      
-      // Blockchain-ready metadata
-      chainReady: {
-        format: 'polygon',
-        gasEstimate: this.estimateGas(delivery),
-        ipfsHash: await this.pinToIPFS(normalizedReceipt)
-      },
-      
-      // Reconciliation tracking
-      reconciliation: {
-        expectedAckBy: this.calculateAckDeadline(delivery.target),
-        webhookEndpoint: this.getWebhookEndpoint(delivery.target),
-        status: 'pending_ack'
+        retryUrl: `${window.location.origin}/deliveries/${delivery.id}`,
+        logsUrl: `${window.location.origin}/deliveries/${delivery.id}/logs`
       }
     };
+
+    const sendEmail = httpsCallable(this.functions, 'sendEmail');
+    await sendEmail(emailData);
     
-    // Store immutably
-    await this.storeAuditTrail(delivery.id, auditTrail);
-    return auditTrail;
+    // Also create in-app notification
+    await this.createInAppNotification({
+      type: 'delivery',
+      status,
+      message: `Delivery to ${delivery.targetName} ${status}`,
+      link: `/deliveries/${delivery.id}`
+    });
   }
-  
-  normalizeReceipt(response, protocol) {
-    // Standard fields regardless of protocol
-    return {
-      timestamp: new Date().toISOString(),
-      protocol,
-      success: response.success || response.status === 200,
-      statusCode: response.statusCode || response.code,
-      message: response.message || response.statusText,
-      
-      // Protocol-specific evidence
-      evidence: {
-        ftpCode: protocol === 'FTP' ? response.code : null,
-        httpStatus: protocol === 'API' ? response.status : null,
-        s3Etag: protocol === 'S3' ? response.ETag : null,
-        azureEtag: protocol === 'Azure' ? response.etag : null,
-        requestId: response.requestId || response['x-request-id'],
-        md5: response.md5 || response.ContentMD5,
-        sha256: response.sha256 || response['x-amz-sha256']
-      },
-      
-      // DSP-specific acknowledgment
-      dspAcknowledgment: {
-        messageId: response.dspMessageId,
-        trackingId: response.trackingId,
-        acceptedAt: response.acceptedAt
+
+  async sendWeeklySummary(userId) {
+    const stats = await this.gatherWeeklyStats(userId);
+    
+    const sendEmail = httpsCallable(this.functions, 'sendEmail');
+    await sendEmail({
+      to: stats.userEmail,
+      template: 'weekly-summary',
+      data: {
+        totalDeliveries: stats.deliveries.total,
+        successRate: stats.deliveries.successRate,
+        newReleases: stats.releases.new,
+        topTargets: stats.targets.top,
+        recommendations: this.generateRecommendations(stats)
       }
-    };
+    });
   }
 }
 ```
 
-**Data Lake Pipeline:**
+##### Circuit Breaker Implementation
+
 ```javascript
-// services/dataLake.js
-export class DataLakeService {
-  async exportToDataLake(startDate, endDate) {
-    const data = await this.fetchDataForPeriod(startDate, endDate);
-    
-    // Convert to Apache Arrow for efficient columnar storage
-    const arrowSchema = this.createArrowSchema();
-    const arrowTable = this.convertToArrow(data, arrowSchema);
-    
-    // Export to multiple formats
-    const exports = {
-      parquet: await this.exportToParquet(arrowTable, {
-        compression: 'snappy',
-        partitionBy: ['year', 'month', 'dsp', 'territory']
-      }),
-      
-      bigquery: await this.streamToBigQuery(arrowTable, {
-        dataset: 'stardust_analytics',
-        table: 'deliveries',
-        partitionField: 'delivery_date'
-      }),
-      
-      s3: await this.uploadToS3DataLake(arrowTable, {
-        bucket: 'stardust-data-lake',
-        prefix: `deliveries/${startDate}/`,
-        format: 'parquet'
-      })
-    };
-    
-    // Extract ML features
-    const mlFeatures = await this.extractMLFeatures(data);
-    await this.saveFeatureStore(mlFeatures);
-    
-    return {
-      recordsExported: data.length,
-      sizeBytes: exports.parquet.size,
-      partitions: exports.parquet.partitions,
-      mlFeaturesExtracted: mlFeatures.length
+// services/circuitBreaker.js
+export class CircuitBreaker {
+  constructor() {
+    this.circuits = new Map();
+    this.config = {
+      failureThreshold: 3,
+      resetTimeout: 60000, // 1 minute
+      halfOpenRequests: 1
     };
   }
-  
-  createArrowSchema() {
-    return {
-      deliveryId: 'utf8',
-      timestamp: 'timestamp[ms]',
-      dsp: 'dictionary<utf8>',
-      territory: 'dictionary<utf8>',
-      success: 'bool',
-      deliveryTimeMs: 'uint32',
-      fileSizeBytes: 'uint64',
-      retryCount: 'uint8',
-      protocolUsed: 'dictionary<utf8>',
-      ernVersion: 'utf8',
-      trackCount: 'uint16',
-      // Nested structs for complex data
-      metrics: {
-        throughputMbps: 'float32',
-        latencyMs: 'uint32',
-        cpuUsage: 'float32'
+
+  async executeWithBreaker(targetId, operation) {
+    const circuit = this.getCircuit(targetId);
+    
+    if (circuit.state === 'OPEN') {
+      if (Date.now() - circuit.lastFailure > this.config.resetTimeout) {
+        circuit.state = 'HALF_OPEN';
+        circuit.halfOpenAttempts = 0;
+      } else {
+        throw new Error(`Circuit breaker OPEN for ${targetId}`);
       }
-    };
+    }
+    
+    try {
+      const result = await operation();
+      
+      if (circuit.state === 'HALF_OPEN') {
+        circuit.state = 'CLOSED';
+        circuit.failures = 0;
+      }
+      
+      return result;
+    } catch (error) {
+      circuit.failures++;
+      circuit.lastFailure = Date.now();
+      
+      if (circuit.failures >= this.config.failureThreshold) {
+        circuit.state = 'OPEN';
+        await this.notifyCircuitOpen(targetId);
+      }
+      
+      throw error;
+    }
+  }
+
+  getCircuit(targetId) {
+    if (!this.circuits.has(targetId)) {
+      this.circuits.set(targetId, {
+        state: 'CLOSED',
+        failures: 0,
+        lastFailure: null,
+        halfOpenAttempts: 0
+      });
+    }
+    return this.circuits.get(targetId);
+  }
+
+  async notifyCircuitOpen(targetId) {
+    // Send notification about circuit opening
+    await notificationService.createInAppNotification({
+      type: 'circuit-breaker',
+      severity: 'warning',
+      message: `Delivery target ${targetId} temporarily disabled due to failures`,
+      action: 'Review target configuration'
+    });
   }
 }
 ```
 
-### Phase 6 Enhancements Summary
+##### Import Wizard Component
 
-#### Unified Trust System
-- **Receipt Normalization**: Standardizes all protocol responses into consistent format for analysis
-- **Audit Trail**: Wraps normalized receipts with cryptographic proofs for immutable verification
-- **DSP Reconciliation**: Handles async acknowledgments as part of the same trust system
+```vue
+<template>
+  <div class="import-wizard">
+    <div class="wizard-steps">
+      <div 
+        v-for="(step, index) in steps" 
+        :key="index"
+        :class="['step', { 
+          active: currentStep === index,
+          completed: currentStep > index 
+        }]"
+      >
+        {{ step.title }}
+      </div>
+    </div>
 
-#### Enterprise Features
-- **Content Fingerprinting**: 100% duplicate detection accuracy
-- **Multi-Region Resilience**: 99.99% uptime SLA
-- **White-Glove Migration**: Automated import from legacy systems
+    <div v-if="currentStep === 0" class="step-content">
+      <h3>Select Import File</h3>
+      <div class="file-dropzone" @drop="handleDrop" @dragover.prevent>
+        <font-awesome-icon icon="upload" />
+        <p>Drop CSV, JSON, or XML file here</p>
+        <input type="file" @change="handleFileSelect" accept=".csv,.json,.xml">
+      </div>
+      <div v-if="file" class="file-info">
+        <p>{{ file.name }} ({{ formatSize(file.size) }})</p>
+        <button @click="parseFile" class="btn btn-primary">
+          Parse File
+        </button>
+      </div>
+    </div>
+
+    <div v-if="currentStep === 1" class="step-content">
+      <h3>Map Fields</h3>
+      <div class="field-mapping">
+        <div v-for="field in requiredFields" :key="field.name" class="field-row">
+          <label>{{ field.label }}</label>
+          <select v-model="fieldMappings[field.name]">
+            <option value="">-- Select source field --</option>
+            <option v-for="col in sourceColumns" :key="col" :value="col">
+              {{ col }}
+            </option>
+          </select>
+        </div>
+      </div>
+      <button @click="validateMapping" class="btn btn-primary">
+        Validate Mapping
+      </button>
+    </div>
+
+    <div v-if="currentStep === 2" class="step-content">
+      <h3>Preview Import</h3>
+      <div class="preview-stats">
+        <div class="stat">
+          <span class="label">Releases to import:</span>
+          <span class="value">{{ previewData.releaseCount }}</span>
+        </div>
+        <div class="stat">
+          <span class="label">Tracks total:</span>
+          <span class="value">{{ previewData.trackCount }}</span>
+        </div>
+        <div v-if="previewData.errors.length" class="errors">
+          <h4>Validation Errors:</h4>
+          <ul>
+            <li v-for="error in previewData.errors" :key="error">
+              {{ error }}
+            </li>
+          </ul>
+        </div>
+      </div>
+      
+      <div class="import-options">
+        <label>
+          <input type="checkbox" v-model="options.skipDuplicates">
+          Skip duplicate releases (by UPC)
+        </label>
+        <label>
+          <input type="checkbox" v-model="options.validateISRC">
+          Validate ISRC codes
+        </label>
+      </div>
+
+      <button 
+        @click="startImport" 
+        class="btn btn-success"
+        :disabled="importing"
+      >
+        <font-awesome-icon v-if="importing" icon="spinner" spin />
+        {{ importing ? 'Importing...' : 'Start Import' }}
+      </button>
+    </div>
+
+    <div v-if="importing" class="import-progress">
+      <div class="progress-bar">
+        <div 
+          class="progress-fill" 
+          :style="{ width: `${importProgress}%` }"
+        ></div>
+      </div>
+      <p>{{ importStatus }}</p>
+    </div>
+  </div>
+</template>
+```
 
 ### Phase 7: Plugin Marketplace (Post-Launch)
 - [ ] Build plugin architecture
@@ -1941,12 +2074,6 @@ export class DataLakeService {
 4. **Advanced Analytics**: Revenue projections, trend analysis
 5. **Automated Workflows**: Rule-based delivery automation
 6. **Mobile Apps**: iOS/Android companion apps
-
-### Ecosystem Expansion
-1. **Stardust Publisher**: Publishing and composition management
-2. **Stardust Analytics**: Unified analytics across distribution and consumption
-3. **Stardust Studio**: Audio mastering and preparation tools
-4. **Stardust Connect**: B2B integration platform
 
 ## Technical Considerations
 
