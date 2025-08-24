@@ -73,7 +73,10 @@ import {
   faTimesCircle,
   faPlay,
   faHeartbeat,
-  faTachometerAlt  
+  faTachometerAlt,
+  faShieldAlt,
+  faEnvelope,
+  faFileImport
 } from '@fortawesome/free-solid-svg-icons'
 
 // Import brand icons
@@ -147,7 +150,10 @@ library.add(
   faTimesCircle,
   faPlay,
   faHeartbeat,
-  faTachometerAlt  
+  faTachometerAlt,
+  faShieldAlt,
+  faEnvelope,
+  faFileImport
 )
 
 // Add brand icons to the library
