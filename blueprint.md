@@ -104,7 +104,7 @@ Example plugin categories:
 - Production-safe test isolation
 
 ### 📅 Upcoming Phases
-- Phase 6: Testing & Launch (Weeks 15-16) - NEXT
+- Phase 6: Production Launch Essentials - NEXT
 - Phase 7: Plugin Marketplace (Post-Launch)
 
 ## Technical Architecture
@@ -1639,14 +1639,22 @@ const results = await delivery.deliver(stardustRelease);
 
 #### Week 15: User Experience & Data Management
 
-##### Day 1-2: User Onboarding & Migration
+##### Core Reliability Features
 
-  - [ ] **First-Run Wizard** (4 hours)
-      - [ ] Interactive tutorial overlay with highlights
-      - [ ] Guided creation of first release
-      - [ ] Sample data option with demo releases
-      - [ ] Progress tracking and skip option
-  - [ ] **Catalog Import System** (6 hours)
+  - [ ] **Idempotency & Deduplication**
+      - [ ] Add `idempotencyKey` to delivery model
+      - [ ] Firestore transaction locks for processing
+      - [ ] Duplicate release detection (by UPC/ISRC)
+      - [ ] Merge/skip duplicate handling
+  - [ ] **Content Fingerprinting**
+      - [ ] Basic MD5/SHA-256 dual hashing
+      - [ ] Audio fingerprinting with peaks.js
+      - [ ] Duplicate asset detection
+      - [ ] Similarity scoring for near-duplicates
+
+##### User Onboarding & Migration
+
+  - [ ] **Catalog Import System**
       - [ ] CSV/JSON/XML import wizard
       - [ ] Field mapping interface
       - [ ] Validation and error reporting
@@ -1654,9 +1662,9 @@ const results = await delivery.deliver(stardustRelease);
       - [ ] Import progress tracking
       - [ ] Rollback capability for failed imports
 
-##### Day 2-3: Email Notifications & Communication
+##### Email Notifications & Communication
 
-  - [ ] **Email Notification System** (6 hours)
+  - [ ] **Email Notification System**
       - [ ] SendGrid/Firebase Email integration
       - [ ] Transactional email templates:
           - Welcome email with getting started guide
@@ -1666,21 +1674,16 @@ const results = await delivery.deliver(stardustRelease);
           - Retry failure alerts
       - [ ] Email preferences in user settings
       - [ ] Unsubscribe handling
-  - [ ] **In-App Notifications** (2 hours)
-      - [ ] Real-time toast notifications
-      - [ ] Notification center in navbar
-      - [ ] Mark as read functionality
-      - [ ] Notification preferences
 
-##### Day 3-4: Data Security & Export
+##### Data Security & Export
 
-  - [ ] **Backup & Restore System** (4 hours)
+  - [ ] **Backup & Restore System**
       - [ ] One-click full catalog export (JSON/CSV)
       - [ ] Scheduled automatic backups to Storage
       - [ ] Point-in-time recovery
       - [ ] Export delivery history and logs
       - [ ] Import from backup file
-  - [ ] **GDPR Compliance Package** (4 hours)
+  - [ ] **GDPR Compliance Package**
       - [ ] Personal data export API endpoint
       - [ ] Right to deletion implementation
       - [ ] Data retention settings (auto-delete old logs)
@@ -1688,49 +1691,36 @@ const results = await delivery.deliver(stardustRelease);
       - [ ] Privacy policy acceptance flow
       - [ ] Audit log viewer UI
 
-##### Day 4-5: Core Reliability Features
-
-  - [ ] **Idempotency & Deduplication** (4 hours)
-      - [ ] Add `idempotencyKey` to delivery model
-      - [ ] Firestore transaction locks for processing
-      - [ ] Duplicate release detection (by UPC/ISRC)
-      - [ ] Merge/skip duplicate handling
-  - [ ] **Content Fingerprinting** (4 hours)
-      - [ ] Basic MD5/SHA-256 dual hashing
-      - [ ] Audio fingerprinting with peaks.js
-      - [ ] Duplicate asset detection
-      - [ ] Similarity scoring for near-duplicates
-
 #### Week 16: Operational Excellence & Launch Prep
 
-##### Day 1-2: Resilience & Error Recovery
+##### Resilience & Error Recovery
 
-  - [ ] **Circuit Breaker System** (4 hours)
+  - [ ] **Circuit Breaker System**
       - [ ] Auto-disable failing DSP targets
       - [ ] Configurable failure thresholds
       - [ ] Automatic recovery testing
       - [ ] Admin override controls
       - [ ] Status dashboard showing circuit states
-  - [ ] **Connection Management** (3 hours)
+  - [ ] **Connection Management**
       - [ ] Connection pooling for FTP/SFTP
       - [ ] Keep-alive for long transfers
       - [ ] Automatic reconnection logic
       - [ ] Connection limit management
-  - [ ] **Enhanced Error Recovery** (3 hours)
+  - [ ] **Enhanced Error Recovery**)
       - [ ] Manual retry UI with selection
       - [ ] Batch retry for multiple failures
       - [ ] Skip/force options for stuck deliveries
       - [ ] Error pattern detection
 
-##### Day 2-3: Monitoring & API
+##### Monitoring & API
 
-  - [ ] **Health Monitoring System** (3 hours)
+  - [ ] **Health Monitoring System**
       - [ ] `/health` endpoint with component status
       - [ ] `/ready` endpoint for load balancers
       - [ ] Public status page
       - [ ] Uptime monitoring integration
       - [ ] Performance metrics dashboard
-  - [ ] **API & Webhooks** (4 hours)
+  - [ ] **API & Webhooks**
       - [ ] RESTful API documentation (Swagger/OpenAPI)
       - [ ] API key generation and management
       - [ ] Rate limiting with quota display
@@ -1738,31 +1728,32 @@ const results = await delivery.deliver(stardustRelease);
       - [ ] Webhook retry logic
       - [ ] API usage analytics
 
-##### Day 3-4: Multi-Version ERN & DSP Support
+##### Multi-Version ERN & DSP Support
 
-  - [ ] **ERN Version Management** (4 hours)
-      - [ ] DSP compatibility matrix UI
+  - [ ] **ERN Version Management**
+      - [ ] ERN service refactoring
+      - [ ] ERN 4.3, 4.2, 3.8.2 builders
       - [ ] Auto-version selection based on target
       - [ ] Version-specific validation rules
       - [ ] Fallback version configuration
       - [ ] Version migration tools
-  - [ ] **Enhanced Delivery Receipts** (3 hours)
+  - [ ] **Enhanced Delivery Receipts**
       - [ ] Normalized receipt format across protocols
       - [ ] PDF receipt generation
       - [ ] Receipt archive system
       - [ ] DSP acknowledgment tracking
       - [ ] Reconciliation dashboard
 
-##### Day 4-5: Documentation & Launch
+##### Documentation & Launch
 
-  - [ ] **Documentation Completion** (6 hours)
+  - [ ] **Documentation Completion**
       - [ ] Getting started guide with screenshots
       - [ ] Video tutorials for key workflows
       - [ ] API reference with examples
       - [ ] Troubleshooting guide
       - [ ] FAQ section
       - [ ] Migration guide from competitors
-  - [ ] **Launch Checklist** (4 hours)
+  - [ ] **Launch Checklist**
       - [ ] Security audit checklist
       - [ ] Performance benchmarks
       - [ ] Load testing results
