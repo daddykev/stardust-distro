@@ -81,10 +81,9 @@ A complete, production-ready distribution platform that includes:
   - [ ] Integration with delivery UI
   - [ ] Apple validation tools
 
-- [x] **Multi-Version Format Support**
+- [x] **Multi-Version ERN Support**
+  - [x] ERN services refactor
   - [x] ERN 3.8.2, 4.2, 4.3 builders
-  - [x] Apple Music 5.3.23 builder
-  - [x] Format auto-detection by DSP
   - [x] Version-specific validation rules
 
 **Remaining Phase 6 Tasks:**
