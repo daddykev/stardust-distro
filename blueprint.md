@@ -1643,14 +1643,165 @@ const results = await delivery.deliver(stardustRelease);
 - **Files Created**: src/views/Testing.vue with TestStatus component
 - **Route Added**: /testing route in router configuration
 
-### Phase 6: Testing & Launch (Weeks 15-16) - UP NEXT 🚧
-- [ ] Performance optimization
-- [ ] Security audit
-- [ ] Documentation completion
-- [ ] Demo site deployment
-- [ ] npm package publication
-- [ ] Multi-ERN version support (3.8.2, 4.2)
-- [ ] DDEX Workbench API integration for validation
+### Phase 6: Production Hardening & Launch (Weeks 15-16) - UP NEXT 🚧
+
+#### Week 15: Core Production Hardening
+**Critical Reliability Features**
+- [ ] **Idempotency & De-duplication** (2-3 days)
+  - [ ] Add `idempotencyKey` field to delivery model
+  - [ ] Implement Firestore lock documents for delivery processing
+  - [ ] Add composite indexes for delivery queries
+  - [ ] Prevent duplicate deliveries on retries
+  
+- [ ] **Dual Hashing (MD5 + SHA-256)** (1-2 days)
+  - [ ] Update `calculateFileMD5` to `calculateFileHashes` returning both
+  - [ ] Modify all delivery protocols to include SHA-256
+  - [ ] Update ERN generation to include both hashes
+  - [ ] Surface both hashes in delivery logs and receipts
+  
+- [ ] **Receipt Normalization** (1-2 days)
+  - [ ] Create unified `DeliveryReceipt` model
+  - [ ] Map protocol responses (FTP/HTTP/S3) to standard format
+  - [ ] Update UI to display normalized receipts
+  - [ ] Store receipts with delivery records
+
+**Multi-Version ERN Support**
+- [x] ERN 3.8.2 builder implementation
+- [x] ERN 4.2 builder implementation
+- [ ] Version compatibility matrix for DSPs
+- [ ] Auto-version selection based on target
+
+#### Week 16: Security, Performance & Launch Prep
+**Security & Performance**
+- [ ] **Security Audit** (2 days)
+  - [ ] Credential encryption review
+  - [ ] Firestore rules audit
+  - [ ] API key management verification
+  - [ ] Log scrubbing for sensitive data
+  
+- [ ] **Performance Optimization** (2 days)
+  - [ ] Lazy loading for large catalogs
+  - [ ] Asset upload chunking
+  - [ ] ERN generation caching
+  - [ ] Delivery queue optimization
+
+**Launch Preparation**
+- [ ] **DDEX Workbench API Integration**
+  - [ ] Implement validation endpoint
+  - [ ] Add validation button to ERN preview
+  - [ ] Store validation results
+  
+- [ ] **Documentation Completion** (2 days)
+  - [ ] Complete getting-started.md
+  - [ ] Finish API reference
+  - [ ] Add troubleshooting guide
+  - [ ] Document idempotency and hashing features
+  
+- [ ] **Demo Site Deployment**
+  - [ ] Deploy to demo.stardust-distro.com
+  - [ ] Create sample catalog data
+  - [ ] Configure test delivery targets
+  - [ ] Add demo mode banner
+  
+- [ ] **npm Package Publication**
+  - [ ] Prepare @stardust-distro/cli for npm
+  - [ ] Publish @stardust-distro/common
+  - [ ] Create npm organization
+  - [ ] Add README and license files
+
+### Phase 6 Implementation Priority Order
+
+**Week 15 Sprint (Production Critical)**
+1. **Monday-Tuesday**: Idempotency implementation
+2. **Wednesday**: Dual hashing 
+3. **Thursday**: Receipt normalization
+4. **Friday**: Testing & bug fixes
+
+**Week 16 Sprint (Launch Ready)**
+1. **Monday**: Security audit & fixes
+2. **Tuesday**: Performance optimization
+3. **Wednesday**: Documentation
+4. **Thursday**: Demo deployment
+5. **Friday**: npm publication & launch! 🚀
+
+### Phase 6 Implementation Examples
+
+**Idempotency Key Implementation:**
+```javascript
+// functions/index.js
+async function queueDelivery(data, context) {
+  const { releaseId, targetId, messageId } = data;
+  
+  // Generate deterministic key
+  const idempotencyKey = `${releaseId}:${targetId}:${messageId}`;
+  
+  // Check for existing delivery
+  const existing = await db.collection('deliveries')
+    .where('idempotencyKey', '==', idempotencyKey)
+    .where('status', 'in', ['queued', 'processing', 'completed'])
+    .get();
+    
+  if (!existing.empty) {
+    console.log(`Delivery already exists for key: ${idempotencyKey}`);
+    return { duplicate: true, deliveryId: existing.docs[0].id };
+  }
+  
+  // Create new delivery with idempotency key
+  const delivery = {
+    ...data,
+    idempotencyKey,
+    status: 'queued',
+    created: FieldValue.serverTimestamp()
+  };
+  
+  return db.collection('deliveries').add(delivery);
+}
+```
+
+**Dual Hashing:**
+```javascript
+// functions/index.js
+const crypto = require('crypto');
+
+exports.calculateFileHashes = onCall(async (data, context) => {
+  const { url } = data;
+  const response = await fetch(url);
+  const buffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  
+  return {
+    md5: crypto.createHash('md5').update(bytes).digest('base64'),
+    sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+    size: bytes.length
+  };
+});
+```
+
+**Receipt Model:**
+```javascript
+// services/deliveryHistory.js
+export async function addDeliveryReceipt(deliveryId, protocol, response) {
+  const receipt = {
+    timestamp: new Date().toISOString(),
+    protocol,
+    state: response.success ? 'accepted' : 'failed',
+    reason: response.message || 'Unknown',
+    evidence: {
+      statusCode: response.statusCode,
+      etag: response.etag,
+      md5: response.md5,
+      sha256: response.sha256,
+      requestId: response.requestId,
+      acknowledgmentId: response.ackId
+    }
+  };
+  
+  return updateDoc(doc(db, 'deliveries', deliveryId), {
+    receipt,
+    'status': response.success ? 'completed' : 'failed'
+  });
+}
+```
 
 ### Phase 7: Plugin Marketplace (Post-Launch)
 - [ ] Build plugin architecture
