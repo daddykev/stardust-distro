@@ -67,8 +67,25 @@ class ERNService {
         throw new Error('Release not found')
       }
 
+      // Get the UPC/barcode from the correct field - check multiple possible locations
+      const upc = release.basic?.upc || release.basic?.barcode || release.basic?.ean || ''
+
+      // Validate UPC exists and is valid
+      if (!upc || upc === 'undefined' || upc === '') {
+        throw new Error('Release must have a valid UPC/barcode for DDEX delivery')
+      }
+
+      // Validate UPC format (12-14 digits)
+      if (!/^\d{12,14}$/.test(upc)) {
+        throw new Error(`Invalid UPC format: ${upc}. Must be 12-14 digits.`)
+      }
+
+      // Classify release to determine profile and type
+      const classification = classifyRelease(release)
+      console.log('Release classification:', classification)
+      console.log('Using UPC:', upc)
+
       // Extract asset information from the release data itself
-      // The assets are stored within the release document
       const coverAsset = release.assets?.coverImage || null
       const audioAssets = []
       
@@ -125,14 +142,15 @@ class ERNService {
         const discNumber = String(track.discNumber || 1).padStart(2, '0')
         const trackNumber = String(index + 1).padStart(3, '0')
         const fileExtension = audioAsset?.metadata?.format?.toLowerCase() || 'wav'
-        const ddexFileName = `${release.basic.upc}_${discNumber}_${trackNumber}.${fileExtension}`
+        // Use the validated UPC here
+        const ddexFileName = `${upc}_${discNumber}_${trackNumber}.${fileExtension}`
 
         return {
           resourceReference: `A${String(index + 1).padStart(3, '0')}`,
           title: track.title || track.metadata?.title || `Track ${index + 1}`,
           artist: track.artist || track.displayArtist || track.metadata?.displayArtist || release.basic.artist,
           displayArtist: track.displayArtist || track.artist || track.metadata?.displayArtist || release.basic.artist,
-          isrc: track.isrc || `XX${release.basic.upc}${String(index + 1).padStart(2, '0')}`,
+          isrc: track.isrc || `XX${upc}${String(index + 1).padStart(2, '0')}`,
           duration: track.duration || track.audio?.duration || 180,
           fileName: ddexFileName,
           format: audioAsset?.metadata?.format || 'WAV',
@@ -155,16 +173,13 @@ class ERNService {
         }
       }))
 
-      // Classify release
-      const classification = classifyRelease(release)
-
-      // Prepare product data
+      // Prepare product data with validated UPC
       const messageId = `MSG_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       const product = {
         messageId,
-        releaseReference: `R${release.basic.upc}`,
-        grid: release.metadata?.grid || `A1-${release.basic.upc}-R${release.basic.upc}-M`,
-        upc: release.basic.upc,
+        releaseReference: `R${upc}`,  // Use validated UPC
+        grid: release.metadata?.grid || `A1-${upc}-R${upc}-M`,  // Use validated UPC
+        upc: upc,  // Use validated UPC
         title: release.basic.title,
         subtitle: release.basic.subtitle,
         artist: release.basic.artist || release.basic.displayArtist,
@@ -185,13 +200,16 @@ class ERNService {
         displayStartDate: targetConfig.displayStartDate
       }
 
-      // Prepare config
+      // Prepare config with profile from classification
       const config = {
         messageId,
         messageSender: targetConfig.senderName || user.displayName || 'Unknown Sender',
         senderPartyId: targetConfig.senderPartyId || targetConfig.config?.distributorId,
         messageRecipient: targetConfig.partyName || targetConfig.name,
         recipientPartyId: targetConfig.partyId,
+        profile: classification.profile,
+        releaseType: classification.releaseType,
+        trackCount: classification.trackCount,
         testMode: targetConfig.testMode || false,
         includeDeals: options.includeDeals !== false,
         messageSubType: options.messageSubType || 'Initial',
@@ -199,15 +217,41 @@ class ERNService {
         coverImageUrl: coverAsset?.url ? escapeUrlForXml(coverAsset.url) : null,
         // Version-specific config
         allowUGCClips: targetConfig.allowUGCClips,
+        supportsImmersiveAudio: targetConfig.supportsImmersiveAudio,
         meadUrl: targetConfig.meadUrl,
         pieUrl: targetConfig.pieUrl,
         exclusivity: targetConfig.exclusivity,
-        preOrderDate: targetConfig.preOrderDate
+        preOrderDate: targetConfig.preOrderDate,
+        displayStartDate: targetConfig.displayStartDate,
+        supportsPreOrder: targetConfig.supportsPreOrder,
+        audioFormats: targetConfig.audioFormats || ['WAV', 'FLAC']
       }
+
+      // Log the configuration for debugging
+      console.log('ERN Generation Config:', {
+        version,
+        profile: config.profile,
+        releaseType: config.releaseType,
+        messageSubType: config.messageSubType,
+        trackCount: config.trackCount,
+        upc: upc  // Log the UPC being used
+      })
 
       // Get version-specific builder and generate ERN
       const builder = this.getBuilder(version)
+      if (!builder) {
+        throw new Error(`No builder available for ERN version ${version}`)
+      }
+      
       const ernXml = builder.buildERN(product, resourceData, config)
+
+      // Validate the generated ERN if not in test mode
+      if (!targetConfig.testMode) {
+        const validation = await this.validateERNVersion(ernXml, version)
+        if (!validation.valid) {
+          console.warn('ERN validation warning:', validation.error)
+        }
+      }
 
       // Save ERN with version tracking
       await this.saveERNWithVersion(releaseId, ernXml, targetConfig, classification, {
@@ -220,7 +264,10 @@ class ERNService {
         ern: ernXml,
         messageId,
         classification,
-        version: version
+        version: version,
+        profile: classification.profile,
+        releaseType: classification.releaseType,
+        upc: upc  // Return the UPC for confirmation
       }
     } catch (error) {
       console.error('Error generating ERN:', error)

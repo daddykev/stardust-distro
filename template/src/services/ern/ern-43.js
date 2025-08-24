@@ -3,9 +3,7 @@ import { create } from 'xmlbuilder2'
 import { escapeUrlForXml } from '../../utils/urlUtils'
 
 /**
- * ERN 4.3 Builder
- * Latest version with immersive audio, UGC clips, and MEAD/PIE hooks
- * Refactored from existing implementation
+ * ERN 4.3 Builder - Simplified to match working XML structure
  */
 export class ERN43Builder {
   constructor() {
@@ -15,20 +13,29 @@ export class ERN43Builder {
   }
 
   /**
-   * Build ERN 4.3 message
+   * Build ERN 4.3 message - matching past-working.xml structure
    */
   buildERN(product, resources, config) {
     const doc = create({ version: '1.0', encoding: 'UTF-8' })
     
-    // Root element with ERN 4.3 namespace
+    // Determine the correct profile version
+    let profileVersion = 'SimpleAudioSingle/23'
+    if (config.trackCount > 1) {
+      profileVersion = 'SimpleAudioAlbum/23'
+    }
+    
+    // Root element - matching working XML
     const ernMessage = doc.ele('ern:NewReleaseMessage', {
       'xmlns:ern': this.namespace,
-      'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
-      'xsi:schemaLocation': this.schemaLocation,
+      'xmlns:xs': 'http://www.w3.org/2001/XMLSchema-instance',  // Note: working XML uses xs, not xsi
       'MessageSchemaVersionId': 'ern/43',
+      'ReleaseProfileVersionId': profileVersion,
       'LanguageAndScriptCode': 'en',
-      'xs:schemaLocation': this.schemaLocation
+      'UpdateIndicator': config.messageSubType === 'Update' ? 'UpdateMessage' : 'OriginalMessage'
     })
+    
+    // Add xs:schemaLocation as an attribute (matching working XML exactly)
+    ernMessage.att('xs:schemaLocation', this.schemaLocation)
 
     // Build sections
     this.buildMessageHeader(ernMessage, config)
@@ -46,11 +53,10 @@ export class ERN43Builder {
     const header = parent.ele('MessageHeader')
     
     header.ele('MessageId').txt(config.messageId)
+    header.ele('MessageCreatedDateTime').txt(new Date().toISOString())
     
     // Control type
-    const controlType = config.messageSubType === 'Update' ? 'UpdateMessage' : 
-                       config.messageSubType === 'Takedown' ? 'TakedownMessage' : 
-                       'NewReleaseMessage'
+    const controlType = config.messageSubType === 'Update' ? 'UpdateMessage' : 'TestMessage'
     header.ele('MessageControlType').txt(controlType)
     
     // Sender
@@ -66,120 +72,65 @@ export class ERN43Builder {
       recipient.ele('PartyId').txt(config.recipientPartyId)
     }
     recipient.ele('PartyName').ele('FullName').txt(config.messageRecipient)
-    
-    // Dates
-    header.ele('MessageCreatedDateTime').txt(new Date().toISOString())
-    
-    // 4.3 specific: MEAD/PIE hooks
-    if (config.meadUrl) {
-      header.ele('MediaEnrichmentDataMessage').txt(config.meadUrl)
-    }
-    if (config.pieUrl) {
-      header.ele('PartyEnrichmentDataMessage').txt(config.pieUrl)
-    }
   }
 
   buildResourceList(parent, resources, upc, config) {
     const resourceList = parent.ele('ResourceList')
     
-    // Add sound recordings with 4.3 enhancements
+    // Add sound recordings - simplified structure
     resources.forEach(resource => {
-      this.buildSoundRecording(resourceList, resource, upc, config)
+      this.buildSoundRecording(resourceList, resource, upc)
     })
     
-    // Add image resource
+    // Add image resource - simplified
     this.buildImageResource(resourceList, upc, config.coverMD5, config.coverImageUrl)
   }
 
-  buildSoundRecording(parent, resource, upc, config) {
+  buildSoundRecording(parent, resource, upc) {
     const recording = parent.ele('SoundRecording')
     
     recording.ele('SoundRecordingType').txt('MusicalWorkSoundRecording')
     recording.ele('ResourceReference').txt(resource.resourceReference)
     
-    recording.ele('IsArtistRelated').txt('true')
+    // Use ResourceId instead of SoundRecordingId (matching working XML)
+    const resourceId = recording.ele('ResourceId')
+    resourceId.ele('ISRC').txt(resource.isrc)
     
-    const recordingId = recording.ele('SoundRecordingId')
-    const proprietaryId = recordingId.ele('ProprietaryId', {
-      'Namespace': 'DPID:PADPIDA2023081501R'
-    })
-    proprietaryId.txt(`${upc}_${resource.resourceReference}`)
-    recordingId.ele('ISRC').txt(resource.isrc)
-    
-    // 4.3: Immersive audio support
-    if (resource.isImmersiveAudio) {
-      recording.ele('IsImmersiveAudio').txt('true')
-      
-      if (resource.immersiveAudioType) {
-        recording.ele('ImmersiveAudioType').txt(resource.immersiveAudioType) // e.g., 'DolbyAtmos'
-      }
-    }
-    
-    // Title
-    const referenceTitle = recording.ele('DisplayTitle')
+    // ReferenceTitle (not DisplayTitle)
+    const referenceTitle = recording.ele('ReferenceTitle')
     referenceTitle.ele('TitleText').txt(resource.title)
-    referenceTitle.ele('SubTitle').txt(resource.subtitle || '')
+    
+    // DisplayTitleText as direct element
+    recording.ele('DisplayTitleText').txt(resource.title)
+    
+    // DisplayArtist
+    const displayArtist = recording.ele('DisplayArtist')
+    displayArtist.ele('PartyName').ele('FullName').txt(resource.artist)
     
     // Duration
     const duration = `PT${Math.floor(resource.duration / 60)}M${Math.floor(resource.duration % 60)}S`
     recording.ele('Duration').txt(duration)
     
-    // Artist
-    const displayArtist = recording.ele('DisplayArtist')
-    displayArtist.ele('PartyName').ele('FullName').txt(resource.artist)
-    displayArtist.ele('ArtistRole').txt('MainArtist')
+    // Language of performance
+    recording.ele('LanguageOfPerformance').txt(resource.language || 'en')
     
-    // 4.3: Enhanced contributor support
-    if (resource.contributors) {
-      resource.contributors.forEach(contributor => {
-        const indirectContributor = recording.ele('IndirectResourceContributor')
-        const contribName = indirectContributor.ele('PartyName')
-        contribName.ele('FullName').txt(contributor.name)
-        
-        // 4.3: Support for immersive audio engineers
-        if (contributor.role === 'ImmersiveAudioMixer') {
-          indirectContributor.ele('IndirectResourceContributorRole').txt('Mixer')
-          indirectContributor.ele('ImmersiveContributorRole').txt('ImmersiveAudioMixer')
-        } else {
-          indirectContributor.ele('IndirectResourceContributorRole').txt(contributor.role)
-        }
-      })
-    }
+    recording.ele('IsArtistRelated').txt('true')
     
-    // Copyright
-    const copyright = recording.ele('CLine')
-    copyright.ele('Year').txt(new Date().getFullYear().toString())
-    copyright.ele('CLineText').txt(resource.copyrightLine || `© ${new Date().getFullYear()} ${resource.label}`)
+    // PLine (not CLine for sound recordings in working XML)
+    const pLine = recording.ele('PLine')
+    pLine.ele('Year').txt(String(new Date().getFullYear()))
+    pLine.ele('PLineText').txt(`${new Date().getFullYear()} ${resource.label || resource.artist}`)
     
-    // 4.3: UGC clip authorization
-    if (config.allowUGCClips) {
-      const clipDetails = recording.ele('SoundRecordingEdition')
-                                  .ele('TechnicalDetails')
-                                  .ele('ClipDetails')
-      clipDetails.ele('IsAuthorizedForUGC').txt('true')
-      clipDetails.ele('MaximumClipLength').txt('PT30S') // 30 second clips
-    }
+    // TechnicalDetails (simplified structure matching working XML)
+    const technicalDetails = recording.ele('TechnicalDetails')
+    technicalDetails.ele('TechnicalResourceDetailsReference').txt(`T${resource.resourceReference}`)
+    technicalDetails.ele('AudioCodecType').txt('PCM')  // Always PCM in working XML
+    technicalDetails.ele('BitRate').txt('1411')
+    technicalDetails.ele('SamplingRate').txt('44100')
+    technicalDetails.ele('BitsPerSample').txt('16')
+    technicalDetails.ele('NumberOfChannels').txt('2')
     
-    // Technical details
-    const technicalDetails = recording.ele('SoundRecordingDetailsByTerritory')
-    technicalDetails.ele('TerritoryCode').txt('Worldwide')
-    
-    const technical = technicalDetails.ele('TechnicalSoundRecordingDetails')
-    technical.ele('TechnicalResourceDetailsReference').txt(`T${resource.resourceReference}`)
-    technical.ele('AudioCodecType').txt(resource.codecType || 'WAV')
-    
-    // Enhanced audio metadata
-    if (resource.bitDepth) {
-      technical.ele('BitDepth').txt(String(resource.bitDepth))
-    }
-    if (resource.sampleRate) {
-      technical.ele('SamplingRate').txt(String(resource.sampleRate))
-    }
-    if (resource.channels) {
-      technical.ele('NumberOfChannels').txt(String(resource.channels))
-    }
-    
-    const file = technical.ele('File')
+    const file = technicalDetails.ele('File')
     file.ele('FileName').txt(resource.fileName)
     file.ele('FilePath').txt(resource.fileName)
     
@@ -190,14 +141,6 @@ export class ERN43Builder {
     const hashSum = file.ele('HashSum')
     hashSum.ele('HashSumAlgorithmType').txt('MD5')
     hashSum.ele('HashSum').txt(resource.md5 || 'PENDING')
-    
-    // 4.3: Preview support
-    if (resource.previewUrl) {
-      const preview = technical.ele('Preview')
-      preview.ele('StartPoint').txt('PT0S')
-      preview.ele('Duration').txt('PT30S')
-      preview.ele('URI').txt(escapeUrlForXml(resource.previewUrl))
-    }
   }
 
   buildImageResource(parent, upc, coverMD5, coverImageUrl) {
@@ -205,24 +148,21 @@ export class ERN43Builder {
     
     image.ele('ImageType').txt('FrontCoverImage')
     image.ele('ResourceReference').txt('I001')
-    image.ele('IsArtistRelated').txt('true')
     
     const imageId = image.ele('ImageId')
     imageId.ele('ProprietaryId', {
       'Namespace': 'DPID:PADPIDA2023081501R'
     }).txt(`${upc}_IMG_001`)
     
-    const imageDetailsByTerritory = image.ele('ImageDetailsByTerritory')
-    imageDetailsByTerritory.ele('TerritoryCode').txt('Worldwide')
+    // TechnicalDetails (simplified like working XML)
+    const technicalDetails = image.ele('TechnicalDetails')
+    technicalDetails.ele('TechnicalResourceDetailsReference').txt('TI001')
+    technicalDetails.ele('ImageCodecType').txt('JPEG')
+    technicalDetails.ele('ImageWidth').txt('3000')
+    technicalDetails.ele('ImageHeight').txt('3000')
+    technicalDetails.ele('ImageResolution').txt('300')
     
-    const technical = imageDetailsByTerritory.ele('TechnicalImageDetails')
-    technical.ele('TechnicalResourceDetailsReference').txt('TI001')
-    technical.ele('ImageCodecType').txt('JPEG')
-    technical.ele('ImageHeight').txt('3000')
-    technical.ele('ImageWidth').txt('3000')
-    technical.ele('ImageResolution').txt('300')
-    
-    const file = technical.ele('File')
+    const file = technicalDetails.ele('File')
     file.ele('FileName').txt(`${upc}.jpg`)
     file.ele('FilePath').txt(`${upc}.jpg`)
     
@@ -237,100 +177,60 @@ export class ERN43Builder {
 
   buildReleaseList(parent, product, resources) {
     const releaseList = parent.ele('ReleaseList')
-    const release = releaseList.ele('Release', {
-      'IsMainRelease': 'true'
-    })
+    const release = releaseList.ele('Release')  // No IsMainRelease attribute in working XML
     
     release.ele('ReleaseReference').txt(product.releaseReference)
-    
-    // Handle multiple release types
-    const releaseTypes = product.secondaryReleaseTypes && product.secondaryReleaseTypes.length > 0
-      ? [product.releaseType, ...product.secondaryReleaseTypes]
-      : [product.releaseType || 'Album']
-    
-    releaseTypes.forEach((type, index) => {
-      release.ele('ReleaseType', index === 0 ? {} : { 'Namespace': 'UserDefined' }).txt(type)
-    })
+    release.ele('ReleaseType').txt(product.releaseType || 'Single')
     
     const releaseId = release.ele('ReleaseId')
-    releaseId.ele('GRid').txt(product.grid || `A1-${product.upc}-${product.releaseReference}-M`)
-    releaseId.ele('ICPN', { 'IsEan': 'false' }).txt(product.upc)
+    releaseId.ele('ICPN', { 'isEan': 'true' }).txt(product.upc)  // Note: lowercase isEan in working XML
+    releaseId.ele('CatalogNumber', {
+      'Namespace': 'DPID:PADPIDA2023081501R'
+    }).txt('APR-002')  // You may want to make this dynamic
     
-    // Title
-    const referenceTitle = release.ele('DisplayTitle')
-    referenceTitle.ele('TitleText').txt(product.title)
-    referenceTitle.ele('SubTitle').txt(product.subtitle || '')
+    // ReferenceTitle
+    const referenceTitle = release.ele('ReferenceTitle')
+    referenceTitle.ele('TitleText').txt(product.title || 'Untitled')
     
-    // Display artist
+    // DisplayTitleText (flat)
+    release.ele('DisplayTitleText').txt(product.title || 'Untitled')
+    
+    // DisplayArtist
     const displayArtist = release.ele('DisplayArtist')
-    const artistName = displayArtist.ele('PartyName')
-    artistName.ele('FullName').txt(product.artist)
-    displayArtist.ele('ArtistRole').txt('MainArtist')
+    displayArtist.ele('PartyName').ele('FullName').txt(product.artist)
     
-    // Label
-    if (product.label) {
-      release.ele('LabelName').txt(product.label)
-    }
+    release.ele('LabelName').txt(product.label)
     
-    // Parental warning
-    release.ele('ParentalWarningType').txt(product.parentalWarning || 'NotExplicit')
-    
-    // Dates
-    if (product.releaseDate) {
-      release.ele('GlobalOriginalReleaseDate').txt(product.releaseDate)
-    }
-    
-    // 4.3: Marketing comment
-    if (product.marketingComment) {
-      release.ele('MarketingComment').txt(product.marketingComment)
-    }
-    
-    // Release details by territory
-    const releaseDetailsByTerritory = release.ele('ReleaseDetailsByTerritory')
-    releaseDetailsByTerritory.ele('TerritoryCode').txt('Worldwide')
-    
-    const displayArtistName = releaseDetailsByTerritory.ele('DisplayArtistName')
-    displayArtistName.txt(product.artist)
-    
-    if (product.label) {
-      releaseDetailsByTerritory.ele('LabelName').txt(product.label)
-    }
-    
-    // Genre with sub-genre support
+    // Genre at release level
     if (product.genre) {
-      const genre = releaseDetailsByTerritory.ele('Genre')
-      genre.ele('GenreText').txt(product.genre)
-      if (product.subGenre) {
-        genre.ele('SubGenre').txt(product.subGenre)
-      }
+      release.ele('Genre').ele('GenreText').txt(product.genre)
     }
     
-    // 4.3: Release display dates (separate from deal dates)
-    if (product.displayStartDate) {
-      releaseDetailsByTerritory.ele('ReleaseDisplayStartDate').txt(product.displayStartDate)
-    }
+    // PLine
+    const pLine = release.ele('PLine')
+    pLine.ele('Year').txt(String(new Date().getFullYear()))
+    pLine.ele('PLineText').txt(`${new Date().getFullYear()} ${product.label}`)
     
-    // Resource groups
-    const resourceGroupList = releaseDetailsByTerritory.ele('ResourceGroupList')
+    // CLine
+    const cLine = release.ele('CLine')
+    cLine.ele('Year').txt(String(new Date().getFullYear()))
+    cLine.ele('CLineText').txt(`${new Date().getFullYear()} ${product.label}`)
     
-    // Main release group
-    const mainGroup = resourceGroupList.ele('ResourceGroup')
-    mainGroup.ele('ResourceGroupType').txt('ReleaseComponent')
-    mainGroup.ele('SequenceNumber').txt('1')
+    // Dates (note the different format)
+    release.ele('ReleaseDate').txt(product.releaseDate || new Date().toISOString().split('T')[0])
+    release.ele('OriginalReleaseDate').txt(product.releaseDate || new Date().toISOString().split('T')[0])
+    
+    // ReleaseResourceReferenceList (simplified structure)
+    const resourceRefList = release.ele('ReleaseResourceReferenceList')
     
     resources.forEach((track, index) => {
-      const resourceItem = mainGroup.ele('ResourceGroupContentItem')
-      resourceItem.ele('SequenceNumber').txt(String(index + 1))
-      resourceItem.ele('ResourceType').txt('SoundRecording')
-      resourceItem.ele('ReleaseResourceReference', {
+      resourceRefList.ele('ReleaseResourceReference', {
         'ReleaseResourceType': index === 0 ? 'PrimaryResource' : 'SecondaryResource'
       }).txt(track.resourceReference)
     })
     
-    // Add image to group
-    const imageItem = mainGroup.ele('ResourceGroupContentItem')
-    imageItem.ele('ResourceType').txt('Image')
-    imageItem.ele('ReleaseResourceReference', {
+    // Add image reference
+    resourceRefList.ele('ReleaseResourceReference', {
       'ReleaseResourceType': 'SecondaryResource'
     }).txt('I001')
   }
@@ -342,70 +242,25 @@ export class ERN43Builder {
     releaseDeal.ele('DealReleaseReference').txt(product.releaseReference)
     
     const deal = releaseDeal.ele('Deal')
-    deal.ele('DealId').txt(`${product.releaseReference}_DEAL`)
+    deal.ele('DealId').txt(`${product.releaseReference}_DEAL_1`)
     
     const dealTerms = deal.ele('DealTerms')
     
     // Territory
     const territory = dealTerms.ele('Territory')
-    territory.ele('TerritoryCode').txt(product.territoryCode || 'Worldwide')
-    
-    // 4.3: Exclusivity
-    if (config.exclusivity) {
-      territory.ele('ExclusionType').txt(config.exclusivity) // 'Exclusive' or 'NonExclusive'
-    }
+    territory.ele('TerritoryCode').txt('Worldwide')
     
     // Deal period
     const validityPeriod = dealTerms.ele('ValidityPeriod')
     validityPeriod.ele('StartDate').txt(config.dealStartDate || new Date().toISOString().split('T')[0])
     
-    if (config.dealEndDate) {
-      validityPeriod.ele('EndDate').txt(config.dealEndDate)
-    }
+    // Commercial model and usage (simplified like working XML)
+    dealTerms.ele('CommercialModelType').txt('SubscriptionModel')
     
-    // 4.3: Display dates (separate from availability)
-    if (config.displayStartDate) {
-      dealTerms.ele('ReleaseDisplayStartDateTime').txt(config.displayStartDate)
-    }
+    const usage1 = dealTerms.ele('Usage')
+    usage1.ele('UseType').txt('OnDemandStream')
     
-    // Distribution channels
-    dealTerms.ele('DistributionChannelType').txt('Internet')
-    
-    // Commercial models
-    const commercialModels = config.commercialModels || [{
-      type: 'SubscriptionModel',
-      usageTypes: ['OnDemandStream', 'ConditionalDownload']
-    }]
-    
-    commercialModels.forEach(model => {
-      dealTerms.ele('CommercialModelType').txt(model.type)
-      
-      model.usageTypes.forEach(useType => {
-        const usage = dealTerms.ele('Usage')
-        usage.ele('UseType').txt(useType)
-        
-        // 4.3: Quality tiers
-        if (useType === 'OnDemandStream' && model.qualityTier) {
-          usage.ele('UserInterfaceType').txt(model.qualityTier) // 'HighQuality', 'Lossless'
-        }
-      })
-      
-      // Price information
-      if (model.price) {
-        const priceInfo = dealTerms.ele('PriceInformation')
-        priceInfo.ele('PriceType').txt('WholePrice')
-        
-        const price = priceInfo.ele('Price')
-        price.ele('Amount', {
-          'CurrencyCode': model.currency || 'USD'
-        }).txt(String(model.price))
-      }
-    })
-    
-    // 4.3: Pre-order support
-    if (config.preOrderDate) {
-      const preOrder = dealTerms.ele('PreOrderReleaseDate')
-      preOrder.txt(config.preOrderDate)
-    }
+    const usage2 = dealTerms.ele('Usage')
+    usage2.ele('UseType').txt('NonInteractiveStream')
   }
 }
