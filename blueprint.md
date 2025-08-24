@@ -259,13 +259,16 @@ stardust-distro/
 │   │   │   ├── useCatalog.js      # Catalog operations ✅
 │   │   │   └── useDelivery.js     # Delivery operations ✅
 │   │   ├── services/              # API services
+│   │   │   ├── apple.js           # Apple Music XML generation ✅
+│   │   │   ├── apple/             # Apple versions ✅
+│   │   │   │   ├── apple-5323.js  # Apple 5.3.23 builder ✅
 │   │   │   ├── assets.js          # Asset management ✅
 │   │   │   ├── catalog.js         # Catalog operations ✅
 │   │   │   ├── delivery.js        # Delivery operations ✅
 │   │   │   ├── deliveryHistory.js # Logger for delivery history ✅
 │   │   │   ├── deliveryTargets.js # Target management ✅
-│   │   │   ├── ern.js             # ERN generation ✅
-│   │   │   ├── ern/               # ERN builders by version ✅
+│   │   │   ├── ern.js             # ERN XML generation ✅
+│   │   │   ├── ern/               # ERN versions ✅
 │   │   │   │   ├── ern-42.js      # ERN 4.2 builder ✅
 │   │   │   │   ├── ern-43.js      # ERN 4.3 builder ✅
 │   │   │   │   └── ern-382.js     # ERN 3.8.2 builder ✅

@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Vue 3](https://img.shields.io/badge/Vue-3.x-4FC08D.svg)](https://vuejs.org/)
 [![Firebase](https://img.shields.io/badge/Firebase-v9-FFA000.svg)](https://firebase.google.com/)
-[![Status](https://img.shields.io/badge/Status-Beta-blue.svg)](https://github.com/daddykev/stardust-distro)
+[![Status](https://img.shields.io/badge/Status-Alpha-orange.svg)](https://github.com/daddykev/stardust-distro)
 
 > Open-source, npm-installable music distribution platform for the modern music industry.
 
@@ -18,7 +18,8 @@ Stardust Distro is a production-ready music distribution platform, built with an
 A complete, production-ready distribution platform that includes:
 
 - **Full Catalog Management** - Unlimited releases, tracks, and assets with smart duplicate detection
-- **DDEX ERN Generation** - Multi-version support (3.8.2, 4.2, 4.3) with automatic DSP compatibility
+- **DDEX ERN Generation** - Multi-version support (3.8.2, 4.2, 4.3) with 3-step validation
+- **Apple Music Spec 5.3.23** - Full implementation of Apple's XML package format
 - **All Delivery Protocols** - FTP, SFTP, S3, API, and Azure with automatic retry logic
 - **Real-time Monitoring** - Comprehensive logging, delivery tracking, and performance metrics
 - **Production Testing Suite** - 17 tests across system health, DDEX compliance, and protocols
@@ -26,7 +27,7 @@ A complete, production-ready distribution platform that includes:
 
 ## 🚧 Current Development Status
 
-**Beta Release - v0.9.2** (August 2025)
+**Alpha Release - v0.9.3** (August 2025)
 
 ### ✅ Phase 1: Foundation - COMPLETE
 - Full Vue 3 Application with routing and navigation
@@ -70,29 +71,27 @@ A complete, production-ready distribution platform that includes:
 
 ### 🚧 Phase 6: Production Launch Essentials - CURRENT
 
-**Core Reliability & User Experience**
-- [x] **Multi-Version ERN Support**
-  - ERN service refactoring for multi-version
-  - ERN 3.8.2, 4.2, 4.3 builders
-- [ ] **Idempotency & Deduplication**
-  - Duplicate release detection (by UPC/ISRC)
-  - Transaction locks for processing
-  - Content fingerprinting with MD5/SHA-256
-- [ ] **Catalog Import System**
-  - CSV/JSON/XML import wizard
-  - Field mapping interface
-  - Bulk audio upload UI
-  - Import progress tracking
-- [ ] **Email Notifications**
-  - SendGrid/Firebase Email integration
-  - Transactional email templates
-  - Delivery notifications
-  - Weekly summary reports
-- [ ] **Documentation & Launch Prep**
-  - Getting started guide with screenshots
-  - API reference documentation
-  - Security audit checklist
-  - npm package publication
+- [x] **Apple Music Package Support 🍎**
+  - [x] Apple Music XML service implementation
+  - [x] Apple Music Spec 5.3.23 builder
+  - [x] Apple-specific metadata handling
+  - [x] Vendor ID and Team ID management
+  - [x] Product type mapping (Album/Single/EP)
+  - [x] Territory and genre conversion
+  - [ ] Integration with delivery UI
+  - [ ] Apple validation tools
+
+- [x] **Multi-Version Format Support**
+  - [x] ERN 3.8.2, 4.2, 4.3 builders
+  - [x] Apple Music 5.3.23 builder
+  - [x] Format auto-detection by DSP
+  - [x] Version-specific validation rules
+
+**Remaining Phase 6 Tasks:**
+- [ ] Idempotency & Deduplication
+- [ ] Catalog Import System
+- [ ] Email Notifications
+- [ ] Documentation & Launch Prep
 
 ### 📅 Phase 7: Post-Launch Essentials (Q4-2025)
 
