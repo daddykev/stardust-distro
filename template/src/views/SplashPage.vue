@@ -541,6 +541,18 @@ const copyCode = () => {
         </div>
       </div>
     </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-content">
+          <p class="footer-text">
+            © 2025 Stardust Ecosystem. Open-source under MIT License.
+          </p>
+        </div>
+      </div>
+    </footer>
+
   </div>
 </template>
 
@@ -1181,6 +1193,24 @@ const copyCode = () => {
   gap: var(--space-md);
   justify-content: center;
   flex-wrap: wrap;
+}
+
+/* Footer */
+.footer {
+  margin-top: var(--space-3xl);
+  padding: var(--space-xl) 0;
+  background-color: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+}
+
+.footer-content {
+  text-align: center;
+}
+
+.footer-text {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
 }
 
 /* Responsive adjustments */
