@@ -229,6 +229,7 @@ stardust-distro/
 │   │   │   │   ├── StatsOverview.vue
 │   │   │   │   ├── RecentActivity.vue
 │   │   │   │   └── DeliveryMetrics.vue
+│   │   │   ├── GenreSelector.vue  # Unified genre selector tool ✅
 │   │   │   └── NavBar.vue         # Navigation bar component ✅
 │   │   ├── views/                 # Page views
 │   │   │   ├── SplashPage.vue     # Landing/marketing page ✅
