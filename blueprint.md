@@ -9,29 +9,19 @@ Democratize music distribution by providing a complete, DDEX-compliant distribut
 
 ### Core Value Propositions
 - **Instant Distribution Platform**: Deploy a functional distribution system with one command
-- **Multi-Protocol Delivery**: Supports FTP, SFTP, Amazon S3, and Google Cloud methods
+- **Extended Format Support**: DDEX ERN (3.8.2, 4.2, 4.3) and Apple Music XML (5.3.23)
+- **Multi-Protocol Delivery**: Supports FTP, SFTP, Amazon S3, Azure, and REST APIs
 - **No Vendor Lock-in**: Core platform is a full production-ready system
 
 ### Platform Architecture
 
 #### Stardust Distro Core (100% Open Source - MIT License)
 **Complete distribution platform for everyone**
-- Full ERN generation (3.8.2, 4.2, 4.3)
+- Full DDEX ERN package generation (3.8.2, 4.2, 4.3)
+- Apple Music XML package generation (Spec 5.3.23)
 - All delivery protocols (FTP/SFTP/API/S3/Azure)
 - Complete metadata and production credits
-- Audio processing (WAV/FLAC/MP3)
-- Territory management
-- Professional dashboard
-
-#### Plugin Marketplace (Separate Repository)
-**Open marketplace for specialized features**
-
-Example plugin categories:
-- **Audio Processing**: Dolby Atmos, Apple Digital Masters, Stem Management
-- **Advanced Metadata**: Session musicians, engineering credits, studio details
-- **Workflow Automation**: Delivery orchestration, bulk operations, smart scheduling
-- **Analytics & Reporting**: Advanced metrics, custom reports, BI integrations
-- **Territory Management**: Windowing, dynamic pricing, complex rights
+- Professional dashboard with multi-format uploader
 
 ## Development Status (August 2025)
 
