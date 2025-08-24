@@ -266,6 +266,15 @@ stardust-distro/
 │   │   ├── utils/                 # Utils ✅
 │   │   │   ├── releaseClassifier.js  # Classify release by DDEX standards ✅
 │   │   │   └── urlUtils.js        # Escapes URLs for safe XML ✅
+│   │   ├── dictionaries/          # Centralized data dictionaries ✅
+│   │   │   ├── genres/            # Genre classification system ✅
+│   │   │   │   ├── index.js       # Genre service and API ✅
+│   │   │   │   ├── default.js     # Default genre export ✅
+│   │   │   │   ├── apple-539.js   # Apple Music genres v5.3.9 ✅
+│   │   │   │   └── beatport.js    # (Future) Beatport genres
+│   │   │   ├── currencies/        # Currency codes
+│   │   │   ├── languages/         # Language codes
+│   │   │   └── territories/       # Territory codes
 │   │   ├── router/                # Vue Router
 │   │   │   └── index.js           # Route definitions ✅
 │   │   ├── assets/                # Design system CSS architecture
@@ -543,28 +552,68 @@ interface Release {
   type: 'Album' | 'Single' | 'Video' | 'Mixed';
   status: 'draft' | 'ready' | 'delivered' | 'archived';
   
-  metadata: {
+  // Basic metadata remains the same
+  basic: {
     title: string;
     displayArtist: string;
     releaseDate: Date;
     label: string;
     catalogNumber?: string;
     barcode?: string;
-    genre: string[];
-    language: string;
+    type: string;
+    originalReleaseDate?: Date;
   };
   
   tracks: Track[];
   
   assets: {
+    coverImage?: ImageAsset;
     audio: AudioAsset[];
     images: ImageAsset[];
     documents?: DocumentAsset[];
   };
   
+  // UPDATED: Enhanced metadata with genre classification
+  metadata: {
+    // Genre classification - NEW STRUCTURE
+    genre?: string;              // Human-readable genre name (deprecated, for backwards compatibility)
+    genreCode?: string;          // Primary genre code (e.g., 'HIP-HOP-RAP-00')
+    genreName?: string;          // Primary genre display name (e.g., 'Hip Hop/Rap')
+    subgenre?: string;           // Human-readable subgenre (deprecated, for backwards compatibility)
+    subgenreCode?: string;       // Subgenre code (e.g., 'EAST-COAST-RAP-00')
+    subgenreName?: string;       // Subgenre display name (e.g., 'East Coast Rap')
+    genrePath?: string[];        // Full path array (e.g., ['Music', 'Hip Hop/Rap', 'East Coast Rap'])
+    
+    // DSP-specific genre mappings (future enhancement)
+    genreMappings?: {
+      apple?: { code: string; name: string; };
+      spotify?: { id: string; name: string; };
+      beatport?: { id: string; name: string; };
+      amazon?: { code: string; name: string; };
+    };
+    
+    // Existing metadata fields
+    language: string;
+    copyright: string;
+    copyrightYear?: number;
+    productionYear?: number;
+    
+    // Additional metadata
+    mood?: string[];             // Mood tags
+    tempo?: number;              // BPM for electronic music
+    key?: string;                // Musical key
+    isExplicit?: boolean;        // Explicit content flag
+    
+    // Credits and contributors
+    contributors?: Contributor[];
+    writers?: Writer[];
+    publishers?: Publisher[];
+  };
+  
   territories: {
     included: string[];
     excluded?: string[];
+    mode: 'worldwide' | 'selected';
   };
   
   rights: {
@@ -580,6 +629,13 @@ interface Release {
     lastGenerated?: Date;
     validationStatus?: 'valid' | 'invalid';
     validationErrors?: ValidationError[];
+    
+    // Genre compliance tracking
+    genreCompliance?: {
+      apple?: boolean;      // Genre code is Apple-compliant
+      beatport?: boolean;   // Genre mapped for Beatport
+      lastValidated?: Date;
+    };
   };
   
   created: Timestamp;
@@ -596,7 +652,13 @@ interface Track {
   metadata: {
     title: string;
     displayArtist: string;
-    duration: number; // seconds
+    duration: number;
+    
+    // Track-level genre (if different from release)
+    genreCode?: string;
+    genreName?: string;
+    subgenreCode?: string;
+    subgenreName?: string;
     contributors: Contributor[];
     writers?: Writer[];
     publishers?: Publisher[];
@@ -623,12 +685,21 @@ interface DeliveryTarget {
   type: 'DSP' | 'Aggregator' | 'Test';
   
   protocol: 'FTP' | 'SFTP' | 'S3' | 'API' | 'Azure';
-  config: DeliveryProtocol; // Type based on protocol
+  config: DeliveryProtocol;
   
   requirements?: {
     ernVersion: string;
     audioFormat: string[];
     imageSpecs: ImageRequirement[];
+    
+    // Genre mapping requirements
+    genreMapping?: {
+      required: boolean;
+      provider: 'apple' | 'spotify' | 'beatport' | 'amazon' | 'custom';
+      version?: string;
+      strictMode?: boolean;  // Reject if genre can't be mapped
+      fallbackGenre?: string; // Default genre if mapping fails
+    };
   };
   
   schedule: {
@@ -1626,6 +1697,44 @@ const results = await delivery.deliver(stardustRelease);
 - **Route Added**: /testing route in router configuration
 
 ### Phase 6: Production Launch Essentials (Weeks 15-16)
+
+#### Genre Classification System - COMPLETE
+
+  - [x] **Apple Music Genre Dictionary (v5.3.9)**
+      - [x] Complete genre mapping with 400+ genres and subgenres
+      - [x] Hierarchical structure with parent-child relationships
+      - [x] Apple-specific genre codes for delivery compliance
+      - [x] Path-based navigation (Music > Hip Hop/Rap > East Coast Rap)
+      - [x] Full-text search across all genre levels
+
+  - [x] **Multi-DSP Genre Architecture**
+      - [x] Dictionary-based system at `/src/dictionaries/genres/`
+      - [x] Apple genres as default source of truth
+      - [x] Extensible architecture for future DSP mappings
+      - [x] Provider-specific genre files (apple-539.js)
+      - [x] Default genre export for platform-wide usage
+
+  - [x] **Genre Service Layer**
+      - [x] Unified API for genre operations
+      - [x] DSP-aware genre mapping capabilities
+      - [x] Parent/child genre navigation
+      - [x] Genre validation and code verification
+      - [x] Search with path context
+
+  - [x] **Genre Selector Component**
+      - [x] Interactive hierarchical genre browser
+      - [x] Real-time search with path display
+      - [x] Parent genre → subgenre drill-down
+      - [x] Visual selection indicators
+      - [x] Clear selection capability
+      - [x] DSP-specific genre display
+
+  - [x] **Integration Points**
+      - [x] NewRelease.vue: Genre selection in metadata step
+      - [x] Catalog.vue: Genre display in release listings
+      - [x] ReleaseDetail.vue: Genre information display
+      - [x] NewDelivery.vue: Genre shown on release cards
+      - [x] ERN generation: Genre codes included in XML
 
 #### Core Reliability Features
 
