@@ -8,6 +8,7 @@ import ernService from '../services/ern'
 import { db } from '../firebase'
 import { collection, addDoc, updateDoc, doc, query, where, getDocs, orderBy } from 'firebase/firestore'
 import { validateXmlUrls } from '@/utils/urlUtils'
+import { getGenrePath } from '@/dictionaries/genres'
 
 const route = useRoute()
 const router = useRouter()
@@ -95,6 +96,16 @@ const scheduledDateTime = computed(() => {
   const date = new Date(deliveryData.value.scheduledAt + 'T' + deliveryData.value.scheduledTime)
   return date.toISOString()
 })
+
+// Helper method to display genre
+const getGenreDisplay = (release) => {
+  if (release.metadata?.subgenreCode) {
+    return getGenrePath(release.metadata.subgenreCode, 'apple')
+  } else if (release.metadata?.genreCode) {
+    return getGenrePath(release.metadata.genreCode, 'apple')
+  }
+  return 'No genre specified'
+}
 
 // Methods
 const loadData = async () => {
@@ -653,6 +664,13 @@ onMounted(() => {
                   <div class="release-info">
                     <h3>{{ release.basic?.title || 'Untitled' }}</h3>
                     <p>{{ release.basic?.displayArtist || 'Unknown Artist' }}</p>
+                    
+                    <!-- Add genre display -->
+                    <div v-if="release.metadata?.genreCode" class="release-genre">
+                      <font-awesome-icon icon="music" class="genre-icon" />
+                      <span>{{ getGenreDisplay(release) }}</span>
+                    </div>
+                    
                     <div class="release-meta">
                       <span class="badge" :class="release.status === 'ready' ? 'badge-info' : 'badge-success'">
                         {{ release.status }}
@@ -661,6 +679,7 @@ onMounted(() => {
                       <span>{{ formatDate(release.basic?.releaseDate) }}</span>
                     </div>
                   </div>
+
                 </div>
               </label>
             </div>
@@ -1897,6 +1916,20 @@ onMounted(() => {
 .btn-icon:hover {
   background-color: var(--color-bg-secondary);
   color: var(--color-text);
+}
+
+.release-genre {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: var(--space-xs) 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.genre-icon {
+  font-size: var(--text-xs);
+  opacity: 0.7;
 }
 
 /* Responsive */

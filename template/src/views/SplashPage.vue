@@ -49,10 +49,10 @@ const launchPhase = {
   title: 'Production Launch Essentials',
   status: 'IN PROGRESS',
   tasks: [
-    { name: 'Multi-version ERN', status: 'active' },
+    { name: 'Multi-version DDEX ERN', status: 'active' },
     { name: 'Idempotency & deduplication', status: 'active' },
-    { name: 'Import/export wizard', status: 'active' },
-    { name: 'Email notifications', status: 'upcoming' },
+    { name: 'Apple Music 5.3.23 spec', status: 'active' },
+    { name: 'Import/export wizard', status: 'upcoming' },
     { name: 'Documentation & guides', status: 'upcoming' },
     { name: 'npm package publication', status: 'upcoming' }
   ]
@@ -88,11 +88,9 @@ const postLaunchFeatures = [
 
 // Phase 8: Plugin Marketplace
 const pluginExamples = [
-  'Dolby Atmos Processing',
-  'Apple Digital Masters',
-  'Advanced Credits Management',
+  'Immersive Audio',
   'Delivery Orchestration',
-  'Analytics Enhanced',
+  'MEAD (Media Enrichment and Description)',
   'Custom Workflows'
 ]
 
@@ -131,7 +129,10 @@ const copyCode = () => {
       <div class="container">
         <div class="hero-content">
           <div class="hero-badge">
-            <span class="badge-text badge-launch">🚀 Launch Imminent</span>
+            <span class="badge-text badge-launch">
+              <font-awesome-icon icon="rocket" class="badge-icon" />
+              Launch Imminent
+            </span>
             <span class="badge-separator">•</span>
             <span class="badge-text">100% Open Source</span>
             <span class="badge-separator">•</span>
@@ -162,7 +163,7 @@ const copyCode = () => {
               View Dev Progress
             </button>
             <button @click="handleViewGithub" class="btn btn-secondary btn-lg">
-              <font-awesome-icon :icon="['fab', 'github']" />
+              <font-awesome-icon :icon="['fab', 'github']" class="btn-icon" />
               View on GitHub
             </button>
           </div>
@@ -337,7 +338,7 @@ const copyCode = () => {
             </div>
             <div class="roadmap-content">
               <h3>Phase 6: Production Launch Essentials</h3>
-              <p>Import/export, email notifications, multi-version ERN, documentation</p>
+              <p>Multi-version ERN, Apple Music spec, bulk import, documentation</p>
               <span class="roadmap-status">IN PROGRESS</span>
             </div>
           </div>
@@ -576,11 +577,18 @@ const copyCode = () => {
 
 .badge-text {
   color: var(--color-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
 }
 
 .badge-launch {
   color: var(--color-success);
   font-weight: var(--font-semibold);
+}
+
+.badge-icon {
+  font-size: 1em;
 }
 
 .badge-separator {
@@ -654,6 +662,10 @@ const copyCode = () => {
   gap: var(--space-md);
   justify-content: center;
   flex-wrap: wrap;
+}
+
+.btn-icon {
+  margin-right: var(--space-xs);
 }
 
 /* Philosophy Section */

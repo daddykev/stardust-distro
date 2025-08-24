@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useCatalog } from '../composables/useCatalog'
 import { useAuth } from '../composables/useAuth'
+import GenreSelector from '../components/GenreSelector.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -52,7 +53,9 @@ const releaseData = ref({
   },
   metadata: {
     genre: '',
+    genreCode: '',  // Apple genre code
     subgenre: '',
+    subgenreCode: '', // Apple subgenre code
     language: 'en',
     copyright: '',
     copyrightYear: new Date().getFullYear(),
@@ -1069,36 +1072,16 @@ const formatDuration = (seconds) => {
 
           <!-- Step 4: Metadata -->
           <div v-if="currentStep === 4" class="wizard-step">
-            <div class="form-grid">
-              <div class="form-group">
-                <label class="form-label required">Primary Genre</label>
-                <select v-model="releaseData.metadata.genre" class="form-select" required>
-                  <option value="">Select genre</option>
-                  <option value="Rock">Rock</option>
-                  <option value="Pop">Pop</option>
-                  <option value="Electronic">Electronic</option>
-                  <option value="Hip-Hop">Hip-Hop</option>
-                  <option value="R&B">R&B</option>
-                  <option value="Jazz">Jazz</option>
-                  <option value="Classical">Classical</option>
-                  <option value="Country">Country</option>
-                  <option value="Folk">Folk</option>
-                  <option value="Metal">Metal</option>
-                  <option value="Punk">Punk</option>
-                  <option value="World">World</option>
-                </select>
-              </div>
-              
-              <div class="form-group">
-                <label class="form-label">Sub-genre</label>
-                <input 
-                  v-model="releaseData.metadata.subgenre" 
-                  type="text" 
-                  class="form-input"
-                  placeholder="Enter sub-genre"
-                />
-              </div>
-              
+            <div class="form-section">
+              <h3>Genre Classification</h3>
+              <GenreSelector
+                v-model="releaseData.metadata.genreCode"
+                v-model:subgenre-value="releaseData.metadata.subgenreCode"
+                dsp="apple"
+              />
+            </div>
+            
+            <div class="form-grid" style="margin-top: var(--space-xl);">
               <div class="form-group">
                 <label class="form-label required">Language</label>
                 <select v-model="releaseData.metadata.language" class="form-select">
