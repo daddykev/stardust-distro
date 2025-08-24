@@ -2,7 +2,6 @@
 import { storage } from '../firebase'
 import { 
   ref, 
-  uploadBytes, 
   uploadBytesResumable, 
   getDownloadURL, 
   deleteObject,

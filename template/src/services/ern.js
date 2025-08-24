@@ -1,7 +1,7 @@
 // services/ern.js
 import { httpsCallable } from 'firebase/functions'
 import { functions, auth, db } from '../firebase'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { doc, updateDoc } from 'firebase/firestore'
 import { ERN382Builder } from './ern/ern-382'
 import { ERN42Builder } from './ern/ern-42'
 import { ERN43Builder } from './ern/ern-43'
@@ -10,11 +10,6 @@ import { ERN43Builder } from './ern/ern-43'
 import catalogService from './catalog'
 import { classifyRelease } from '../utils/releaseClassifier'
 import { escapeUrlForXml } from '../utils/urlUtils'
-
-// Constants from existing implementation
-const DEFAULT_IMAGE_WIDTH = 3000
-const DEFAULT_IMAGE_HEIGHT = 3000
-const DEFAULT_IMAGE_RESOLUTION = 300
 
 /**
  * Enhanced ERN Service with multi-version support

@@ -1,11 +1,10 @@
 // services/apple.js
 import { httpsCallable } from 'firebase/functions'
 import { functions, auth, db } from '../firebase'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { doc, updateDoc } from 'firebase/firestore'
 import { Apple5323Builder } from './apple/apple-5323'
 import catalogService from './catalog'
 import { classifyRelease } from '../utils/releaseClassifier'
-import { escapeUrlForXml } from '../utils/urlUtils'
 
 /**
  * Apple Music Package Service

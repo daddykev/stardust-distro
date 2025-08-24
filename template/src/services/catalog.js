@@ -12,8 +12,7 @@ import {
   where, 
   orderBy, 
   limit,
-  serverTimestamp,
-  Timestamp
+  serverTimestamp
 } from 'firebase/firestore'
 
 export class CatalogService {
