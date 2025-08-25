@@ -269,10 +269,13 @@ stardust-distro/
 │   │   │   └── urlUtils.js        # Escapes URLs for safe XML ✅
 │   │   ├── dictionaries/          # Centralized data dictionaries ✅
 │   │   │   ├── genres/            # Genre classification system ✅
-│   │   │   │   ├── index.js       # Genre service and API ✅
-│   │   │   │   ├── default.js     # Default genre export ✅
+│   │   │   │   ├── amazon-201805.js  # Amazon genres v2018-05 ✅
 │   │   │   │   ├── apple-539.js   # Apple Music genres v5.3.9 ✅
-│   │   │   │   └── beatport-202505.js  # Beatport genres v2025-05 ✅
+│   │   │   │   ├── beatport-202505.js  # Beatport genres v2025-05 ✅
+│   │   │   │   ├── default.js     # Default genre export ✅
+│   │   │   │   ├── genre-truth.js # Genre truth ✅
+│   │   │   │   ├── index.js       # Genre service and API ✅
+│   │   │   │   └── mappings.js    # Genre mappings ✅
 │   │   │   ├── currencies/        # Currency codes ❌
 │   │   │   ├── languages/         # Language codes ❌
 │   │   │   └── territories/       # Territory codes ❌
