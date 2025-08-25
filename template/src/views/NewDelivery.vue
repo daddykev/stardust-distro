@@ -7,6 +7,7 @@ import { db } from '../firebase'
 import { collection, addDoc, query, where, orderBy, getDocs, Timestamp } from 'firebase/firestore'
 import ernService from '../services/ern'
 import deliveryTargetService from '../services/deliveryTargets'
+import deliveryService from '../services/delivery'
 import genreMappingService from '../services/genreMappings'
 import { validateXmlUrls } from '../utils/urlUtils'
 
@@ -430,6 +431,7 @@ const queueDelivery = async () => {
   
   try {
     const deliveries = []
+    const duplicateDeliveries = []
     
     for (const targetId of deliveryData.value.selectedTargets) {
       const target = availableTargets.value.find(t => t.id === targetId)
@@ -451,6 +453,17 @@ const queueDelivery = async () => {
         }
       }
       
+      // Generate idempotency key using the service method
+      const idempotencyKey = deliveryService.generateIdempotencyKey(
+        deliveryData.value.releaseId,
+        target.id,
+        'NewReleaseMessage',
+        messageTypes.value[target.id] || 'Initial',
+        ern.messageId
+      )
+      
+      console.log(`Generated idempotency key for ${target.name}: ${idempotencyKey}`)
+      
       // Create delivery record with proper DSP configuration and message type
       const delivery = {
         releaseId: deliveryData.value.releaseId,
@@ -469,6 +482,9 @@ const queueDelivery = async () => {
           : new Date(),
         testMode: deliveryData.value.testMode,
         notes: deliveryData.value.notes,
+        
+        // Idempotency key
+        idempotencyKey: idempotencyKey,
         
         // Message type information
         messageType: 'NewReleaseMessage',
@@ -506,29 +522,77 @@ const queueDelivery = async () => {
         createdBy: user.value.uid
       }
       
-      // Save to Firestore
-      const docRef = await addDoc(collection(db, 'deliveries'), delivery)
-      deliveries.push({ id: docRef.id, ...delivery })
+      // Use the delivery service to create the delivery (with idempotency check)
+      const createdDelivery = await deliveryService.createDelivery(delivery)
       
-      // Save to delivery history for tracking message types
-      await addDoc(collection(db, 'deliveryHistory'), {
-        deliveryId: docRef.id,
-        releaseId: deliveryData.value.releaseId,
-        targetId: target.id,
-        tenantId: user.value.uid,  // ADD THIS LINE - required by Firestore rules
-        messageType: 'NewReleaseMessage',
-        messageSubType: messageTypes.value[target.id] || 'Initial',
-        status: 'queued',
-        createdAt: new Date()
-      })
+      // Check if it was a duplicate
+      if (createdDelivery.isDuplicate) {
+        console.log(`Duplicate delivery detected for ${target.name} - using existing delivery`)
+        duplicateDeliveries.push({
+          ...createdDelivery,
+          targetName: target.name
+        })
+        
+        // Still add to deliveries array for tracking, but mark as duplicate
+        deliveries.push(createdDelivery)
+      } else {
+        console.log(`New delivery created for ${target.name}: ${createdDelivery.id}`)
+        deliveries.push(createdDelivery)
+        
+        // Only save to delivery history for new deliveries
+        await addDoc(collection(db, 'deliveryHistory'), {
+          deliveryId: createdDelivery.id,
+          releaseId: deliveryData.value.releaseId,
+          targetId: target.id,
+          tenantId: user.value.uid,
+          messageType: 'NewReleaseMessage',
+          messageSubType: messageTypes.value[target.id] || 'Initial',
+          status: 'queued',
+          idempotencyKey: idempotencyKey,  // Include idempotency key in history
+          createdAt: new Date()
+        })
+      }
     }
     
-    successMessage.value = `Successfully queued ${deliveries.length} delivery(ies)!`
+    // Provide detailed feedback about new vs duplicate deliveries
+    const newDeliveries = deliveries.filter(d => !d.isDuplicate)
+    const totalDeliveries = deliveries.length
+    const duplicateCount = duplicateDeliveries.length
+    
+    if (duplicateCount > 0) {
+      // Show which targets had duplicates
+      const duplicateTargets = duplicateDeliveries.map(d => d.targetName).join(', ')
+      
+      if (newDeliveries.length > 0) {
+        successMessage.value = `Successfully queued ${newDeliveries.length} new delivery(ies)! ` +
+          `${duplicateCount} delivery(ies) to [${duplicateTargets}] already existed and were skipped.`
+      } else {
+        successMessage.value = `All ${duplicateCount} delivery(ies) already exist for [${duplicateTargets}]. ` +
+          `No new deliveries were created to prevent duplicates.`
+      }
+      
+      console.log('Duplicate deliveries detected:', duplicateDeliveries)
+    } else {
+      successMessage.value = `Successfully queued ${totalDeliveries} delivery(ies)!`
+    }
+    
+    // Log summary
+    console.log(`Delivery queue summary:`, {
+      total: totalDeliveries,
+      new: newDeliveries.length,
+      duplicates: duplicateCount,
+      targets: deliveries.map(d => ({
+        target: d.targetName,
+        id: d.id,
+        isDuplicate: d.isDuplicate || false
+      }))
+    })
     
     // Redirect to deliveries page after a short delay
     setTimeout(() => {
       router.push('/deliveries')
-    }, 2000)
+    }, duplicateCount > 0 ? 3000 : 2000) // Give more time to read duplicate message
+    
   } catch (err) {
     console.error('Error queuing delivery:', err)
     error.value = 'Failed to queue delivery. Please try again.'

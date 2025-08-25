@@ -1772,11 +1772,24 @@ const results = await delivery.deliver(stardustRelease);
 
 #### Core Reliability Features
 
-  - [ ] **Idempotency & Deduplication**
-      - [ ] Add `idempotencyKey` to delivery model
-      - [ ] Firestore transaction locks for processing
-      - [ ] Duplicate release detection (by UPC/ISRC)
-      - [ ] Merge/skip duplicate handling
+  - [x] **Idempotency & Deduplication** ✅ COMPLETE
+      - [x] Added `idempotencyKey` field to delivery model
+      - [x] Implemented `generateIdempotencyKey()` method in delivery.js
+      - [x] Added `checkIdempotencyKey()` for duplicate detection
+      - [x] Updated `createDelivery()` with idempotency protection
+      - [x] Enhanced ERN service with stable message ID generation
+      - [x] Updated Apple service with stable package/vendor IDs
+      - [x] Added idempotency key to delivery history records
+      - [x] Implemented Firestore transaction locks for processing
+      - [x] Created `acquireDeliveryLock()` and `releaseDeliveryLock()` functions
+      - [x] Updated `processDeliveryQueue` with lock protection
+      - [x] Added `cleanupExpiredLocks` scheduled function
+      - [x] Updated NewDelivery.vue to use delivery service with deduplication
+      - [x] Added duplicate delivery detection and user feedback
+      - [x] Updated Firestore rules with locks collection permissions
+      - [x] Migrated existing deliveries with idempotency keys
+      - [x] Tested end-to-end idempotency system
+      
   - [ ] **Content Fingerprinting**
       - [ ] Basic MD5/SHA-256 dual hashing
       - [ ] Audio fingerprinting with peaks.js
@@ -1793,6 +1806,7 @@ const results = await delivery.deliver(stardustRelease);
   - [ ] **Apple Music Package Support**
       - [x] Apple Music XML service
       - [x] Apple Music Spec 5.3.23
+      - [x] Stable package/vendor ID generation for idempotency
       - [ ] Integration with actual delivery services
       - [ ] Add to Delivery UI
   - [ ] **Enhanced Delivery Receipts**
@@ -1800,7 +1814,7 @@ const results = await delivery.deliver(stardustRelease);
       - [ ] PDF receipt generation
       - [ ] Receipt archive system
       - [ ] DSP acknowledgment tracking
-      - [ ] Reconciliation dashboard      
+      - [ ] Reconciliation dashboard  
 
 #### User Onboarding & Migration
 

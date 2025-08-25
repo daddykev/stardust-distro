@@ -948,8 +948,11 @@ export class DeliveryService {
       if (idempotencyCheck.exists) {
         console.log('Delivery already exists with this idempotency key, returning existing:', idempotencyCheck.delivery.id)
         
-        // Return the existing delivery instead of creating a duplicate
-        return idempotencyCheck.delivery
+        // Return the existing delivery with isDuplicate flag
+        return {
+          ...idempotencyCheck.delivery,
+          isDuplicate: true  // Add this flag
+        }
       }
       
       // Add creation timestamps and idempotency key
