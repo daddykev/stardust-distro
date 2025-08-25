@@ -437,6 +437,20 @@ const queueDelivery = async () => {
       
       if (!target || !ern) continue
       
+      // Clean up genreMapping to avoid undefined values
+      let cleanGenreMapping = null
+      if (ern.genreMapping) {
+        cleanGenreMapping = {
+          enabled: ern.genreMapping.enabled === true,  // Ensure boolean
+          original: ern.genreMapping.original || null,
+          mapped: ern.genreMapping.mapped || null
+        }
+        // Only add mappingId if it exists
+        if (ern.genreMapping.mappingId) {
+          cleanGenreMapping.mappingId = ern.genreMapping.mappingId
+        }
+      }
+      
       // Create delivery record with proper DSP configuration and message type
       const delivery = {
         releaseId: deliveryData.value.releaseId,
@@ -460,8 +474,8 @@ const queueDelivery = async () => {
         messageType: 'NewReleaseMessage',
         messageSubType: messageTypes.value[target.id] || 'Initial',
         
-        // Genre mapping information
-        genreMapping: ern.genreMapping || null,
+        // Genre mapping information - cleaned up
+        genreMapping: cleanGenreMapping,
         
         // ERN data
         ernVersion: target.ernVersion || '4.3',
@@ -501,6 +515,7 @@ const queueDelivery = async () => {
         deliveryId: docRef.id,
         releaseId: deliveryData.value.releaseId,
         targetId: target.id,
+        tenantId: user.value.uid,  // ADD THIS LINE - required by Firestore rules
         messageType: 'NewReleaseMessage',
         messageSubType: messageTypes.value[target.id] || 'Initial',
         status: 'queued',

@@ -82,7 +82,6 @@ class ERNService {
             mappedGenre.code = targetGenreCode
             
             // Try to get the genre name from the target DSP dictionary
-            // This would require importing the specific DSP dictionary
             mappedGenre.name = await this.getGenreNameForDSP(targetGenreCode, targetConfig.type)
           }
           
@@ -102,7 +101,6 @@ class ERNService {
         
         if (builtInMapping && builtInMapping.mappings) {
           // Apply built-in mapping logic
-          // This is simplified - you'd want to integrate with your existing genre dictionaries
           console.log('Applying built-in mapping rules')
         }
       }
@@ -140,21 +138,14 @@ class ERNService {
    * Get genre name from DSP-specific dictionary
    */
   async getGenreNameForDSP(genreCode, dspType) {
-    // This would integrate with your DSP-specific genre dictionaries
-    // For now, return the code as the name
-    // In production, you'd import the specific dictionaries and look up the name
-    
     try {
       if (dspType?.toLowerCase().includes('beatport')) {
-        // Import and use Beatport dictionary
         const { BEATPORT_GENRES } = await import('../dictionaries/genres/beatport-202505')
         return BEATPORT_GENRES.byCode[genreCode]?.name || genreCode
       } else if (dspType?.toLowerCase().includes('apple')) {
-        // Import and use Apple dictionary
         const { APPLE_GENRES } = await import('../dictionaries/genres/apple-539')
         return APPLE_GENRES.byCode[genreCode]?.name || genreCode
       } else if (dspType?.toLowerCase().includes('amazon')) {
-        // Import and use Amazon dictionary
         const { AMAZON_GENRES } = await import('../dictionaries/genres/amazon-201805')
         return AMAZON_GENRES.byCode[genreCode]?.name || genreCode
       }
@@ -181,7 +172,7 @@ class ERNService {
         throw new Error('Release not found')
       }
 
-      // Get the UPC/barcode from the correct field - check multiple possible locations
+      // Get the UPC/barcode from the correct field
       const upc = release.basic?.upc || release.basic?.barcode || release.basic?.ean || ''
 
       // Validate UPC exists and is valid
@@ -262,8 +253,8 @@ class ERNService {
         ...mappedRelease,
         basic: {
           ...mappedRelease.basic,
-          upc: upc,  // Ensure UPC is set
-          ean: upc   // Also set as EAN for compatibility
+          upc: upc,
+          ean: upc
         },
         metadata: {
           ...mappedRelease.metadata,
@@ -271,15 +262,23 @@ class ERNService {
           genreName: mappedGenre.name,
           subgenreCode: mappedGenre.subgenreCode,
           subgenreName: mappedGenre.subgenreName
-        }
+        },
+        upc: upc // Add UPC at root level for compatibility
       }
 
       // Prepare resource data with calculated MD5 hashes
       const resourceData = {
-        tracks: mappedRelease.tracks?.map(track => ({
+        tracks: mappedRelease.tracks?.map((track, index) => ({
           ...track,
-          md5: trackMD5s[track.isrc] || null
-        })),
+          md5: trackMD5s[track.isrc] || null,
+          sequenceNumber: track.sequenceNumber || index + 1,
+          title: track.metadata?.title || track.title || 'Untitled',
+          artist: track.metadata?.displayArtist || track.artist || 'Unknown Artist',
+          duration: track.metadata?.duration || track.duration || 0,
+          isrc: track.isrc,
+          audio: track.audio,
+          metadata: track.metadata
+        })) || [],
         coverImage: coverAsset ? {
           ...coverAsset,
           md5: coverMD5
@@ -292,8 +291,12 @@ class ERNService {
         messageId,
         senderId: targetConfig.config?.distributorId || 'stardust-distro',
         senderName: targetConfig.senderName || user.displayName || 'Stardust Distro',
+        senderPartyId: targetConfig.config?.distributorId || 'stardust-distro',
+        messageSender: targetConfig.senderName || user.displayName || 'Stardust Distro',
         recipientId: targetConfig.partyId,
         recipientName: targetConfig.partyName,
+        recipientPartyId: targetConfig.partyId,
+        messageRecipient: targetConfig.partyName,
         messageCreatedDateTime: new Date().toISOString(),
         
         // Release classification
@@ -331,6 +334,8 @@ class ERNService {
         
         // URL handling - properly escape URLs for XML
         coverUrl: coverAsset?.url ? escapeUrlForXml(coverAsset.url) : null,
+        coverMD5: coverMD5,
+        coverImageUrl: coverAsset?.url ? escapeUrlForXml(coverAsset.url) : null,
         
         // Version-specific config
         allowUGCClips: targetConfig.allowUGCClips,
@@ -365,6 +370,7 @@ class ERNService {
         throw new Error(`No builder available for ERN version ${version}`)
       }
       
+      // Call buildERN with proper data structure
       const ernXml = builder.buildERN(product, resourceData, config)
 
       // Validate the generated ERN if not in test mode
@@ -380,12 +386,12 @@ class ERNService {
         messageType: 'NewReleaseMessage',
         messageSubType: options.messageSubType || 'Initial',
         version: version,
-        genreMapping: {
-          enabled: targetConfig.genreMapping?.enabled,
-          original: release.metadata?.genreCode,
-          mapped: mappedGenre.code,
-          mappingId: targetConfig.genreMapping?.mappingId
-        }
+        genreMapping: targetConfig.genreMapping?.enabled ? {
+          enabled: true,
+          original: release.metadata?.genreCode || null,
+          mapped: mappedGenre.code || null,
+          mappingId: targetConfig.genreMapping?.mappingId || null
+        } : null  // Don't include genreMapping at all if not enabled
       })
 
       return {
@@ -395,11 +401,13 @@ class ERNService {
         version: version,
         profile: classification.profile,
         releaseType: classification.releaseType,
+        messageSubType: options.messageSubType || 'Initial',
         upc: upc,
-        genreMapping: {
-          original: release.metadata?.genreCode,
-          mapped: mappedGenre.code
-        }
+        genreMapping: targetConfig.genreMapping?.enabled ? {
+          enabled: true,
+          original: release.metadata?.genreName || release.metadata?.genre || null,
+          mapped: mappedGenre.name || mappedGenre.code || null
+        } : null  // Return null if genre mapping is not enabled
       }
     } catch (error) {
       console.error('Error generating ERN:', error)
@@ -440,9 +448,9 @@ class ERNService {
     const recommendations = {
       'spotify': '4.3',
       'apple': '4.3',
-      'amazon': '3.8.2', // Most compatible
+      'amazon': '3.8.2',
       'tidal': '4.3',
-      'deezer': '3.8.2', // Most compatible
+      'deezer': '3.8.2',
       'youtube': '4.3',
       'soundcloud': '3.8.2',
       'default': '4.3'
@@ -455,8 +463,6 @@ class ERNService {
    * Validate ERN version schema
    */
   async validateERNVersion(ernXml, version) {
-    // This would integrate with DDEX Workbench API
-    // For now, return basic validation
     const versionMarkers = {
       '3.8.2': 'xmlns:ern="http://ddex.net/xml/ern/382"',
       '4.2': 'xmlns:ern="http://ddex.net/xml/ern/42"',
@@ -504,21 +510,41 @@ class ERNService {
         trackCount: classification.trackCount,
         duration: classification.totalDurationFormatted,
         rationale: classification.rationale
-      } : null,
-      genreMapping: messageConfig.genreMapping || null
+      } : null
+    }
+    
+    // Only add genreMapping if it exists and has values
+    if (messageConfig.genreMapping) {
+      ernData.genreMapping = {
+        enabled: messageConfig.genreMapping.enabled || false,  // Default to false instead of undefined
+        original: messageConfig.genreMapping.original || null,
+        mapped: messageConfig.genreMapping.mapped || null
+      }
+      
+      // Only add mappingId if it exists
+      if (messageConfig.genreMapping.mappingId) {
+        ernData.genreMapping.mappingId = messageConfig.genreMapping.mappingId
+      }
     }
     
     // Track ERN history with version
     const ernHistoryKey = `${targetConfig.id || 'default'}_${Date.now()}`
     
-    await updateDoc(docRef, {
+    // Build the update object, excluding undefined values
+    const updateData = {
       'ddex.lastGenerated': new Date(),
       'ddex.version': messageConfig.version,
       'ddex.classification': ernData.classification,
       'ddex.lastMessageType': messageConfig.messageSubType,
-      'ddex.genreMapping': messageConfig.genreMapping,
       [`ddex.ernHistory.${ernHistoryKey}`]: ernData
-    })
+    }
+    
+    // Only add genreMapping if it exists
+    if (ernData.genreMapping) {
+      updateData['ddex.genreMapping'] = ernData.genreMapping
+    }
+    
+    await updateDoc(docRef, updateData)
     
     return ernData
   }
