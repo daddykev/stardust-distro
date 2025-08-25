@@ -12,6 +12,7 @@ import Deliveries from '../views/Deliveries.vue'
 import Analytics from '../views/Analytics.vue'
 import Testing from '../views/Testing.vue'
 import GenreMaps from '../views/GenreMaps.vue'
+import Migration from '../views/Migration.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -55,6 +56,12 @@ const router = createRouter({
       path: '/catalog',
       name: 'catalog',
       component: Catalog,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/migration',
+      name: 'migration',
+      component: Migration,
       meta: { requiresAuth: true }
     },
     {
