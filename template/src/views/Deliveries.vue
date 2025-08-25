@@ -1,622 +1,470 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
-import deliveryTargetService from '../services/deliveryTargets'
+import { useDelivery } from '../composables/useDelivery'
 import deliveryService from '../services/delivery'
+import ReconciliationDashboard from '../components/ReconciliationDashboard.vue'
 import { db } from '../firebase'
-import { 
-  collection, 
-  query, 
-  where, 
-  orderBy, 
-  onSnapshot,
-  doc,
-  updateDoc,
-  deleteDoc,
-  limit,
-  Timestamp
-} from 'firebase/firestore'
+import { doc, onSnapshot } from 'firebase/firestore'
 
 const router = useRouter()
 const { user } = useAuth()
+const { 
+  deliveries, 
+  subscribeToDeliveries, 
+  cleanup,
+  isLoading 
+} = useDelivery()
 
 // State
-const deliveries = ref([])
-const deliveryTargets = ref([])
-const filterStatus = ref('all')
-const selectedTarget = ref('all')
-const isLoading = ref(true)
-const showTargetModal = ref(false)
-const showDeliveryDetails = ref(false)
-const selectedDelivery = ref(null)
-const isProcessingAction = ref(false)
+const activeTab = ref('active')
+const showDetailsModal = ref(false)
 const showLogsModal = ref(false)
-const selectedDeliveryLogs = ref([])
-const autoRefreshLogs = ref(false)
+const selectedDelivery = ref(null)
+const deliveryLogs = ref([])
+const isLiveLogging = ref(false)
+const isRefreshing = ref(false)
 
-// Real-time listener
-let unsubscribeDeliveries = null
-let logRefreshInterval = null
+// Filters
+const filterStatus = ref('')
+const filterTarget = ref('')
+const searchQuery = ref('')
+
+// Listeners
+let logsUnsubscribe = null
 
 // Computed
+const activeDeliveries = computed(() => {
+  return deliveries.value.filter(d => 
+    ['queued', 'processing'].includes(d.status)
+  ).sort((a, b) => {
+    // Sort by priority, then by scheduled time
+    const priorityOrder = { urgent: 0, high: 1, normal: 2, low: 3 }
+    const aPriority = priorityOrder[a.priority] || 2
+    const bPriority = priorityOrder[b.priority] || 2
+    
+    if (aPriority !== bPriority) {
+      return aPriority - bPriority
+    }
+    
+    // Then by scheduled time
+    const aTime = a.scheduledAt?.toMillis ? a.scheduledAt.toMillis() : 0
+    const bTime = b.scheduledAt?.toMillis ? b.scheduledAt.toMillis() : 0
+    return aTime - bTime
+  })
+})
+
+const completedDeliveries = computed(() => {
+  return deliveries.value.filter(d => 
+    ['completed', 'failed', 'cancelled'].includes(d.status)
+  ).sort((a, b) => {
+    // Sort by completion time, newest first
+    const aTime = (a.completedAt || a.updatedAt)?.toMillis ? 
+      (a.completedAt || a.updatedAt).toMillis() : 0
+    const bTime = (b.completedAt || b.updatedAt)?.toMillis ? 
+      (b.completedAt || b.updatedAt).toMillis() : 0
+    return bTime - aTime
+  })
+})
+
+const uniqueTargets = computed(() => {
+  const targets = new Set()
+  deliveries.value.forEach(d => {
+    if (d.targetName) {
+      targets.add(d.targetName)
+    }
+  })
+  return Array.from(targets).sort()
+})
+
 const filteredDeliveries = computed(() => {
-  let filtered = [...deliveries.value]
+  let filtered = activeTab.value === 'active' ? activeDeliveries.value : completedDeliveries.value
   
-  if (filterStatus.value !== 'all') {
+  if (filterStatus.value) {
     filtered = filtered.filter(d => d.status === filterStatus.value)
   }
   
-  if (selectedTarget.value !== 'all') {
-    filtered = filtered.filter(d => d.targetName === selectedTarget.value)
+  if (filterTarget.value) {
+    filtered = filtered.filter(d => d.targetName === filterTarget.value)
   }
   
-  // Sort by scheduled time (most recent first)
-  filtered.sort((a, b) => {
-    const dateA = a.scheduledAt?.toDate ? a.scheduledAt.toDate() : new Date(a.scheduledAt)
-    const dateB = b.scheduledAt?.toDate ? b.scheduledAt.toDate() : new Date(b.scheduledAt)
-    return dateB - dateA
-  })
+  if (searchQuery.value) {
+    const query = searchQuery.value.toLowerCase()
+    filtered = filtered.filter(d => 
+      d.releaseTitle?.toLowerCase().includes(query) ||
+      d.releaseArtist?.toLowerCase().includes(query)
+    )
+  }
   
   return filtered
 })
 
-const statusCounts = computed(() => {
-  const counts = {
-    all: deliveries.value.length,
-    queued: 0,
-    processing: 0,
-    completed: 0,
-    failed: 0
+const stats = computed(() => {
+  return {
+    queued: deliveries.value.filter(d => d.status === 'queued').length,
+    processing: deliveries.value.filter(d => d.status === 'processing').length,
+    completed: deliveries.value.filter(d => d.status === 'completed').length,
+    failed: deliveries.value.filter(d => d.status === 'failed').length
   }
-  
-  deliveries.value.forEach(delivery => {
-    if (counts[delivery.status] !== undefined) {
-      counts[delivery.status]++
-    }
-  })
-  
-  return counts
-})
-
-const activeTargets = computed(() => {
-  return deliveryTargets.value.filter(t => t.active)
-})
-
-const todaysDeliveries = computed(() => {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  
-  return deliveries.value.filter(d => {
-    const deliveryDate = d.completedAt?.toDate ? d.completedAt.toDate() : 
-                        d.completedAt ? new Date(d.completedAt) : null
-    return deliveryDate && deliveryDate >= today
-  })
 })
 
 // Methods
-const loadDeliveries = () => {
+const refreshDeliveries = async () => {
   if (!user.value) return
   
-  // Set up real-time listener for deliveries
-  const q = query(
-    collection(db, 'deliveries'),
-    where('tenantId', '==', user.value.uid),
-    orderBy('scheduledAt', 'desc'),
-    limit(100)
-  )
+  isRefreshing.value = true
   
-  unsubscribeDeliveries = onSnapshot(q, (snapshot) => {
-    const deliveriesData = []
-    snapshot.forEach((doc) => {
-      const data = doc.data()
-      deliveriesData.push({ 
-        id: doc.id, 
-        ...data,
-        // Ensure logs array exists
-        logs: data.logs || []
-      })
-    })
-    deliveries.value = deliveriesData
-    isLoading.value = false
-    
-    // If we're viewing logs for a delivery that just updated, refresh the logs
-    if (showLogsModal.value && selectedDelivery.value) {
-      const updatedDelivery = deliveriesData.find(d => d.id === selectedDelivery.value.id)
-      if (updatedDelivery) {
-        selectedDelivery.value = updatedDelivery
-        selectedDeliveryLogs.value = updatedDelivery.logs || []
-      }
-    }
-  }, (error) => {
-    console.error('Error loading deliveries:', error)
-    isLoading.value = false
-  })
+  // Re-subscribe to get fresh data
+  subscribeToDeliveries(user.value.uid)
+  
+  setTimeout(() => {
+    isRefreshing.value = false
+  }, 1000)
 }
 
-const loadDeliveryTargets = async () => {
-  try {
-    deliveryTargets.value = await deliveryTargetService.getTenantTargets(user.value.uid)
-  } catch (error) {
-    console.error('Error loading delivery targets:', error)
-  }
-}
-
-// View delivery logs
-const viewDeliveryLogs = async (delivery) => {
+const viewDetails = (delivery) => {
   selectedDelivery.value = delivery
-  selectedDeliveryLogs.value = delivery.logs || []
+  showDetailsModal.value = true
+}
+
+const closeDetailsModal = () => {
+  showDetailsModal.value = false
+  selectedDelivery.value = null
+}
+
+const viewLogs = async (delivery) => {
+  selectedDelivery.value = delivery
+  deliveryLogs.value = delivery.logs || []
   showLogsModal.value = true
   
-  // If delivery is processing, auto-refresh logs
-  if (delivery.status === 'processing' || delivery.status === 'queued') {
-    autoRefreshLogs.value = true
-    startLogRefresh()
+  // If delivery is processing, start live logging
+  if (delivery.status === 'processing') {
+    startLiveLogging()
   }
 }
 
-// Start auto-refreshing logs
-const startLogRefresh = () => {
-  if (logRefreshInterval) return
-  
-  logRefreshInterval = setInterval(async () => {
-    if (!showLogsModal.value || !autoRefreshLogs.value) {
-      stopLogRefresh()
-      return
-    }
-    
-    // The real-time listener will update the logs automatically
-    // This is just a backup to ensure UI updates
-    const delivery = deliveries.value.find(d => d.id === selectedDelivery.value.id)
-    if (delivery) {
-      selectedDeliveryLogs.value = delivery.logs || []
-      
-      // Stop auto-refresh if delivery is completed or failed
-      if (delivery.status === 'completed' || delivery.status === 'failed' || delivery.status === 'cancelled') {
-        stopLogRefresh()
-      }
-    }
-  }, 2000) // Refresh every 2 seconds
-}
-
-// Stop auto-refreshing logs
-const stopLogRefresh = () => {
-  if (logRefreshInterval) {
-    clearInterval(logRefreshInterval)
-    logRefreshInterval = null
-  }
-  autoRefreshLogs.value = false
-}
-
-// Close logs modal
 const closeLogsModal = () => {
   showLogsModal.value = false
-  stopLogRefresh()
+  stopLiveLogging()
   selectedDelivery.value = null
-  selectedDeliveryLogs.value = []
+  deliveryLogs.value = []
 }
 
-// Get log level color
-const getLogLevelColor = (level) => {
-  switch (level) {
-    case 'success':
-      return 'log-success'
-    case 'error':
-      return 'log-error'
-    case 'warning':
-      return 'log-warning'
-    case 'info':
-    default:
-      return 'log-info'
+const startLiveLogging = () => {
+  if (!selectedDelivery.value) return
+  
+  isLiveLogging.value = true
+  
+  // Subscribe to real-time log updates
+  logsUnsubscribe = onSnapshot(
+    doc(db, 'deliveries', selectedDelivery.value.id),
+    (doc) => {
+      if (doc.exists()) {
+        const data = doc.data()
+        deliveryLogs.value = data.logs || []
+        
+        // Auto-scroll to bottom
+        setTimeout(() => {
+          const container = document.querySelector('.logs-container')
+          if (container) {
+            container.scrollTop = container.scrollHeight
+          }
+        }, 100)
+      }
+    }
+  )
+}
+
+const stopLiveLogging = () => {
+  isLiveLogging.value = false
+  if (logsUnsubscribe) {
+    logsUnsubscribe()
+    logsUnsubscribe = null
   }
 }
 
-// Get log level icon
-const getLogLevelIcon = (level) => {
-  switch (level) {
-    case 'success':
-      return 'check-circle'
-    case 'error':
-      return 'circle-xmark'
-    case 'warning':
-      return 'exclamation-triangle'
-    case 'info':
-    default:
-      return 'info-circle'
-  }
-}
-
-// Format log timestamp
-const formatLogTimestamp = (timestamp) => {
-  if (!timestamp) return 'N/A'
+const exportLogs = () => {
+  if (!deliveryLogs.value.length) return
   
-  const date = timestamp?.toDate ? timestamp.toDate() : 
-               timestamp?.seconds ? new Date(timestamp.seconds * 1000) : 
-               new Date(timestamp)
-  
-  return date.toLocaleString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  })
-}
-
-// Format log duration
-const formatLogDuration = (duration) => {
-  if (!duration) return null
-  
-  if (duration < 1000) {
-    return `${duration}ms`
-  } else if (duration < 60000) {
-    return `${(duration / 1000).toFixed(1)}s`
-  } else {
-    return `${Math.floor(duration / 60000)}m ${Math.floor((duration % 60000) / 1000)}s`
-  }
-}
-
-// Get current step display
-const getCurrentStepDisplay = (delivery) => {
-  if (!delivery.currentStep) return ''
-  
-  const stepNames = {
-    'initialization': 'Initializing',
-    'target_configuration': 'Configuring Target',
-    'package_preparation': 'Preparing Package',
-    'delivery_execution': 'Delivering',
-    'api_preparation': 'Preparing API',
-    'api_transmission': 'Sending Data',
-    'api_response': 'Awaiting Response',
-    'file_transfer_note': 'File Transfer',
-    'receipt_generation': 'Generating Receipt',
-    'completion': 'Completing',
-    'error_handling': 'Error Handling'
-  }
-  
-  return stepNames[delivery.currentStep] || delivery.currentStep
+  const dataStr = JSON.stringify(deliveryLogs.value, null, 2)
+  const blob = new Blob([dataStr], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `delivery_logs_${selectedDelivery.value?.id || 'export'}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 const retryDelivery = async (delivery) => {
-  if (!confirm(`Retry delivery to ${delivery.targetName}?`)) return
-  
-  isProcessingAction.value = true
-  try {
-    // Update delivery status back to queued
-    await updateDoc(doc(db, 'deliveries', delivery.id), {
-      status: 'queued',
-      retryCount: (delivery.retryCount || 0) + 1,
-      lastRetryAt: Timestamp.now(),
-      scheduledAt: Timestamp.now(), // Reschedule for immediate processing
-      error: null,
-      failedAt: null
-    })
-    
-    console.log('✅ Delivery queued for retry')
-    
-    // The Cloud Function processDeliveryQueue will pick this up within 1 minute
-    // No simulation - let the real delivery engine handle it
-  } catch (error) {
-    console.error('Error retrying delivery:', error)
-    alert('Failed to retry delivery')
-  } finally {
-    isProcessingAction.value = false
+  if (confirm('Are you sure you want to retry this delivery?')) {
+    try {
+      await deliveryService.retryDelivery(delivery.id)
+      refreshDeliveries()
+    } catch (error) {
+      console.error('Error retrying delivery:', error)
+      alert('Failed to retry delivery. Please try again.')
+    }
   }
 }
 
 const cancelDelivery = async (delivery) => {
-  if (!confirm(`Cancel delivery to ${delivery.targetName}?`)) return
-  
-  isProcessingAction.value = true
-  try {
-    await updateDoc(doc(db, 'deliveries', delivery.id), {
-      status: 'cancelled',
-      cancelledAt: Timestamp.now()
-    })
-    console.log('✅ Delivery cancelled')
-  } catch (error) {
-    console.error('Error cancelling delivery:', error)
-    alert('Failed to cancel delivery')
-  } finally {
-    isProcessingAction.value = false
+  if (confirm('Are you sure you want to cancel this delivery?')) {
+    try {
+      await deliveryService.cancelDelivery(delivery.id)
+      refreshDeliveries()
+    } catch (error) {
+      console.error('Error cancelling delivery:', error)
+      alert('Failed to cancel delivery. Please try again.')
+    }
   }
-}
-
-const deleteDelivery = async (delivery) => {
-  if (!confirm(`Delete this delivery record? This action cannot be undone.`)) return
-  
-  isProcessingAction.value = true
-  try {
-    await deleteDoc(doc(db, 'deliveries', delivery.id))
-    console.log('✅ Delivery record deleted')
-  } catch (error) {
-    console.error('Error deleting delivery:', error)
-    alert('Failed to delete delivery')
-  } finally {
-    isProcessingAction.value = false
-  }
-}
-
-const viewDeliveryDetails = (delivery) => {
-  selectedDelivery.value = delivery
-  showDeliveryDetails.value = true
 }
 
 const downloadERN = (delivery) => {
+  if (!delivery.ernXml) {
+    alert('ERN not available for this delivery')
+    return
+  }
+  
   deliveryService.downloadERN(delivery)
 }
 
 const downloadReceipt = (delivery) => {
-  deliveryService.downloadReceipt(delivery)
-}
-
-const getStatusColor = (status) => {
-  switch (status) {
-    case 'queued':
-      return 'status-queued'
-    case 'processing':
-      return 'status-processing'
-    case 'completed':
-      return 'status-completed'
-    case 'failed':
-      return 'status-failed'
-    case 'cancelled':
-      return 'status-cancelled'
-    default:
-      return ''
+  if (!delivery.receipt && delivery.status !== 'completed') {
+    alert('Receipt not available for this delivery')
+    return
   }
+  
+  deliveryService.downloadReceipt(delivery)
 }
 
 const getStatusIcon = (status) => {
   switch (status) {
-    case 'queued':
-      return 'clock'
-    case 'processing':
-      return 'spinner'
-    case 'completed':
-      return 'check-circle'
-    case 'failed':
-      return 'circle-xmark'
-    case 'cancelled':
-      return 'ban'
-    default:
-      return 'truck'
+    case 'queued': return 'clock'
+    case 'processing': return 'spinner'
+    case 'completed': return 'check-circle'
+    case 'failed': return 'exclamation-triangle'
+    case 'cancelled': return 'times-circle'
+    default: return 'question-circle'
   }
 }
 
-const formatTime = (date) => {
+const formatDate = (date) => {
   if (!date) return 'N/A'
   
-  // Handle Firestore Timestamp
-  const d = date?.toDate ? date.toDate() : 
-           date?.seconds ? new Date(date.seconds * 1000) : 
-           new Date(date)
-  
-  const now = new Date()
-  const diff = Math.abs(now - d)
-  const hours = Math.floor(diff / (1000 * 60 * 60))
-  const days = Math.floor(hours / 24)
-  
-  if (d > now) {
-    if (hours < 1) return 'In a few minutes'
-    if (hours < 24) return `In ${hours} hour${hours > 1 ? 's' : ''}`
-    return `In ${days} day${days > 1 ? 's' : ''}`
-  } else {
-    if (hours < 1) return 'Just now'
-    if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`
-    return `${days} day${days > 1 ? 's' : ''} ago`
-  }
-}
-
-const formatDateTime = (date) => {
-  if (!date) return 'N/A'
-  
-  const d = date?.toDate ? date.toDate() : 
-           date?.seconds ? new Date(date.seconds * 1000) : 
-           new Date(date)
-  
-  return d.toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
-const getDuration = (start, end) => {
-  if (!start || !end) return 'N/A'
-  
-  const startDate = start?.toDate ? start.toDate() : new Date(start)
-  const endDate = end?.toDate ? end.toDate() : new Date(end)
-  
-  const diff = endDate - startDate
-  const minutes = Math.floor(diff / (1000 * 60))
-  const seconds = Math.floor((diff % (1000 * 60)) / 1000)
-  
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`
-  }
-  return `${seconds}s`
-}
-
-const getProgressPercentage = (delivery) => {
-  // Simulate progress based on time elapsed
-  if (delivery.status !== 'processing') return 0
-  
-  const start = delivery.startedAt?.toDate ? delivery.startedAt.toDate() : new Date(delivery.startedAt)
-  const now = new Date()
-  const elapsed = now - start
-  const estimatedDuration = 30000 // 30 seconds estimated
-  
-  return Math.min(Math.round((elapsed / estimatedDuration) * 100), 95)
-}
-
-const navigateToNewDelivery = () => {
-  router.push('/deliveries/new')
-}
-
-const navigateToTargetSettings = () => {
-  router.push('/settings?tab=delivery')
-}
-
-// Cleanup on unmount
-onMounted(() => {
-  loadDeliveries()
-  loadDeliveryTargets()
-  
-  // Cleanup
-  return () => {
-    if (unsubscribeDeliveries) {
-      unsubscribeDeliveries()
+  try {
+    // Handle Firestore Timestamp
+    if (date && typeof date.toDate === 'function') {
+      date = date.toDate()
     }
-    stopLogRefresh()
+    
+    // Handle string dates
+    if (typeof date === 'string') {
+      date = new Date(date)
+    }
+    
+    // Format the date
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date)
+  } catch (error) {
+    console.error('Error formatting date:', error)
+    return 'Invalid Date'
   }
+}
+
+const formatLogTime = (timestamp) => {
+  if (!timestamp) return ''
+  
+  try {
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
+    return new Intl.DateTimeFormat('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3
+    }).format(date)
+  } catch (error) {
+    return ''
+  }
+}
+
+const formatDuration = (ms) => {
+  if (!ms || ms === 0) return 'N/A'
+  
+  const seconds = Math.floor(ms / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  
+  if (hours > 0) {
+    return `${hours}h ${minutes % 60}m`
+  } else if (minutes > 0) {
+    return `${minutes}m ${seconds % 60}s`
+  } else {
+    return `${seconds}s`
+  }
+}
+
+// Lifecycle
+onMounted(() => {
+  if (user.value) {
+    subscribeToDeliveries(user.value.uid)
+  }
+})
+
+onUnmounted(() => {
+  cleanup()
+  stopLiveLogging()
 })
 </script>
 
 <template>
   <div class="deliveries">
     <div class="container">
-      <!-- Page Header -->
-      <div class="page-header">
+      <!-- Header -->
+      <div class="header">
         <div>
-          <h1 class="page-title">Deliveries</h1>
-          <p class="page-subtitle">Monitor and manage your release deliveries</p>
+          <h1>Deliveries</h1>
+          <p class="subtitle">Monitor and manage your release deliveries</p>
         </div>
         <div class="header-actions">
-          <button @click="navigateToTargetSettings" class="btn btn-secondary">
-            <font-awesome-icon icon="cog" />
-            Manage Targets
+          <button @click="refreshDeliveries" class="btn btn-secondary">
+            <font-awesome-icon icon="sync-alt" :spin="isRefreshing" />
+            Refresh
           </button>
-          <button @click="navigateToNewDelivery" class="btn btn-primary">
+          <router-link to="/deliveries/new" class="btn btn-primary">
             <font-awesome-icon icon="plus" />
             New Delivery
-          </button>
+          </router-link>
         </div>
       </div>
 
       <!-- Stats Cards -->
-      <div class="stats-row">
-        <div class="stat-card card">
-          <div class="card-body">
-            <div class="stat-icon success">
-              <font-awesome-icon icon="check-circle" />
-            </div>
-            <div class="stat-content">
-              <div class="stat-value">{{ todaysDeliveries.length }}</div>
-              <div class="stat-label">Completed Today</div>
-            </div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon queued">
+            <font-awesome-icon icon="clock" />
           </div>
-        </div>
-        <div class="stat-card card">
-          <div class="card-body">
-            <div class="stat-icon processing">
-              <font-awesome-icon icon="spinner" spin />
-            </div>
-            <div class="stat-content">
-              <div class="stat-value">{{ statusCounts.processing }}</div>
-              <div class="stat-label">In Progress</div>
-            </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.queued }}</div>
+            <div class="stat-label">Queued</div>
           </div>
-        </div>
-        <div class="stat-card card">
-          <div class="card-body">
-            <div class="stat-icon queued">
-              <font-awesome-icon icon="clock" />
-            </div>
-            <div class="stat-content">
-              <div class="stat-value">{{ statusCounts.queued }}</div>
-              <div class="stat-label">Queued</div>
-            </div>
-          </div>
-        </div>
-        <div class="stat-card card">
-          <div class="card-body">
-            <div class="stat-icon error">
-              <font-awesome-icon icon="circle-xmark" />
-            </div>
-            <div class="stat-content">
-              <div class="stat-value">{{ statusCounts.failed }}</div>
-              <div class="stat-label">Failed</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Filters -->
-      <div class="filters-section">
-        <div class="filter-tabs">
-          <button 
-            v-for="(count, status) in statusCounts" 
-            :key="status"
-            @click="filterStatus = status"
-            class="filter-tab"
-            :class="{ active: filterStatus === status }"
-          >
-            {{ status.charAt(0).toUpperCase() + status.slice(1) }}
-            <span class="filter-badge">{{ count }}</span>
-          </button>
         </div>
         
-        <select v-model="selectedTarget" class="form-select">
-          <option value="all">All Targets</option>
-          <option v-for="target in activeTargets" :key="target.id" :value="target.name">
-            {{ target.name }}
-          </option>
-        </select>
-      </div>
-
-      <!-- Loading State -->
-      <div v-if="isLoading" class="loading-container">
-        <div class="loading-spinner"></div>
-        <p>Loading deliveries...</p>
-      </div>
-
-      <!-- Empty State -->
-      <div v-else-if="filteredDeliveries.length === 0" class="empty-state card">
-        <div class="card-body">
-          <font-awesome-icon icon="truck" class="empty-icon" />
-          <h2 class="empty-title">No deliveries found</h2>
-          <p class="empty-description">
-            {{ filterStatus === 'all' ? 'No deliveries scheduled yet' : `No ${filterStatus} deliveries` }}
-          </p>
-          <button @click="navigateToNewDelivery" class="btn btn-primary">
-            Create Your First Delivery
-          </button>
+        <div class="stat-card">
+          <div class="stat-icon processing">
+            <font-awesome-icon icon="spinner" />
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.processing }}</div>
+            <div class="stat-label">Processing</div>
+          </div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-icon completed">
+            <font-awesome-icon icon="check-circle" />
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.completed }}</div>
+            <div class="stat-label">Completed</div>
+          </div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-icon failed">
+            <font-awesome-icon icon="exclamation-triangle" />
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.failed }}</div>
+            <div class="stat-label">Failed</div>
+          </div>
         </div>
       </div>
 
-      <!-- Deliveries List -->
-      <div v-else class="deliveries-list">
-        <div 
-          v-for="delivery in filteredDeliveries" 
-          :key="delivery.id"
-          class="delivery-card card"
-          :class="{ 'test-mode': delivery.testMode }"
+      <!-- Tabs -->
+      <div class="tabs">
+        <button 
+          @click="activeTab = 'active'"
+          class="tab"
+          :class="{ active: activeTab === 'active' }"
         >
-          <div class="card-body">
+          Active
+        </button>
+        <button 
+          @click="activeTab = 'history'"
+          class="tab"
+          :class="{ active: activeTab === 'history' }"
+        >
+          History
+        </button>
+        <button 
+          @click="activeTab = 'reconciliation'"
+          class="tab"
+          :class="{ active: activeTab === 'reconciliation' }"
+        >
+          Receipts
+        </button>
+      </div>
+
+      <!-- Filters (not shown for reconciliation tab) -->
+      <div v-if="activeTab !== 'reconciliation'" class="filters">
+        <select v-model="filterStatus" class="form-select">
+          <option value="">All Status</option>
+          <option value="queued">Queued</option>
+          <option value="processing">Processing</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        
+        <select v-model="filterTarget" class="form-select">
+          <option value="">All Targets</option>
+          <option v-for="target in uniqueTargets" :key="target" :value="target">
+            {{ target }}
+          </option>
+        </select>
+        
+        <input 
+          v-model="searchQuery"
+          type="search"
+          placeholder="Search releases..."
+          class="form-input search-input"
+        />
+      </div>
+
+      <!-- Active Deliveries -->
+      <div v-if="activeTab === 'active'">
+        <div v-if="isLoading" class="loading-container">
+          <div class="loading-spinner"></div>
+          <p>Loading deliveries...</p>
+        </div>
+        
+        <div v-else-if="filteredDeliveries.length === 0" class="empty-state">
+          <font-awesome-icon icon="inbox" />
+          <h3>No Active Deliveries</h3>
+          <p>Queue a new delivery to get started</p>
+          <router-link to="/deliveries/new" class="btn btn-primary">
+            <font-awesome-icon icon="plus" />
+            New Delivery
+          </router-link>
+        </div>
+        
+        <div v-else class="deliveries-grid">
+          <div v-for="delivery in filteredDeliveries" :key="delivery.id" class="delivery-card">
             <div class="delivery-header">
               <div class="delivery-info">
-                <h3 class="delivery-title">{{ delivery.releaseTitle }}</h3>
-                <p class="delivery-artist">{{ delivery.releaseArtist }}</p>
-                <div class="delivery-meta">
-                  <span class="delivery-target">
-                    <font-awesome-icon icon="truck" />
-                    {{ delivery.targetName }}
-                  </span>
-                  <span class="delivery-protocol">
-                    {{ delivery.targetProtocol }}
-                  </span>
-                  <span v-if="delivery.testMode" class="test-badge">
-                    TEST
-                  </span>
-                  <span v-if="delivery.retryCount" class="retry-badge">
-                    Retry #{{ delivery.retryCount }}
-                  </span>
-                </div>
+                <h3>{{ delivery.releaseTitle }}</h3>
+                <p>{{ delivery.releaseArtist }}</p>
               </div>
-              
-              <div class="delivery-status" :class="getStatusColor(delivery.status)">
+              <div class="delivery-status" :class="delivery.status">
                 <font-awesome-icon 
                   :icon="getStatusIcon(delivery.status)" 
                   :spin="delivery.status === 'processing'"
@@ -624,333 +472,360 @@ onMounted(() => {
                 {{ delivery.status }}
               </div>
             </div>
-
-            <!-- Current Step for Processing -->
-            <div v-if="delivery.status === 'processing' && delivery.currentStep" class="delivery-current-step">
-              <span class="step-label">Current Step:</span>
-              <span class="step-value">{{ getCurrentStepDisplay(delivery) }}</span>
-              <span v-if="delivery.logs && delivery.logs.length > 0" class="log-count">
-                ({{ delivery.logs.length }} logs)
-              </span>
-            </div>
-
-            <!-- Progress Bar for Processing -->
-            <div v-if="delivery.status === 'processing'" class="delivery-progress">
-              <div class="progress-bar">
-                <div 
-                  class="progress-fill" 
-                  :style="{ width: `${getProgressPercentage(delivery)}%` }"
-                ></div>
+            
+            <div class="delivery-meta">
+              <div class="meta-item">
+                <span class="meta-label">Target:</span>
+                <span>{{ delivery.targetName }}</span>
               </div>
-              <span class="progress-text">{{ getProgressPercentage(delivery) }}% complete</span>
-            </div>
-
-            <!-- Error Message for Failed -->
-            <div v-if="delivery.status === 'failed' && delivery.error" class="delivery-error">
-              <font-awesome-icon icon="exclamation-triangle" />
-              {{ delivery.error }}
-            </div>
-
-            <!-- Success Message for Completed -->
-            <div v-if="delivery.status === 'completed' && delivery.receipt" class="delivery-success">
-              <font-awesome-icon icon="check-circle" />
-              {{ delivery.receipt.acknowledgment }}
-            </div>
-
-            <div class="delivery-footer">
-              <div class="delivery-time">
-                <span v-if="delivery.status === 'queued'">
-                  Scheduled {{ formatDateTime(delivery.scheduledAt) }}
-                </span>
-                <span v-else-if="delivery.status === 'processing'">
-                  Started {{ formatDateTime(delivery.startedAt) }}
-                  <span class="time-relative">({{ formatTime(delivery.startedAt) }})</span>
-                </span>
-                <span v-else-if="delivery.status === 'completed'">
-                  Completed {{ formatDateTime(delivery.completedAt) }}
-                  <span class="time-duration">
-                    ({{ getDuration(delivery.startedAt, delivery.completedAt) }})
-                  </span>
-                </span>
-                <span v-else-if="delivery.status === 'failed'">
-                  Failed {{ formatDateTime(delivery.failedAt) }}
-                  <span class="time-relative">({{ formatTime(delivery.failedAt) }})</span>
-                </span>
-                <span v-else-if="delivery.status === 'cancelled'">
-                  Cancelled {{ formatDateTime(delivery.cancelledAt) }}
-                  <span class="time-relative">({{ formatTime(delivery.cancelledAt) }})</span>
-                </span>
+              <div class="meta-item">
+                <span class="meta-label">Protocol:</span>
+                <span>{{ delivery.targetProtocol?.toUpperCase() }}</span>
               </div>
-              
-              <div class="delivery-actions">
-                <!-- Add View Logs button -->
-                <button 
-                  @click="viewDeliveryLogs(delivery)"
-                  class="btn-icon"
-                  title="View Logs"
-                  :class="{ 'has-logs': delivery.logs && delivery.logs.length > 0 }"
-                >
-                  <font-awesome-icon icon="list" />
-                  <span v-if="delivery.logs && delivery.logs.length > 0" class="log-badge">
-                    {{ delivery.logs.length }}
-                  </span>
-                </button>
-                <button 
-                  v-if="delivery.status === 'queued'"
-                  @click="cancelDelivery(delivery)"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="isProcessingAction"
-                >
-                  Cancel
-                </button>
-                <button 
-                  v-if="delivery.status === 'failed'"
-                  @click="retryDelivery(delivery)"
-                  class="btn btn-primary btn-sm"
-                  :disabled="isProcessingAction"
-                >
-                  <font-awesome-icon icon="redo" />
-                  Retry
-                </button>
-                <button 
-                  @click="viewDeliveryDetails(delivery)"
-                  class="btn-icon"
-                  title="View Details"
-                >
-                  <font-awesome-icon icon="eye" />
-                </button>
-                <button 
-                  @click="downloadERN(delivery)"
-                  class="btn-icon"
-                  title="Download ERN"
-                >
-                  <font-awesome-icon icon="file-code" />
-                </button>
-                <button 
-                  v-if="delivery.status === 'completed'"
-                  @click="downloadReceipt(delivery)"
-                  class="btn-icon"
-                  title="Download Receipt"
-                >
-                  <font-awesome-icon icon="download" />
-                </button>
-                <button 
-                  v-if="delivery.status === 'failed' || delivery.status === 'cancelled'"
-                  @click="deleteDelivery(delivery)"
-                  class="btn-icon text-error"
-                  title="Delete"
-                  :disabled="isProcessingAction"
-                >
-                  <font-awesome-icon icon="trash" />
-                </button>
+              <div class="meta-item">
+                <span class="meta-label">Type:</span>
+                <span>{{ delivery.messageSubType || 'Initial' }}</span>
               </div>
+              <div class="meta-item">
+                <span class="meta-label">Scheduled:</span>
+                <span>{{ formatDate(delivery.scheduledAt) }}</span>
+              </div>
+              <div v-if="delivery.startedAt" class="meta-item">
+                <span class="meta-label">Started:</span>
+                <span>{{ formatDate(delivery.startedAt) }}</span>
+              </div>
+              <div v-if="delivery.currentStep" class="meta-item">
+                <span class="meta-label">Current Step:</span>
+                <span>{{ delivery.currentStep }}</span>
+              </div>
+            </div>
+            
+            <div class="delivery-actions">
+              <button 
+                v-if="delivery.status === 'processing'"
+                @click="viewLogs(delivery)"
+                class="btn btn-sm btn-secondary"
+              >
+                <font-awesome-icon icon="list" />
+                View Logs
+              </button>
+              <button 
+                v-if="delivery.status === 'failed'"
+                @click="retryDelivery(delivery)"
+                class="btn btn-sm btn-warning"
+              >
+                <font-awesome-icon icon="redo" />
+                Retry
+              </button>
+              <button 
+                v-if="['queued', 'processing'].includes(delivery.status)"
+                @click="cancelDelivery(delivery)"
+                class="btn btn-sm btn-secondary"
+              >
+                <font-awesome-icon icon="times" />
+                Cancel
+              </button>
+              <button 
+                @click="viewDetails(delivery)"
+                class="btn btn-sm btn-primary"
+              >
+                <font-awesome-icon icon="eye" />
+                Details
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Delivery Targets Section -->
-      <div class="targets-section">
-        <div class="section-header">
-          <h2 class="section-title">Active Delivery Targets</h2>
-          <router-link to="/settings?tab=delivery" class="btn btn-secondary btn-sm">
-            Manage Targets
-          </router-link>
+      <!-- History -->
+      <div v-if="activeTab === 'history'">
+        <div v-if="filteredDeliveries.length === 0" class="empty-state">
+          <font-awesome-icon icon="history" />
+          <h3>No Delivery History</h3>
+          <p>Completed deliveries will appear here</p>
         </div>
         
-        <div v-if="activeTargets.length === 0" class="empty-targets">
-          <p>No active delivery targets configured</p>
-          <button @click="navigateToTargetSettings" class="btn btn-primary">
-            Configure Targets
+        <div v-else class="deliveries-grid">
+          <div v-for="delivery in filteredDeliveries" :key="delivery.id" class="delivery-card">
+            <div class="delivery-header">
+              <div class="delivery-info">
+                <h3>{{ delivery.releaseTitle }}</h3>
+                <p>{{ delivery.releaseArtist }}</p>
+              </div>
+              <div class="delivery-status" :class="delivery.status">
+                <font-awesome-icon :icon="getStatusIcon(delivery.status)" />
+                {{ delivery.status }}
+              </div>
+            </div>
+            
+            <div class="delivery-meta">
+              <div class="meta-item">
+                <span class="meta-label">Target:</span>
+                <span>{{ delivery.targetName }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Protocol:</span>
+                <span>{{ delivery.targetProtocol?.toUpperCase() }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Type:</span>
+                <span>{{ delivery.messageSubType || 'Initial' }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Completed:</span>
+                <span>{{ formatDate(delivery.completedAt || delivery.updatedAt) }}</span>
+              </div>
+              <div v-if="delivery.totalDuration" class="meta-item">
+                <span class="meta-label">Duration:</span>
+                <span>{{ formatDuration(delivery.totalDuration) }}</span>
+              </div>
+              <div v-if="delivery.error" class="meta-item error">
+                <span class="meta-label">Error:</span>
+                <span>{{ delivery.error }}</span>
+              </div>
+            </div>
+            
+            <div class="delivery-actions">
+              <button 
+                v-if="delivery.logs?.length > 0"
+                @click="viewLogs(delivery)"
+                class="btn btn-sm btn-secondary"
+              >
+                <font-awesome-icon icon="list" />
+                Logs
+              </button>
+              <button 
+                v-if="delivery.ernXml"
+                @click="downloadERN(delivery)"
+                class="btn btn-sm btn-secondary"
+              >
+                <font-awesome-icon icon="download" />
+                ERN
+              </button>
+              <button 
+                v-if="delivery.receipt || delivery.status === 'completed'"
+                @click="downloadReceipt(delivery)"
+                class="btn btn-sm btn-secondary"
+              >
+                <font-awesome-icon icon="file-invoice" />
+                Receipt
+              </button>
+              <button 
+                v-if="delivery.status === 'failed'"
+                @click="retryDelivery(delivery)"
+                class="btn btn-sm btn-warning"
+              >
+                <font-awesome-icon icon="redo" />
+                Retry
+              </button>
+              <button 
+                @click="viewDetails(delivery)"
+                class="btn btn-sm btn-primary"
+              >
+                <font-awesome-icon icon="eye" />
+                Details
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reconciliation Tab -->
+      <div v-if="activeTab === 'reconciliation'">
+        <ReconciliationDashboard />
+      </div>
+    </div>
+
+    <!-- Delivery Details Modal -->
+    <div v-if="showDetailsModal" class="modal-overlay" @click="closeDetailsModal">
+      <div class="modal modal-large" @click.stop>
+        <div class="modal-header">
+          <h2>Delivery Details</h2>
+          <button @click="closeDetailsModal" class="modal-close">
+            <font-awesome-icon icon="times" />
           </button>
         </div>
-        
-        <div v-else class="targets-grid">
-          <div 
-            v-for="target in activeTargets" 
-            :key="target.id"
-            class="target-card card"
-          >
-            <div class="card-body">
-              <div class="target-header">
-                <h3 class="target-name">{{ target.name }}</h3>
-                <span class="target-status active">Active</span>
+        <div class="modal-body">
+          <div v-if="selectedDelivery" class="details-content">
+            <div class="details-section">
+              <h3>Release Information</h3>
+              <div class="details-grid">
+                <div class="detail-item">
+                  <span class="label">Title:</span>
+                  <span>{{ selectedDelivery.releaseTitle }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">Artist:</span>
+                  <span>{{ selectedDelivery.releaseArtist }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">UPC:</span>
+                  <span>{{ selectedDelivery.upc || 'N/A' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">Release ID:</span>
+                  <span class="mono">{{ selectedDelivery.releaseId }}</span>
+                </div>
               </div>
-              <div class="target-info">
-                <span class="target-type">{{ target.type }}</span>
-                <span class="target-protocol">{{ target.protocol }}</span>
-                <span class="target-ern">ERN {{ target.ernVersion }}</span>
-                <span v-if="target.testMode" class="target-mode">Test Mode</span>
+            </div>
+
+            <div class="details-section">
+              <h3>Delivery Information</h3>
+              <div class="details-grid">
+                <div class="detail-item">
+                  <span class="label">Target:</span>
+                  <span>{{ selectedDelivery.targetName }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">Protocol:</span>
+                  <span>{{ selectedDelivery.targetProtocol?.toUpperCase() }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">Message Type:</span>
+                  <span>{{ selectedDelivery.messageType || 'NewReleaseMessage' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">Message SubType:</span>
+                  <span>{{ selectedDelivery.messageSubType || 'Initial' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">ERN Version:</span>
+                  <span>{{ selectedDelivery.ernVersion || '4.3' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">Message ID:</span>
+                  <span class="mono">{{ selectedDelivery.ernMessageId }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">Status:</span>
+                  <span class="status-badge" :class="selectedDelivery.status">
+                    {{ selectedDelivery.status }}
+                  </span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">Priority:</span>
+                  <span>{{ selectedDelivery.priority || 'normal' }}</span>
+                </div>
               </div>
-              <div class="target-stats">
-                <span>
-                  {{ deliveries.filter(d => d.targetName === target.name && d.status === 'completed').length }}
-                  delivered
-                </span>
-                <span>
-                  {{ deliveries.filter(d => d.targetName === target.name && d.status === 'queued').length }}
-                  queued
-                </span>
+            </div>
+
+            <div class="details-section">
+              <h3>Timeline</h3>
+              <div class="timeline">
+                <div class="timeline-item">
+                  <div class="timeline-marker"></div>
+                  <div class="timeline-content">
+                    <strong>Created</strong>
+                    <span>{{ formatDate(selectedDelivery.createdAt) }}</span>
+                  </div>
+                </div>
+                <div v-if="selectedDelivery.scheduledAt" class="timeline-item">
+                  <div class="timeline-marker"></div>
+                  <div class="timeline-content">
+                    <strong>Scheduled</strong>
+                    <span>{{ formatDate(selectedDelivery.scheduledAt) }}</span>
+                  </div>
+                </div>
+                <div v-if="selectedDelivery.startedAt" class="timeline-item">
+                  <div class="timeline-marker"></div>
+                  <div class="timeline-content">
+                    <strong>Started</strong>
+                    <span>{{ formatDate(selectedDelivery.startedAt) }}</span>
+                  </div>
+                </div>
+                <div v-if="selectedDelivery.completedAt" class="timeline-item">
+                  <div class="timeline-marker success"></div>
+                  <div class="timeline-content">
+                    <strong>Completed</strong>
+                    <span>{{ formatDate(selectedDelivery.completedAt) }}</span>
+                  </div>
+                </div>
+                <div v-if="selectedDelivery.failedAt" class="timeline-item">
+                  <div class="timeline-marker error"></div>
+                  <div class="timeline-content">
+                    <strong>Failed</strong>
+                    <span>{{ formatDate(selectedDelivery.failedAt) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="selectedDelivery.receipt" class="details-section">
+              <h3>Receipt</h3>
+              <div class="receipt-content">
+                <pre>{{ JSON.stringify(selectedDelivery.receipt, null, 2) }}</pre>
               </div>
             </div>
           </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeDetailsModal" class="btn btn-secondary">Close</button>
         </div>
       </div>
     </div>
-    
-    <!-- Delivery Logs Modal -->
-    <div v-if="showLogsModal" class="modal-overlay" @click.self="closeLogsModal">
-      <div class="modal modal-large">
+
+    <!-- Logs Modal -->
+    <div v-if="showLogsModal" class="modal-overlay" @click="closeLogsModal">
+      <div class="modal modal-large" @click.stop>
         <div class="modal-header">
-          <div>
-            <h3>Delivery Logs</h3>
-            <p class="modal-subtitle">{{ selectedDelivery?.releaseTitle }} → {{ selectedDelivery?.targetName }}</p>
-          </div>
+          <h2>Delivery Logs</h2>
           <div class="modal-actions">
-            <label v-if="selectedDelivery?.status === 'processing'" class="auto-refresh-toggle">
-              <input 
-                v-model="autoRefreshLogs" 
-                type="checkbox"
-                @change="autoRefreshLogs ? startLogRefresh() : stopLogRefresh()"
-              />
-              <span>Auto-refresh</span>
-            </label>
-            <button @click="closeLogsModal" class="btn-icon">
+            <button 
+              v-if="isLiveLogging"
+              @click="stopLiveLogging"
+              class="btn btn-sm btn-warning"
+            >
+              <font-awesome-icon icon="pause" />
+              Pause
+            </button>
+            <button 
+              v-else-if="selectedDelivery?.status === 'processing'"
+              @click="startLiveLogging"
+              class="btn btn-sm btn-success"
+            >
+              <font-awesome-icon icon="play" />
+              Live
+            </button>
+            <button @click="closeLogsModal" class="modal-close">
               <font-awesome-icon icon="times" />
             </button>
           </div>
         </div>
-        <div class="modal-body logs-container">
-          <div v-if="selectedDeliveryLogs.length === 0" class="no-logs">
-            <font-awesome-icon icon="file-alt" />
-            <p>No logs available yet</p>
-          </div>
-          
-          <div v-else class="logs-list">
-            <div 
-              v-for="(log, index) in selectedDeliveryLogs" 
-              :key="index"
-              class="log-entry"
-              :class="getLogLevelColor(log.level)"
-            >
-              <div class="log-header">
-                <div class="log-icon">
-                  <font-awesome-icon :icon="getLogLevelIcon(log.level)" />
+        <div class="modal-body">
+          <div class="logs-container">
+            <div v-if="deliveryLogs.length === 0" class="empty-logs">
+              <font-awesome-icon icon="list" />
+              <p>No logs available</p>
+            </div>
+            <div v-else class="logs-list">
+              <div 
+                v-for="(log, index) in deliveryLogs" 
+                :key="index"
+                class="log-entry"
+                :class="`log-${log.level}`"
+              >
+                <div class="log-header">
+                  <span class="log-time">{{ formatLogTime(log.timestamp) }}</span>
+                  <span class="log-level" :class="log.level">{{ log.level }}</span>
+                  <span class="log-step">{{ log.step }}</span>
                 </div>
-                <div class="log-time">
-                  {{ formatLogTimestamp(log.timestamp) }}
-                </div>
-                <div class="log-step">
-                  {{ log.step }}
+                <div class="log-message">{{ log.message }}</div>
+                <div v-if="log.details" class="log-details">
+                  <pre>{{ JSON.stringify(log.details, null, 2) }}</pre>
                 </div>
                 <div v-if="log.duration" class="log-duration">
-                  {{ formatLogDuration(log.duration) }}
+                  Duration: {{ formatDuration(log.duration) }}
                 </div>
               </div>
-              
-              <div class="log-message">
-                {{ log.message }}
-              </div>
-              
-              <div v-if="log.details" class="log-details">
-                <pre>{{ JSON.stringify(log.details, null, 2) }}</pre>
-              </div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
-    
-    <!-- Delivery Details Modal -->
-    <div v-if="showDeliveryDetails" class="modal-overlay" @click.self="showDeliveryDetails = false">
-      <div class="modal modal-large">
-        <div class="modal-header">
-          <h3>Delivery Details</h3>
-          <button @click="showDeliveryDetails = false" class="btn-icon">
-            <font-awesome-icon icon="times" />
+        <div class="modal-footer">
+          <button @click="exportLogs" class="btn btn-secondary">
+            <font-awesome-icon icon="download" />
+            Export Logs
           </button>
-        </div>
-        <div v-if="selectedDelivery" class="modal-body">
-          <div class="detail-section">
-            <h4>Release Information</h4>
-            <div class="detail-grid">
-              <div class="detail-item">
-                <span class="detail-label">Title:</span>
-                <span>{{ selectedDelivery.releaseTitle }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Artist:</span>
-                <span>{{ selectedDelivery.releaseArtist }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Release ID:</span>
-                <span class="mono-text">{{ selectedDelivery.releaseId }}</span>
-              </div>
-            </div>
-          </div>
-          
-          <div class="detail-section">
-            <h4>Target Information</h4>
-            <div class="detail-grid">
-              <div class="detail-item">
-                <span class="detail-label">Target:</span>
-                <span>{{ selectedDelivery.targetName }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Protocol:</span>
-                <span>{{ selectedDelivery.targetProtocol }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">ERN Version:</span>
-                <span>{{ selectedDelivery.ernVersion }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Message ID:</span>
-                <span class="mono-text">{{ selectedDelivery.ernMessageId }}</span>
-              </div>
-            </div>
-          </div>
-          
-          <div class="detail-section">
-            <h4>Delivery Timeline</h4>
-            <div class="timeline">
-              <div class="timeline-item">
-                <span class="timeline-label">Created:</span>
-                <span>{{ formatDateTime(selectedDelivery.createdAt) }}</span>
-              </div>
-              <div class="timeline-item">
-                <span class="timeline-label">Scheduled:</span>
-                <span>{{ formatDateTime(selectedDelivery.scheduledAt) }}</span>
-              </div>
-              <div v-if="selectedDelivery.startedAt" class="timeline-item">
-                <span class="timeline-label">Started:</span>
-                <span>{{ formatDateTime(selectedDelivery.startedAt) }}</span>
-              </div>
-              <div v-if="selectedDelivery.completedAt" class="timeline-item">
-                <span class="timeline-label">Completed:</span>
-                <span>{{ formatDateTime(selectedDelivery.completedAt) }}</span>
-              </div>
-              <div v-if="selectedDelivery.failedAt" class="timeline-item">
-                <span class="timeline-label">Failed:</span>
-                <span>{{ formatDateTime(selectedDelivery.failedAt) }}</span>
-              </div>
-            </div>
-          </div>
-          
-          <div v-if="selectedDelivery.package" class="detail-section">
-            <h4>Package Contents</h4>
-            <div class="package-info">
-              <p>ERN File: {{ selectedDelivery.package.ernFile }}</p>
-              <p>Audio Files: {{ selectedDelivery.package.audioFiles?.length || 0 }}</p>
-              <p>Image Files: {{ selectedDelivery.package.imageFiles?.length || 0 }}</p>
-              <p>Total Size: {{ selectedDelivery.package.totalSize }}</p>
-            </div>
-          </div>
-          
-          <div v-if="selectedDelivery.notes" class="detail-section">
-            <h4>Notes</h4>
-            <p>{{ selectedDelivery.notes }}</p>
-          </div>
+          <button @click="closeLogsModal" class="btn btn-primary">Close</button>
         </div>
       </div>
     </div>
@@ -958,29 +833,27 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* Import existing styles from components.css */
 .deliveries {
   padding: var(--space-xl) 0;
   min-height: calc(100vh - 64px);
 }
 
-.page-header {
+.header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: var(--space-xl);
-  flex-wrap: wrap;
-  gap: var(--space-lg);
 }
 
-.page-title {
+.header h1 {
   font-size: var(--text-3xl);
   font-weight: var(--font-bold);
   color: var(--color-heading);
   margin-bottom: var(--space-xs);
 }
 
-.page-subtitle {
-  font-size: var(--text-lg);
+.subtitle {
   color: var(--color-text-secondary);
 }
 
@@ -989,48 +862,57 @@ onMounted(() => {
   gap: var(--space-sm);
 }
 
-/* Stats Row */
-.stats-row {
+/* Stats Grid */
+.stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-lg);
   margin-bottom: var(--space-xl);
 }
 
-.stat-card .card-body {
+.stat-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
   display: flex;
   align-items: center;
   gap: var(--space-lg);
+  transition: all var(--transition-base);
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
 
 .stat-icon {
   width: 48px;
   height: 48px;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.5rem;
-  flex-shrink: 0;
-}
-
-.stat-icon.success {
-  background-color: rgba(52, 168, 83, 0.1);
-  color: var(--color-success);
-}
-
-.stat-icon.processing {
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
 }
 
 .stat-icon.queued {
-  background-color: rgba(128, 134, 139, 0.1);
-  color: var(--color-text-secondary);
+  background: rgba(251, 188, 4, 0.1);
+  color: var(--color-warning);
 }
 
-.stat-icon.error {
-  background-color: rgba(234, 67, 53, 0.1);
+.stat-icon.processing {
+  background: rgba(66, 133, 244, 0.1);
+  color: var(--color-info);
+}
+
+.stat-icon.completed {
+  background: rgba(52, 168, 83, 0.1);
+  color: var(--color-success);
+}
+
+.stat-icon.failed {
+  background: rgba(234, 67, 53, 0.1);
   color: var(--color-error);
 }
 
@@ -1039,74 +921,196 @@ onMounted(() => {
 }
 
 .stat-value {
-  font-size: var(--text-3xl);
+  font-size: var(--text-2xl);
   font-weight: var(--font-bold);
+  color: var(--color-heading);
+}
+
+.stat-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-xs);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: var(--space-sm);
+  border-bottom: 2px solid var(--color-border);
+  margin-bottom: var(--space-lg);
+}
+
+.tab {
+  padding: var(--space-sm) var(--space-lg);
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  position: relative;
+  transition: all var(--transition-base);
+}
+
+.tab:hover {
+  color: var(--color-text);
+}
+
+.tab.active {
+  color: var(--color-primary);
+}
+
+.tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--color-primary);
+}
+
+/* Filters */
+.filters {
+  display: flex;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.search-input {
+  flex: 1;
+  max-width: 400px;
+}
+
+/* Deliveries Grid */
+.deliveries-grid {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.delivery-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  transition: all var(--transition-base);
+}
+
+.delivery-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-border-dark);
+}
+
+.delivery-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-md);
+}
+
+.delivery-info h3 {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
   color: var(--color-heading);
   margin-bottom: var(--space-xs);
 }
 
-.stat-label {
+.delivery-info p {
   color: var(--color-text-secondary);
-  font-size: var(--text-sm);
 }
 
-/* Filters */
-.filters-section {
+.delivery-status {
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--space-xl);
-  gap: var(--space-lg);
+  gap: var(--space-xs);
+}
+
+.delivery-status.queued {
+  background: rgba(251, 188, 4, 0.1);
+  color: var(--color-warning);
+}
+
+.delivery-status.processing {
+  background: rgba(66, 133, 244, 0.1);
+  color: var(--color-info);
+}
+
+.delivery-status.completed {
+  background: rgba(52, 168, 83, 0.1);
+  color: var(--color-success);
+}
+
+.delivery-status.failed {
+  background: rgba(234, 67, 53, 0.1);
+  color: var(--color-error);
+}
+
+.delivery-status.cancelled {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+
+.delivery-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.meta-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.meta-item.error {
+  color: var(--color-error);
+}
+
+.delivery-actions {
+  display: flex;
+  gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
-.filter-tabs {
-  display: flex;
-  gap: var(--space-xs);
-}
-
-.filter-tab {
-  padding: var(--space-sm) var(--space-md);
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: var(--space-3xl);
   color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-base);
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  font-weight: var(--font-medium);
 }
 
-.filter-tab:hover {
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text);
+.empty-state svg {
+  font-size: 3rem;
+  margin-bottom: var(--space-md);
+  opacity: 0.5;
 }
 
-.filter-tab.active {
-  background-color: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
+.empty-state h3 {
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  color: var(--color-heading);
+  margin-bottom: var(--space-sm);
 }
 
-.filter-badge {
-  background-color: rgba(255, 255, 255, 0.2);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
+.empty-state p {
+  margin-bottom: var(--space-lg);
 }
 
-.filter-tab:not(.active) .filter-badge {
-  background-color: var(--color-bg-secondary);
-}
-
-/* Loading State */
+/* Loading */
 .loading-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  text-align: center;
   padding: var(--space-3xl);
   color: var(--color-text-secondary);
 }
@@ -1118,374 +1122,11 @@ onMounted(() => {
   border-top-color: var(--color-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
-  margin-bottom: var(--space-md);
+  margin: 0 auto var(--space-md);
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
-}
-
-/* Empty State */
-.empty-state {
-  text-align: center;
-  padding: var(--space-3xl);
-}
-
-.empty-icon {
-  font-size: 4rem;
-  color: var(--color-border);
-  margin-bottom: var(--space-lg);
-}
-
-.empty-title {
-  font-size: var(--text-xl);
-  font-weight: var(--font-semibold);
-  color: var(--color-heading);
-  margin-bottom: var(--space-sm);
-}
-
-.empty-description {
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-xl);
-}
-
-/* Deliveries List */
-.deliveries-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
-  margin-bottom: var(--space-2xl);
-}
-
-.delivery-card {
-  transition: all var(--transition-base);
-}
-
-.delivery-card:hover {
-  box-shadow: var(--shadow-md);
-}
-
-.delivery-card.test-mode {
-  border-left: 4px solid var(--color-warning);
-}
-
-.delivery-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: var(--space-md);
-}
-
-.delivery-info {
-  flex: 1;
-}
-
-.delivery-title {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  color: var(--color-heading);
-  margin-bottom: var(--space-xs);
-}
-
-.delivery-artist {
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-sm);
-}
-
-.delivery-meta {
-  display: flex;
-  gap: var(--space-md);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  align-items: center;
-}
-
-.delivery-meta span {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.test-badge,
-.retry-badge {
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  font-weight: var(--font-semibold);
-  text-transform: uppercase;
-}
-
-.test-badge {
-  background-color: rgba(251, 188, 4, 0.1);
-  color: var(--color-warning);
-}
-
-.retry-badge {
-  background-color: rgba(66, 133, 244, 0.1);
-  color: var(--color-info);
-}
-
-.delivery-status {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  padding: var(--space-xs) var(--space-md);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  text-transform: capitalize;
-}
-
-.status-queued {
-  background-color: rgba(128, 134, 139, 0.1);
-  color: var(--color-text-secondary);
-}
-
-.status-processing {
-  background-color: var(--color-info);
-  color: white;
-}
-
-.status-completed {
-  background-color: var(--color-success);
-  color: white;
-}
-
-.status-failed {
-  background-color: var(--color-error);
-  color: white;
-}
-
-.status-cancelled {
-  background-color: rgba(128, 134, 139, 0.3);
-  color: var(--color-text-secondary);
-}
-
-/* Current Step Display */
-.delivery-current-step {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm);
-  background-color: var(--color-primary-light);
-  border-radius: var(--radius-md);
-  margin: var(--space-sm) 0;
-  font-size: var(--text-sm);
-}
-
-.step-label {
-  color: var(--color-text-secondary);
-  font-weight: var(--font-medium);
-}
-
-.step-value {
-  color: var(--color-primary);
-  font-weight: var(--font-semibold);
-}
-
-.log-count {
-  color: var(--color-text-tertiary);
-  margin-left: auto;
-}
-
-/* Progress Bar */
-.delivery-progress {
-  margin: var(--space-md) 0;
-}
-
-.progress-bar {
-  height: 8px;
-  background-color: var(--color-border);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-  margin-bottom: var(--space-xs);
-}
-
-.progress-fill {
-  height: 100%;
-  background-color: var(--color-info);
-  transition: width var(--transition-base);
-}
-
-.progress-text {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-/* Error/Success Messages */
-.delivery-error,
-.delivery-success {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  margin: var(--space-md) 0;
-}
-
-.delivery-error {
-  background-color: rgba(234, 67, 53, 0.1);
-  color: var(--color-error);
-}
-
-.delivery-success {
-  background-color: rgba(52, 168, 83, 0.1);
-  color: var(--color-success);
-}
-
-/* Delivery Footer */
-.delivery-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--color-border);
-}
-
-.delivery-time {
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-
-.time-duration {
-  color: var(--color-text-tertiary);
-}
-
-.delivery-actions {
-  display: flex;
-  gap: var(--space-sm);
-}
-
-.btn-icon {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  border-radius: var(--radius-md);
-  transition: all var(--transition-base);
-  position: relative;
-}
-
-.btn-icon:hover {
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text);
-}
-
-.btn-icon.text-error:hover {
-  color: var(--color-error);
-}
-
-/* Log Badge on Button */
-.btn-icon.has-logs {
-  position: relative;
-}
-
-.log-badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background-color: var(--color-primary);
-  color: white;
-  border-radius: var(--radius-full);
-  padding: 1px 4px;
-  font-size: 10px;
-  font-weight: var(--font-bold);
-  min-width: 16px;
-  text-align: center;
-}
-
-/* Delivery Targets Section */
-.targets-section {
-  margin-top: var(--space-2xl);
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-lg);
-}
-
-.section-title {
-  font-size: var(--text-2xl);
-  font-weight: var(--font-semibold);
-  color: var(--color-heading);
-}
-
-.empty-targets {
-  text-align: center;
-  padding: var(--space-xl);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-  color: var(--color-text-secondary);
-}
-
-.empty-targets p {
-  margin-bottom: var(--space-md);
-}
-
-.targets-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: var(--space-lg);
-}
-
-.target-card {
-  transition: all var(--transition-base);
-}
-
-.target-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.target-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-sm);
-}
-
-.target-name {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  color: var(--color-heading);
-}
-
-.target-status {
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-md);
-  font-size: var(--text-xs);
-  font-weight: var(--font-semibold);
-  text-transform: uppercase;
-}
-
-.target-status.active {
-  background-color: var(--color-success);
-  color: white;
-}
-
-.target-info {
-  display: flex;
-  gap: var(--space-md);
-  margin-bottom: var(--space-md);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-
-.target-stats {
-  display: flex;
-  justify-content: space-between;
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--color-border);
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
 }
 
 /* Modal */
@@ -1495,7 +1136,7 @@ onMounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1504,18 +1145,18 @@ onMounted(() => {
 }
 
 .modal {
-  background-color: var(--color-surface);
+  background: var(--color-surface);
   border-radius: var(--radius-lg);
-  max-width: 500px;
+  max-width: 600px;
   width: 100%;
-  box-shadow: var(--shadow-lg);
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-large {
   max-width: 900px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
 }
 
 .modal-header {
@@ -1526,193 +1167,67 @@ onMounted(() => {
   border-bottom: 1px solid var(--color-border);
 }
 
-.modal-header h3 {
+.modal-header h2 {
   font-size: var(--text-xl);
   font-weight: var(--font-semibold);
-  color: var(--color-heading);
-}
-
-.modal-subtitle {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  margin-top: var(--space-xs);
 }
 
 .modal-actions {
   display: flex;
-  gap: var(--space-md);
   align-items: center;
-}
-
-.auto-refresh-toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.auto-refresh-toggle input {
-  cursor: pointer;
-}
-
-.modal-body {
-  padding: var(--space-lg);
-  max-height: 70vh;
-  overflow-y: auto;
-}
-
-/* Logs Container */
-.logs-container {
-  background-color: var(--color-bg);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-  flex: 1;
-  overflow-y: auto;
-}
-
-.no-logs {
-  text-align: center;
-  padding: var(--space-3xl);
-  color: var(--color-text-tertiary);
-}
-
-.no-logs svg {
-  font-size: 3rem;
-  margin-bottom: var(--space-md);
-}
-
-.logs-list {
-  display: flex;
-  flex-direction: column;
   gap: var(--space-sm);
 }
 
-.log-entry {
-  background-color: var(--color-surface);
-  border-left: 3px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-  transition: all var(--transition-base);
-}
-
-.log-entry:hover {
-  box-shadow: var(--shadow-sm);
-}
-
-.log-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  margin-bottom: var(--space-sm);
-}
-
-.log-icon {
-  width: 24px;
-  height: 24px;
+.modal-close {
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-full);
-}
-
-.log-time {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  background: none;
+  border: none;
   color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
 }
 
-.log-step {
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
+.modal-close:hover {
+  background: var(--color-bg-secondary);
   color: var(--color-text);
-  padding: 2px 8px;
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-sm);
 }
 
-.log-duration {
-  margin-left: auto;
-  font-size: var(--text-sm);
-  color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-lg);
 }
 
-.log-message {
-  color: var(--color-text);
-  line-height: 1.5;
-}
-
-.log-details {
-  margin-top: var(--space-sm);
-  padding-top: var(--space-sm);
+.modal-footer {
+  padding: var(--space-lg);
   border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
 }
 
-.log-details pre {
-  background-color: var(--color-bg);
-  padding: var(--space-sm);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  color: var(--color-text-secondary);
+/* Details Content */
+.details-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
 }
 
-/* Log Level Colors */
-.log-info {
-  border-left-color: var(--color-info);
-}
-
-.log-info .log-icon {
-  background-color: rgba(66, 133, 244, 0.1);
-  color: var(--color-info);
-}
-
-.log-success {
-  border-left-color: var(--color-success);
-}
-
-.log-success .log-icon {
-  background-color: rgba(52, 168, 83, 0.1);
-  color: var(--color-success);
-}
-
-.log-warning {
-  border-left-color: var(--color-warning);
-}
-
-.log-warning .log-icon {
-  background-color: rgba(251, 188, 4, 0.1);
-  color: var(--color-warning);
-}
-
-.log-error {
-  border-left-color: var(--color-error);
-}
-
-.log-error .log-icon {
-  background-color: rgba(234, 67, 53, 0.1);
-  color: var(--color-error);
-}
-
-/* Detail sections */
-.detail-section {
-  margin-bottom: var(--space-xl);
-}
-
-.detail-section h4 {
+.details-section h3 {
   font-size: var(--text-lg);
   font-weight: var(--font-semibold);
   margin-bottom: var(--space-md);
   color: var(--color-heading);
 }
 
-.detail-grid {
+.details-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: var(--space-md);
 }
 
@@ -1722,106 +1237,268 @@ onMounted(() => {
   gap: var(--space-xs);
 }
 
-.detail-label {
+.detail-item .label {
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
 }
 
-.mono-text {
+.detail-item .mono {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+  word-break: break-all;
 }
 
+.status-badge {
+  display: inline-block;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.status-badge.completed {
+  background: rgba(52, 168, 83, 0.1);
+  color: var(--color-success);
+}
+
+.status-badge.failed {
+  background: rgba(234, 67, 53, 0.1);
+  color: var(--color-error);
+}
+
+.status-badge.processing {
+  background: rgba(66, 133, 244, 0.1);
+  color: var(--color-info);
+}
+
+.status-badge.queued {
+  background: rgba(251, 188, 4, 0.1);
+  color: var(--color-warning);
+}
+
+/* Timeline */
 .timeline {
+  position: relative;
+  padding-left: var(--space-xl);
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-border);
+}
+
+.timeline-item {
+  position: relative;
+  padding-bottom: var(--space-lg);
+}
+
+.timeline-marker {
+  position: absolute;
+  left: -26px;
+  top: 5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 2px solid var(--color-border);
+}
+
+.timeline-marker.success {
+  border-color: var(--color-success);
+  background: var(--color-success);
+}
+
+.timeline-marker.error {
+  border-color: var(--color-error);
+  background: var(--color-error);
+}
+
+.timeline-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.timeline-content strong {
+  font-weight: var(--font-semibold);
+  color: var(--color-heading);
+}
+
+.timeline-content span {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+/* Receipt */
+.receipt-content {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.receipt-content pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Logs */
+.logs-container {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.empty-logs {
+  text-align: center;
+  padding: var(--space-xl);
+  color: var(--color-text-secondary);
+}
+
+.empty-logs svg {
+  font-size: 2rem;
+  margin-bottom: var(--space-sm);
+  opacity: 0.5;
+}
+
+.logs-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
 }
 
-.timeline-item {
+.log-entry {
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid transparent;
+}
+
+.log-entry.log-info {
+  background: rgba(66, 133, 244, 0.05);
+  border-left-color: var(--color-info);
+}
+
+.log-entry.log-success {
+  background: rgba(52, 168, 83, 0.05);
+  border-left-color: var(--color-success);
+}
+
+.log-entry.log-warning {
+  background: rgba(251, 188, 4, 0.05);
+  border-left-color: var(--color-warning);
+}
+
+.log-entry.log-error {
+  background: rgba(234, 67, 53, 0.05);
+  border-left-color: var(--color-error);
+}
+
+.log-header {
   display: flex;
+  align-items: center;
   gap: var(--space-md);
-  padding: var(--space-sm) 0;
-  border-left: 2px solid var(--color-border);
-  padding-left: var(--space-md);
-  position: relative;
-}
-
-.timeline-item::before {
-  content: '';
-  position: absolute;
-  left: -5px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--color-primary);
-}
-
-.timeline-label {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  min-width: 80px;
-}
-
-.package-info {
-  background-color: var(--color-bg-secondary);
-  padding: var(--space-md);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-}
-
-.package-info p {
   margin-bottom: var(--space-xs);
 }
 
-.time-relative {
-  color: var(--color-text-tertiary);
+.log-time {
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  margin-left: var(--space-xs);
+  color: var(--color-text-tertiary);
+}
+
+.log-level {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.log-level.info {
+  background: var(--color-info);
+  color: white;
+}
+
+.log-level.success {
+  background: var(--color-success);
+  color: white;
+}
+
+.log-level.warning {
+  background: var(--color-warning);
+  color: white;
+}
+
+.log-level.error {
+  background: var(--color-error);
+  color: white;
+}
+
+.log-step {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.log-message {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  margin-bottom: var(--space-xs);
+}
+
+.log-details {
+  margin-top: var(--space-xs);
+  padding: var(--space-xs);
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+}
+
+.log-details pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.log-duration {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  margin-top: var(--space-xs);
 }
 
 /* Responsive */
 @media (max-width: 768px) {
-  .page-header {
+  .header {
     flex-direction: column;
-    align-items: stretch;
+    gap: var(--space-md);
   }
   
-  .header-actions {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .filters {
     flex-direction: column;
   }
   
-  .header-actions .btn {
-    width: 100%;
-  }
-  
-  .stats-row {
-    grid-template-columns: 1fr 1fr;
-  }
-  
-  .filters-section {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  
-  .filter-tabs {
-    overflow-x: auto;
-    padding-bottom: var(--space-xs);
-  }
-  
-  .targets-grid {
+  .delivery-meta {
     grid-template-columns: 1fr;
   }
   
-  .detail-grid {
+  .details-grid {
     grid-template-columns: 1fr;
-  }
-  
-  .modal-large {
-    max-width: 100%;
-    margin: var(--space-md);
   }
 }
 </style>

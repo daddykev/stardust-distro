@@ -13,10 +13,12 @@ import {
   query,
   where,
   orderBy,
+  limit,
   onSnapshot
 } from 'firebase/firestore'
 import { ref as storageRef, getBlob, getDownloadURL } from 'firebase/storage'
 import { getFunctions, httpsCallable } from 'firebase/functions'
+import receiptService from './receipts'
 
 export class DeliveryService {
   constructor() {
@@ -773,22 +775,8 @@ export class DeliveryService {
    * Generate a delivery receipt
    */
   generateReceipt(delivery, result) {
-    return {
-      receiptId: `RCP_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      deliveryId: delivery.id,
-      releaseId: delivery.releaseId,
-      targetId: delivery.targetId,
-      targetName: delivery.targetName,
-      protocol: delivery.targetProtocol,
-      status: 'completed',
-      timestamp: new Date().toISOString(),
-      ernMessageId: delivery.ernMessageId,
-      filesDelivered: result.files?.length || 0,
-      bytesTransferred: result.bytesTransferred || 0,
-      dspMessageId: result.acknowledgmentId || result.messageId,
-      acknowledgment: result.acknowledgment || 'Delivery completed successfully',
-      testMode: delivery.testMode
-    }
+    // Use the new receipt service
+    return receiptService.createReceipt(delivery, result)
   }
 
   /**
