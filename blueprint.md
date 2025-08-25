@@ -1708,14 +1708,14 @@ const results = await delivery.deliver(stardustRelease);
 
   - [x] **Genre Truth System (v1.0)**
       - [x] Genre Truth dictionary based on Apple Music 5.3.9
-      - [x] 400+ genres with hierarchical parent-child relationships
+      - [x] 200+ genres with hierarchical parent-child relationships
       - [x] Comprehensive genre codes and path navigation
       - [x] Serves as canonical source for all DSP mappings
       - [x] Full-text search with path context
       - [x] Genre service layer with unified API
 
   - [x] **Multi-DSP Genre Dictionaries**
-      - [x] Apple Music genres (apple-539.js) - 400+ genres
+      - [x] Apple Music genres (apple-539.js) - 200+ genres
       - [x] Beatport genres (beatport-202505.js) - Electronic focus
       - [x] Amazon Music genres (amazon-201805.js) - Legacy support
       - [x] Genre Truth as primary reference (genre-truth.js)

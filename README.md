@@ -74,13 +74,13 @@ A complete, production-ready distribution platform that includes:
 
 #### ✅ Genre Classification & Mapping System - COMPLETE
 - **Genre Truth System (v1.0)**
-  - 400+ hierarchical genres based on Apple Music 5.3.9
+  - 200+ hierarchical genres based on Apple Music v5.3.9
   - Comprehensive genre codes with parent-child relationships
   - Full-text search with path context
   - Serves as canonical source for all DSP mappings
   
 - **Multi-DSP Genre Dictionaries**
-  - Apple Music v5.3.9 (400+ genres)
+  - Apple Music v5.3.9 (200+ genres)
   - Beatport v2025-05 (Electronic focus)
   - Amazon Music v2018-05 (Legacy support)
   - Extensible architecture for future DSPs
