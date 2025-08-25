@@ -31,13 +31,69 @@ class AppleService {
   }
 
   /**
+   * Generate a stable package ID for Apple packages
+   * This ensures consistency for idempotency
+   */
+  generatePackageId(releaseId, targetId, packageType = 'music') {
+    const timestamp = Date.now()
+    const random = Math.random().toString(36).substr(2, 9)
+    
+    // Create a predictable ID for idempotency
+    // Include release and target to make it unique per delivery attempt
+    const components = [
+      'PKG',
+      'APPLE',
+      releaseId.substr(-8), // Last 8 chars of release ID
+      targetId ? targetId.substr(-8) : 'DEFAULT', // Last 8 chars of target ID
+      packageType.toUpperCase(),
+      timestamp,
+      random
+    ].filter(Boolean)
+    
+    return components.join('-')
+  }
+
+  /**
+   * Generate a stable vendor ID for Apple packages
+   * Apple typically uses UPC, but we add uniqueness for updates
+   */
+  generateVendorId(upc, releaseId, targetId) {
+    // For Apple, vendor ID is typically the UPC
+    // But for idempotency, we might want to track versions
+    if (upc && /^\d{12,14}$/.test(upc)) {
+      return upc // Use UPC as vendor ID for Apple
+    }
+    
+    // Fallback if no valid UPC
+    const components = [
+      'VENDOR',
+      releaseId.substr(-8),
+      targetId ? targetId.substr(-8) : 'APPLE'
+    ].filter(Boolean)
+    
+    return components.join('_')
+  }
+
+  /**
    * Generate Apple Music package XML
    */
   async generatePackage(releaseId, targetConfig, options = {}) {
     // Determine Apple spec version from target config or use default
     const version = targetConfig.appleSpecVersion || this.defaultVersion
     
-    return this.generatePackageWithVersion(releaseId, targetConfig, version, options)
+    // Generate package ID for idempotency
+    const packageId = options.packageId || this.generatePackageId(
+      releaseId,
+      targetConfig.id || 'default',
+      'music'
+    )
+    
+    console.log('Generated Apple Package ID for idempotency:', packageId)
+    
+    return this.generatePackageWithVersion(releaseId, targetConfig, version, {
+      ...options,
+      packageId
+    })
   }
 
   /**
@@ -67,6 +123,22 @@ class AppleService {
       if (!/^\d{12,14}$/.test(upc)) {
         throw new Error(`Invalid UPC format: ${upc}. Must be 12-14 digits.`)
       }
+
+      // Generate stable vendor ID for idempotency
+      const vendorId = options.vendorId || this.generateVendorId(
+        upc,
+        releaseId,
+        targetConfig.id || 'default'
+      )
+      
+      console.log('Generated Apple Vendor ID for idempotency:', vendorId)
+
+      // Generate package ID if not provided
+      const packageId = options.packageId || this.generatePackageId(
+        releaseId,
+        targetConfig.id || 'default',
+        'music'
+      )
 
       // Classify release
       const classification = classifyRelease(release)
@@ -103,6 +175,7 @@ class AppleService {
           const calculateMD5 = httpsCallable(functions, 'calculateFileMD5')
           const result = await calculateMD5({ url: coverAsset.url })
           coverChecksum = result.data.md5
+          console.log('Cover checksum for Apple package:', coverChecksum)
         } catch (error) {
           console.error('Error calculating cover checksum:', error)
         }
@@ -118,6 +191,7 @@ class AppleService {
             const calculateMD5 = httpsCallable(functions, 'calculateFileMD5')
             const result = await calculateMD5({ url: audioAsset.storageUrl })
             checksum = result.data.md5
+            console.log(`Track ${index + 1} checksum:`, checksum)
           } catch (error) {
             console.error(`Error calculating checksum for track ${track.id}:`, error)
           }
@@ -156,9 +230,13 @@ class AppleService {
 
       // Prepare package data for Apple
       const packageData = {
+        // Package identifiers for idempotency
+        packageId: packageId,
+        vendorId: vendorId,
+        
+        // Provider information
         provider: targetConfig.appleProviderId || targetConfig.config?.providerId || 'Unknown_Provider',
         teamId: targetConfig.appleTeamId || targetConfig.config?.teamId,
-        vendorId: upc, // Apple uses vendor_id which is typically the UPC
         upc: upc,
         
         // Album metadata
@@ -199,12 +277,20 @@ class AppleService {
         // Language
         language: release.metadata?.language || 'en',
         
+        // Message type for Apple (similar to DDEX messageSubType)
+        updateType: options.messageSubType || 'Initial',
+        
         // Tracks
         tracks: tracks
       }
 
       // Configuration for builder
       const config = {
+        // Package identifiers
+        packageId: packageId,
+        vendorId: vendorId,
+        
+        // Provider config
         provider: packageData.provider,
         teamId: packageData.teamId,
         timestamp: new Date().toISOString(),
@@ -214,19 +300,26 @@ class AppleService {
         completeAlbum: options.completeAlbum !== false,
         clearance: options.clearance !== false,
         
+        // Update type (similar to DDEX message subtype)
+        updateType: options.messageSubType || 'Initial',
+        
         // Apple-specific options
         itunesKind: 'song', // or 'music-video'
         allowDownload: targetConfig.allowDownload !== false,
         allowStream: targetConfig.allowStream !== false
       }
 
-      // Log configuration
+      // Log configuration for idempotency tracking
       console.log('Apple Package Generation Config:', {
         version,
+        packageId: packageId,
+        vendorId: vendorId,
         provider: config.provider,
-        vendorId: packageData.vendorId,
         productType: packageData.product_type,
-        trackCount: packageData.track_count
+        trackCount: packageData.track_count,
+        updateType: config.updateType,
+        targetId: targetConfig.id,
+        upc: upc
       })
 
       // Get version-specific builder and generate XML
@@ -237,19 +330,25 @@ class AppleService {
       
       const packageXml = builder.buildPackage(packageData, config)
 
-      // Save package metadata
+      // Save package metadata with idempotency info
       await this.savePackageMetadata(releaseId, packageXml, targetConfig, {
         version: version,
-        vendorId: packageData.vendorId,
-        productType: packageData.product_type
+        packageId: packageId,
+        vendorId: vendorId,
+        productType: packageData.product_type,
+        updateType: config.updateType
       })
 
       return {
         xml: packageXml,
-        vendorId: packageData.vendorId,
+        packageId: packageId,
+        vendorId: vendorId,
         version: version,
         productType: packageData.product_type,
-        trackCount: packageData.track_count
+        trackCount: packageData.track_count,
+        updateType: config.updateType,
+        targetId: targetConfig.id, // Include for idempotency
+        upc: upc
       }
     } catch (error) {
       console.error('Error generating Apple package:', error)
@@ -327,7 +426,7 @@ class AppleService {
   }
 
   /**
-   * Save package metadata to Firestore
+   * Save package metadata to Firestore with idempotency tracking
    */
   async savePackageMetadata(releaseId, packageXml, targetConfig, metadata) {
     const docRef = doc(db, 'releases', releaseId)
@@ -335,19 +434,25 @@ class AppleService {
     const packageData = {
       version: metadata.version,
       generatedAt: new Date(),
+      packageId: metadata.packageId,
       vendorId: metadata.vendorId,
       productType: metadata.productType,
+      updateType: metadata.updateType || 'Initial',
       target: targetConfig.name || 'Apple Music',
+      targetId: targetConfig.id,
       xml: packageXml
     }
     
-    const packageHistoryKey = `apple_${targetConfig.id || 'default'}_${Date.now()}`
+    // Use packageId in the key for tracking history
+    const packageHistoryKey = `apple_${targetConfig.id || 'default'}_${metadata.packageId}_${Date.now()}`
     
     await updateDoc(docRef, {
       'apple.lastGenerated': new Date(),
       'apple.version': metadata.version,
       'apple.vendorId': metadata.vendorId,
       'apple.productType': metadata.productType,
+      'apple.packageId': metadata.packageId,
+      'apple.updateType': metadata.updateType || 'Initial',
       [`apple.packageHistory.${packageHistoryKey}`]: packageData
     })
     

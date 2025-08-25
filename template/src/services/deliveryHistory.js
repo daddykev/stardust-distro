@@ -31,11 +31,29 @@ export class DeliveryHistoryService {
         deliveryId: deliveryData.deliveryId,
         tenantId: deliveryData.tenantId,
         status: deliveryData.status,
+        idempotencyKey: deliveryData.idempotencyKey, // Add this
         deliveredAt: deliveryData.completedAt || Timestamp.now(),
         createdAt: Timestamp.now()
       }
 
+      // Check if we already have this idempotency key in history
+      if (deliveryData.idempotencyKey) {
+        const existingQuery = query(
+          collection(db, this.collection),
+          where('idempotencyKey', '==', deliveryData.idempotencyKey),
+          limit(1)
+        )
+        
+        const existing = await getDocs(existingQuery)
+        if (!existing.empty) {
+          console.log('Delivery history already exists for idempotency key:', deliveryData.idempotencyKey)
+          return { id: existing.docs[0].id, ...existing.docs[0].data() }
+        }
+      }
+
       const docRef = await addDoc(collection(db, this.collection), historyRecord)
+      console.log('Recorded delivery in history with idempotency key:', deliveryData.idempotencyKey)
+      
       return { id: docRef.id, ...historyRecord }
     } catch (error) {
       console.error('Error recording delivery history:', error)

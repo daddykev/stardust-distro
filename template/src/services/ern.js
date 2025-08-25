@@ -157,6 +157,28 @@ class ERNService {
   }
 
   /**
+   * Generate a stable message ID for idempotency
+   * This should be deterministic for the same release/target combination
+   */
+  generateMessageId(releaseId, targetId, messageSubType = 'Initial') {
+    const timestamp = Date.now()
+    const random = Math.random().toString(36).substr(2, 9)
+    
+    // Create a more predictable ID for idempotency
+    // Include release and target to make it unique per delivery attempt
+    const components = [
+      'MSG',
+      releaseId.substr(-8), // Last 8 chars of release ID
+      targetId ? targetId.substr(-8) : 'NOTARGET', // Last 8 chars of target ID
+      messageSubType.toUpperCase(),
+      timestamp,
+      random
+    ].filter(Boolean)
+    
+    return components.join('-')
+  }
+
+  /**
    * Generate ERN with specific version
    */
   async generateERNWithVersion(releaseId, targetConfig, version, options = {}) {
@@ -213,8 +235,15 @@ class ERNService {
       // Classify the release type
       const classification = classifyRelease(mappedRelease)
 
-      // Generate a unique message ID
-      const messageId = `MSG-${user.uid}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      // Generate a unique but stable message ID for idempotency
+      // Use provided messageId, or generate one that includes target info for stability
+      const messageId = options.messageId || this.generateMessageId(
+        releaseId, 
+        targetConfig.id || 'default',
+        options.messageSubType || 'Initial'
+      )
+      
+      console.log('Generated ERN Message ID for idempotency:', messageId)
 
       // Call the Cloud Function to calculate MD5 hashes
       const calculateMD5 = httpsCallable(functions, 'calculateFileMD5')
@@ -357,6 +386,8 @@ class ERNService {
         messageSubType: config.messageSubType,
         trackCount: config.trackCount,
         upc: upc,
+        messageId: messageId,
+        targetId: targetConfig.id,
         genreMapping: {
           enabled: targetConfig.genreMapping?.enabled,
           original: release.metadata?.genreCode,
@@ -386,6 +417,7 @@ class ERNService {
         messageType: 'NewReleaseMessage',
         messageSubType: options.messageSubType || 'Initial',
         version: version,
+        messageId: messageId, // Include messageId in save
         genreMapping: targetConfig.genreMapping?.enabled ? {
           enabled: true,
           original: release.metadata?.genreCode || null,
@@ -403,6 +435,7 @@ class ERNService {
         releaseType: classification.releaseType,
         messageSubType: options.messageSubType || 'Initial',
         upc: upc,
+        targetId: targetConfig.id, // Include targetId for idempotency
         genreMapping: targetConfig.genreMapping?.enabled ? {
           enabled: true,
           original: release.metadata?.genreName || release.metadata?.genre || null,

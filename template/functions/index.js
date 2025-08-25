@@ -145,7 +145,7 @@ exports.processDeliveryQueue = onSchedule({
   try {
     console.log('Processing delivery queue...')
     
-    // TEMPORARY: Simpler query while index builds
+    // Get queued deliveries
     const now = admin.firestore.Timestamp.now()
     const snapshot = await db.collection('deliveries')
       .where('status', '==', 'queued')
@@ -157,32 +157,43 @@ exports.processDeliveryQueue = onSchedule({
       return { processed: 0 }
     }
 
-    // Filter in memory for now
-    const deliveriesToProcess = []
-    snapshot.forEach(doc => {
-      const data = doc.data()
-      // Check if scheduledAt is in the past
-      if (data.scheduledAt && data.scheduledAt.toMillis() <= now.toMillis()) {
-        deliveriesToProcess.push({ id: doc.id, data })
-      }
-    })
-    
-    // Sort by priority and scheduledAt in memory
-    deliveriesToProcess.sort((a, b) => {
-      // First by priority (desc)
-      const priorityOrder = { urgent: 4, high: 3, normal: 2, low: 1 }
-      const aPriority = priorityOrder[a.data.priority] || 2
-      const bPriority = priorityOrder[b.data.priority] || 2
-      if (aPriority !== bPriority) return bPriority - aPriority
-      
-      // Then by scheduledAt (asc)
-      return a.data.scheduledAt.toMillis() - b.data.scheduledAt.toMillis()
-    })
-
+    // Filter and process deliveries with lock protection
     const promises = []
-    for (const delivery of deliveriesToProcess.slice(0, 10)) {
-      console.log(`Processing delivery ${delivery.id}`)
-      promises.push(processDelivery(delivery.id, delivery.data))
+    
+    for (const doc of snapshot.docs) {
+      const delivery = { id: doc.id, ...doc.data() }
+      
+      // Check if scheduledAt is in the past
+      if (delivery.scheduledAt && delivery.scheduledAt.toMillis() <= now.toMillis()) {
+        // Try to acquire lock before processing
+        const lockResult = await acquireDeliveryLock(delivery.id, delivery.idempotencyKey)
+        
+        if (lockResult.acquired) {
+          console.log(`Processing delivery ${delivery.id} with idempotency key: ${delivery.idempotencyKey}`)
+          
+          // Process the delivery with lock protection
+          promises.push(
+            processDeliveryWithLock(delivery.id, delivery, lockResult.lockData)
+              .catch(error => {
+                console.error(`Error processing ${delivery.id}:`, error)
+                // Release lock on error
+                releaseDeliveryLock(delivery.id, delivery.idempotencyKey, 'failed', { error: error.message })
+                throw error
+              })
+          )
+        } else {
+          console.log(`Skipping delivery ${delivery.id}: ${lockResult.reason}`)
+          
+          // If already completed, update the delivery status
+          if (lockResult.reason === 'completed' && lockResult.result) {
+            await db.collection('deliveries').doc(delivery.id).update({
+              status: 'completed',
+              completedAt: admin.firestore.Timestamp.now(),
+              note: 'Completed by another worker'
+            })
+          }
+        }
+      }
     }
 
     const results = await Promise.allSettled(promises)
@@ -461,16 +472,18 @@ async function processDelivery(deliveryId, delivery) {
   
   try {
     console.log(`Starting delivery ${deliveryId} to ${delivery.targetName}`)
+    console.log(`Idempotency Key: ${delivery.idempotencyKey}`)
     console.log(`Message Type: ${delivery.messageType}, SubType: ${delivery.messageSubType}`)
     
-    // Log: Starting delivery
+    // Log: Starting delivery with idempotency info
     await addDeliveryLog(deliveryId, {
       level: 'info',
       step: 'initialization',
       message: `Starting cloud function delivery process (${delivery.messageSubType || 'Initial'} message)`,
       details: {
         messageType: delivery.messageType || 'NewReleaseMessage',
-        messageSubType: delivery.messageSubType || 'Initial'
+        messageSubType: delivery.messageSubType || 'Initial',
+        idempotencyKey: delivery.idempotencyKey
       }
     })
     
@@ -2369,5 +2382,150 @@ exports.testDeliveryConnection = onCall({
       protocol,
       stack: error.stack 
     }
+  }
+})
+
+// ============================================================================
+// IDEMPOTENCY & LOCKING FUNCTIONS
+// ============================================================================
+
+/**
+ * Acquire a processing lock for a delivery using Firestore transactions
+ * This prevents multiple workers from processing the same delivery
+ */
+async function acquireDeliveryLock(deliveryId, idempotencyKey) {
+  const lockId = idempotencyKey || `delivery_${deliveryId}`
+  const lockRef = db.collection('locks').doc(lockId)
+  
+  try {
+    const result = await db.runTransaction(async (transaction) => {
+      const lockDoc = await transaction.get(lockRef)
+      
+      if (lockDoc.exists) {
+        const lockData = lockDoc.data()
+        
+        // Check if lock is still valid (not expired)
+        const lockExpiry = lockData.expiresAt?.toMillis() || 0
+        const now = Date.now()
+        
+        if (lockExpiry > now && lockData.status === 'processing') {
+          // Lock is held by another process
+          console.log(`Lock held for ${lockId}, expires in ${(lockExpiry - now) / 1000}s`)
+          return { acquired: false, reason: 'locked' }
+        }
+        
+        // Check if this delivery was already completed
+        if (lockData.status === 'completed') {
+          console.log(`Delivery ${lockId} already completed`)
+          return { acquired: false, reason: 'completed', result: lockData.result }
+        }
+      }
+      
+      // Acquire the lock
+      const lockData = {
+        deliveryId,
+        idempotencyKey,
+        status: 'processing',
+        acquiredAt: admin.firestore.Timestamp.now(),
+        expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 600000), // 10 minute expiry
+        instanceId: process.env.K_SERVICE ? process.env.K_REVISION : 'local',
+        attempt: (lockDoc.exists ? lockDoc.data().attempt || 0 : 0) + 1
+      }
+      
+      transaction.set(lockRef, lockData)
+      console.log(`Lock acquired for ${lockId}`)
+      return { acquired: true, lockData }
+    })
+    
+    return result
+  } catch (error) {
+    console.error(`Failed to acquire lock for ${lockId}:`, error)
+    return { acquired: false, reason: 'error', error }
+  }
+}
+
+/**
+ * Release a delivery lock after processing
+ */
+async function releaseDeliveryLock(deliveryId, idempotencyKey, status, result = null) {
+  const lockId = idempotencyKey || `delivery_${deliveryId}`
+  const lockRef = db.collection('locks').doc(lockId)
+  
+  try {
+    const updateData = {
+      status,
+      releasedAt: admin.firestore.Timestamp.now(),
+      expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 86400000) // Keep for 24 hours
+    }
+    
+    if (result) {
+      updateData.result = result
+    }
+    
+    await lockRef.update(updateData)
+    console.log(`Lock released for ${lockId} with status: ${status}`)
+  } catch (error) {
+    console.error(`Failed to release lock for ${lockId}:`, error)
+  }
+}
+
+/**
+ * Process delivery with lock protection
+ */
+async function processDeliveryWithLock(deliveryId, delivery, lockData) {
+  try {
+    // Process the delivery
+    const result = await processDelivery(deliveryId, delivery)
+    
+    // Release lock with success status
+    await releaseDeliveryLock(deliveryId, delivery.idempotencyKey, 'completed', {
+      completedAt: new Date().toISOString(),
+      ...result
+    })
+    
+    return result
+  } catch (error) {
+    // Release lock with error status
+    await releaseDeliveryLock(deliveryId, delivery.idempotencyKey, 'failed', {
+      error: error.message,
+      failedAt: new Date().toISOString()
+    })
+    
+    throw error
+  }
+}
+
+/**
+ * Clean up expired locks (run daily)
+ */
+exports.cleanupExpiredLocks = onSchedule({
+  schedule: 'every day 03:00',
+  timeoutSeconds: 60,
+  memory: '256MB'
+}, async (event) => {
+  try {
+    const now = admin.firestore.Timestamp.now()
+    const expiredLocks = await db.collection('locks')
+      .where('expiresAt', '<', now)
+      .limit(100)
+      .get()
+    
+    const batch = db.batch()
+    let count = 0
+    
+    expiredLocks.forEach(doc => {
+      batch.delete(doc.ref)
+      count++
+    })
+    
+    if (count > 0) {
+      await batch.commit()
+      console.log(`Cleaned up ${count} expired locks`)
+    }
+    
+    return { cleaned: count }
+  } catch (error) {
+    console.error('Error cleaning up locks:', error)
+    throw error
   }
 })

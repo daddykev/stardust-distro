@@ -876,17 +876,97 @@ export class DeliveryService {
   }
 
   /**
-   * Create a new delivery
+   * Generate idempotency key for a delivery
+   * This ensures the same release/target/message combination can't be delivered twice
+   */
+  generateIdempotencyKey(releaseId, targetId, messageType, messageSubType, ernMessageId) {
+    // Create a deterministic key based on delivery parameters
+    // This prevents duplicate deliveries of the same content
+    const components = [
+      releaseId,
+      targetId,
+      messageType || 'NewReleaseMessage',
+      messageSubType || 'Initial',
+      ernMessageId || Date.now()
+    ].filter(Boolean).join('_')
+    
+    // Add a hash for safety (in case of special characters)
+    const hash = components.split('').reduce((acc, char) => {
+      return ((acc << 5) - acc) + char.charCodeAt(0)
+    }, 0).toString(36)
+    
+    return `IDMP_${components}_${hash}`.replace(/[^a-zA-Z0-9_-]/g, '_')
+  }
+
+  /**
+   * Check if a delivery with this idempotency key already exists
+   */
+  async checkIdempotencyKey(idempotencyKey) {
+    try {
+      const q = query(
+        collection(db, this.collection),
+        where('idempotencyKey', '==', idempotencyKey),
+        limit(1)
+      )
+      
+      const snapshot = await getDocs(q)
+      if (!snapshot.empty) {
+        const existing = snapshot.docs[0]
+        return { 
+          exists: true, 
+          delivery: { id: existing.id, ...existing.data() }
+        }
+      }
+      
+      return { exists: false }
+    } catch (error) {
+      console.error('Error checking idempotency key:', error)
+      return { exists: false }
+    }
+  }
+
+  /**
+   * Create a new delivery with idempotency protection
    */
   async createDelivery(deliveryData) {
     try {
+      // Generate idempotency key if not provided
+      if (!deliveryData.idempotencyKey) {
+        deliveryData.idempotencyKey = this.generateIdempotencyKey(
+          deliveryData.releaseId,
+          deliveryData.targetId,
+          deliveryData.messageType,
+          deliveryData.messageSubType,
+          deliveryData.ernMessageId
+        )
+      }
+      
+      console.log('Creating delivery with idempotency key:', deliveryData.idempotencyKey)
+      
+      // Check if this delivery already exists
+      const idempotencyCheck = await this.checkIdempotencyKey(deliveryData.idempotencyKey)
+      if (idempotencyCheck.exists) {
+        console.log('Delivery already exists with this idempotency key, returning existing:', idempotencyCheck.delivery.id)
+        
+        // Return the existing delivery instead of creating a duplicate
+        return idempotencyCheck.delivery
+      }
+      
+      // Add creation timestamps and idempotency key
       const docRef = await addDoc(collection(db, this.collection), {
         ...deliveryData,
+        idempotencyKey: deliveryData.idempotencyKey,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now()
       })
       
-      return { id: docRef.id, ...deliveryData }
+      console.log('Created new delivery with ID:', docRef.id)
+      
+      return { 
+        id: docRef.id, 
+        ...deliveryData,
+        idempotencyKey: deliveryData.idempotencyKey
+      }
     } catch (error) {
       console.error('Error creating delivery:', error)
       throw error
