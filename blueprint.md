@@ -272,7 +272,7 @@ stardust-distro/
 │   │   │   │   ├── index.js       # Genre service and API ✅
 │   │   │   │   ├── default.js     # Default genre export ✅
 │   │   │   │   ├── apple-539.js   # Apple Music genres v5.3.9 ✅
-│   │   │   │   └── beatport.js    # (Future) Beatport genres ❌
+│   │   │   │   └── beatport-202505.js  # Beatport genres v2025-05 ✅
 │   │   │   ├── currencies/        # Currency codes ❌
 │   │   │   ├── languages/         # Language codes ❌
 │   │   │   └── territories/       # Territory codes ❌

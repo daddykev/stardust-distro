@@ -11,6 +11,7 @@ import NewRelease from '../views/NewRelease.vue'
 import Deliveries from '../views/Deliveries.vue'
 import Analytics from '../views/Analytics.vue'
 import Testing from '../views/Testing.vue'
+import GenreMaps from '../views/GenreMaps.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -36,6 +37,12 @@ const router = createRouter({
       path: '/dashboard',
       name: 'dashboard',
       component: Dashboard,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/genre-maps',
+      name: 'genre-maps',
+      component: GenreMaps,
       meta: { requiresAuth: true }
     },
     {
