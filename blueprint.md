@@ -231,23 +231,25 @@ stardust-distro/
 │   │   │   │   └── DeliveryMetrics.vue
 │   │   │   ├── DuplicateWarning.vue  # Fingerprint analysis tool ✅
 │   │   │   ├── GenreSelector.vue  # Unified genre selector tool ✅
+│   │   │   ├── MigrationStatus.vue  # Catalog import modal ✅
 │   │   │   ├── NavBar.vue         # Navigation bar component ✅
 │   │   │   └── ReconciliationDashboard.vue  # Delivery receipts ✅
 │   │   ├── views/                 # Page views
-│   │   │   ├── SplashPage.vue     # Landing/marketing page ✅
-│   │   │   ├── Login.vue          # Authentication page ✅
-│   │   │   ├── Signup.vue         # Account creation page ✅
-│   │   │   ├── Dashboard.vue      # Main dashboard ✅
-│   │   │   ├── Settings.vue       # Platform settings ✅
-│   │   │   ├── Catalog.vue        # Catalog management ✅
-│   │   │   ├── NewRelease.vue     # Create release wizard ✅
-│   │   │   ├── ReleaseDetail.vue  # Release details page ✅
-│   │   │   ├── Deliveries.vue     # Delivery management ✅
-│   │   │   ├── NewDelivery.vue    # Create delivery ✅
 │   │   │   ├── Analytics.vue      # Usage analytics ✅
+│   │   │   ├── Catalog.vue        # Catalog management ✅
+│   │   │   ├── Dashboard.vue      # Main dashboard ✅
+│   │   │   ├── Deliveries.vue     # Delivery management ✅
 │   │   │   ├── GenreMaps.vue      # Genre map management ✅
-│   │   │   ├── Testing.vue        # Comprehensive testing suite ✅
-│   │   │   └── NotFound.vue       # 404 page ✅
+│   │   │   ├── Login.vue          # Authentication page ✅
+│   │   │   ├── Migration.vue      # Catalog migration manager ✅
+│   │   │   ├── NewDelivery.vue    # Create delivery ✅
+│   │   │   ├── NewRelease.vue     # Create release wizard ✅
+│   │   │   ├── NotFound.vue       # 404 page ✅
+│   │   │   ├── ReleaseDetail.vue  # Release details page ✅
+│   │   │   ├── Settings.vue       # Platform settings ✅
+│   │   │   ├── Signup.vue         # Account creation page ✅
+│   │   │   ├── SplashPage.vue     # Landing/marketing page ✅
+│   │   │   └── Testing.vue        # Comprehensive testing suite ✅
 │   │   ├── composables/           # Vue composables
 │   │   │   ├── useAuth.js         # Authentication composable ✅
 │   │   │   ├── useCatalog.js      # Catalog operations ✅
@@ -268,6 +270,7 @@ stardust-distro/
 │   │   │   │   └── ern-382.js     # ERN 3.8.2 builder ✅
 │   │   │   ├── fingerprints.js    # Fingerprint service with cloud functions ✅
 │   │   │   ├── genreMappings.js   # Genre map Firestore service ✅
+│   │   │   ├── import.js          # Catalog migration service ✅
 │   │   │   ├── receipts.js        # Enhanced delivery receipts ✅
 │   │   │   └── testTargets.js     # Test DSP targets ✅
 │   │   ├── utils/                 # Utils ✅
@@ -288,10 +291,10 @@ stardust-distro/
 │   │   ├── router/                # Vue Router
 │   │   │   └── index.js           # Route definitions ✅
 │   │   ├── assets/                # Design system CSS architecture
-│   │   │   ├── main.css           # Entry point importing all stylesheets ✅
 │   │   │   ├── base.css           # CSS reset, normalization, base typography ✅
-│   │   │   ├── themes.css         # CSS custom properties, light/dark themes ✅
-│   │   │   └── components.css     # Reusable component & utility classes ✅
+│   │   │   ├── components.css     # Reusable component & utility classes ✅
+│   │   │   ├── main.css           # Entry point importing all stylesheets ✅
+│   │   │   └── themes.css         # CSS custom properties, light/dark themes ✅
 │   │   ├── firebase.js            # Firebase initialization ✅
 │   │   ├── App.vue                # Root component with theme management ✅
 │   │   └── main.js                # Entry point with FontAwesome setup ✅
