@@ -26,6 +26,14 @@ export class DeliveryTargetService {
       const target = {
         ...targetData,
         tenantId,
+        // Genre mapping configuration
+        genreMapping: {
+          enabled: targetData.genreMapping?.enabled || false,
+          mappingId: targetData.genreMapping?.mappingId || null,
+          mappingName: targetData.genreMapping?.mappingName || null,
+          strictMode: targetData.genreMapping?.strictMode || false,
+          fallbackGenre: targetData.genreMapping?.fallbackGenre || null
+        },
         createdAt: new Date(),
         updatedAt: new Date(),
         active: targetData.active !== false

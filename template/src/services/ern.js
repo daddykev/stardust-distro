@@ -11,8 +11,11 @@ import catalogService from './catalog'
 import { classifyRelease } from '../utils/releaseClassifier'
 import { escapeUrlForXml } from '../utils/urlUtils'
 
+// Import genre mapping service
+import genreMappingService from './genreMappings'
+
 /**
- * Enhanced ERN Service with multi-version support
+ * Enhanced ERN Service with multi-version support and genre mapping
  */
 class ERNService {
   constructor() {
@@ -47,6 +50,122 @@ class ERNService {
   }
 
   /**
+   * Map genre based on target configuration
+   */
+  async mapGenreForTarget(genre, targetConfig) {
+    // Start with original genre data
+    let mappedGenre = {
+      code: genre?.genreCode || genre?.code || '',
+      name: genre?.genreName || genre?.name || '',
+      subgenreCode: genre?.subgenreCode || '',
+      subgenreName: genre?.subgenreName || ''
+    }
+
+    // Check if genre mapping is enabled for this target
+    if (!targetConfig.genreMapping?.enabled) {
+      console.log('Genre mapping not enabled for target, using original genres')
+      return mappedGenre
+    }
+
+    try {
+      // If a specific mapping ID is provided, use it
+      if (targetConfig.genreMapping.mappingId) {
+        const mapping = await genreMappingService.getMapping(targetConfig.genreMapping.mappingId)
+        
+        if (mapping && mapping.mappings) {
+          // Map the primary genre
+          if (mappedGenre.code && mapping.mappings[mappedGenre.code]) {
+            const targetGenreCode = mapping.mappings[mappedGenre.code]
+            console.log(`Mapped genre: ${mappedGenre.code} -> ${targetGenreCode}`)
+            
+            // Update the genre code
+            mappedGenre.code = targetGenreCode
+            
+            // Try to get the genre name from the target DSP dictionary
+            // This would require importing the specific DSP dictionary
+            mappedGenre.name = await this.getGenreNameForDSP(targetGenreCode, targetConfig.type)
+          }
+          
+          // Map the subgenre if present
+          if (mappedGenre.subgenreCode && mapping.mappings[mappedGenre.subgenreCode]) {
+            const targetSubgenreCode = mapping.mappings[mappedGenre.subgenreCode]
+            console.log(`Mapped subgenre: ${mappedGenre.subgenreCode} -> ${targetSubgenreCode}`)
+            
+            mappedGenre.subgenreCode = targetSubgenreCode
+            mappedGenre.subgenreName = await this.getGenreNameForDSP(targetSubgenreCode, targetConfig.type)
+          }
+        }
+      } else {
+        // Use built-in mapping
+        console.log('Using built-in genre mapping for', targetConfig.type)
+        const builtInMapping = genreMappingService.getBuiltInMapping(targetConfig.type?.toLowerCase())
+        
+        if (builtInMapping && builtInMapping.mappings) {
+          // Apply built-in mapping logic
+          // This is simplified - you'd want to integrate with your existing genre dictionaries
+          console.log('Applying built-in mapping rules')
+        }
+      }
+
+      // Handle unmapped genres
+      if (targetConfig.genreMapping.strictMode && 
+          mappedGenre.code === (genre?.genreCode || genre?.code)) {
+        // Genre wasn't mapped and strict mode is enabled
+        throw new Error(`Genre "${mappedGenre.name}" (${mappedGenre.code}) cannot be mapped for ${targetConfig.name}. Strict mode enabled.`)
+      }
+      
+      // Apply fallback if no mapping was found
+      if (mappedGenre.code === (genre?.genreCode || genre?.code) && 
+          targetConfig.genreMapping.fallbackGenre) {
+        console.log(`No mapping found, using fallback: ${targetConfig.genreMapping.fallbackGenre}`)
+        mappedGenre.code = targetConfig.genreMapping.fallbackGenre
+        mappedGenre.name = await this.getGenreNameForDSP(targetConfig.genreMapping.fallbackGenre, targetConfig.type)
+      }
+
+    } catch (error) {
+      console.error('Error mapping genre:', error)
+      
+      if (targetConfig.genreMapping.strictMode) {
+        throw error // Re-throw in strict mode
+      }
+      
+      // In non-strict mode, log the error but continue with original genre
+      console.warn('Genre mapping failed, using original genre')
+    }
+
+    return mappedGenre
+  }
+
+  /**
+   * Get genre name from DSP-specific dictionary
+   */
+  async getGenreNameForDSP(genreCode, dspType) {
+    // This would integrate with your DSP-specific genre dictionaries
+    // For now, return the code as the name
+    // In production, you'd import the specific dictionaries and look up the name
+    
+    try {
+      if (dspType?.toLowerCase().includes('beatport')) {
+        // Import and use Beatport dictionary
+        const { BEATPORT_GENRES } = await import('../dictionaries/genres/beatport-202505')
+        return BEATPORT_GENRES.byCode[genreCode]?.name || genreCode
+      } else if (dspType?.toLowerCase().includes('apple')) {
+        // Import and use Apple dictionary
+        const { APPLE_GENRES } = await import('../dictionaries/genres/apple-539')
+        return APPLE_GENRES.byCode[genreCode]?.name || genreCode
+      } else if (dspType?.toLowerCase().includes('amazon')) {
+        // Import and use Amazon dictionary
+        const { AMAZON_GENRES } = await import('../dictionaries/genres/amazon-201805')
+        return AMAZON_GENRES.byCode[genreCode]?.name || genreCode
+      }
+    } catch (error) {
+      console.warn(`Could not load genre name for ${genreCode} from ${dspType} dictionary`)
+    }
+    
+    return genreCode // Return code if name not found
+  }
+
+  /**
    * Generate ERN with specific version
    */
   async generateERNWithVersion(releaseId, targetConfig, version, options = {}) {
@@ -75,141 +194,144 @@ class ERNService {
         throw new Error(`Invalid UPC format: ${upc}. Must be 12-14 digits.`)
       }
 
-      // Classify release to determine profile and type
-      const classification = classifyRelease(release)
-      console.log('Release classification:', classification)
-      console.log('Using UPC:', upc)
+      // Map genres based on target configuration
+      const mappedGenre = await this.mapGenreForTarget(release.metadata, targetConfig)
+      
+      console.log('Genre mapping result:', {
+        original: {
+          code: release.metadata?.genreCode,
+          name: release.metadata?.genreName
+        },
+        mapped: mappedGenre,
+        target: targetConfig.name,
+        mappingEnabled: targetConfig.genreMapping?.enabled
+      })
 
-      // Extract asset information from the release data itself
-      const coverAsset = release.assets?.coverImage || null
-      const audioAssets = []
-      
-      // Get audio assets from tracks
-      if (release.tracks) {
-        release.tracks.forEach((track, index) => {
-          if (track.audio?.url) {
-            audioAssets.push({
-              type: 'audio',
-              trackId: track.id,
-              storageUrl: track.audio.url,
-              metadata: {
-                trackId: track.id,
-                format: track.audio.format || 'WAV',
-                duration: track.audio.duration || track.duration,
-                bitrate: track.audio.bitrate,
-                sampleRate: track.audio.sampleRate,
-                size: track.audio.size
-              }
-            })
-          }
-        })
+      // Override release metadata with mapped genres
+      const mappedRelease = {
+        ...release,
+        metadata: {
+          ...release.metadata,
+          genreCode: mappedGenre.code,
+          genreName: mappedGenre.name,
+          subgenreCode: mappedGenre.subgenreCode,
+          subgenreName: mappedGenre.subgenreName
+        }
       }
+
+      // Classify the release type
+      const classification = classifyRelease(mappedRelease)
+
+      // Generate a unique message ID
+      const messageId = `MSG-${user.uid}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+
+      // Call the Cloud Function to calculate MD5 hashes
+      const calculateMD5 = httpsCallable(functions, 'calculateFileMD5')
       
-      // Calculate MD5 for cover image
-      let coverMD5 = 'PENDING'
+      // Get MD5 for cover image
+      let coverMD5 = null
+      const coverAsset = mappedRelease.assets?.coverImage
       if (coverAsset?.url) {
         try {
-          const calculateMD5 = httpsCallable(functions, 'calculateFileMD5')
-          const result = await calculateMD5({ url: coverAsset.url })
-          coverMD5 = result.data.md5
+          const coverResult = await calculateMD5({ url: coverAsset.url })
+          coverMD5 = coverResult.data.md5
+          console.log('Cover MD5:', coverMD5)
         } catch (error) {
           console.error('Error calculating cover MD5:', error)
         }
       }
 
-      // Prepare resource data from tracks
-      const tracks = release.tracks || []
-      const resourceData = await Promise.all(tracks.map(async (track, index) => {
-        // Find the audio asset for this track
-        const audioAsset = audioAssets.find(a => a.trackId === track.id)
-        
-        let md5 = 'PENDING'
-        if (audioAsset?.storageUrl) {
-          try {
-            const calculateMD5 = httpsCallable(functions, 'calculateFileMD5')
-            const result = await calculateMD5({ url: audioAsset.storageUrl })
-            md5 = result.data.md5
-          } catch (error) {
-            console.error(`Error calculating MD5 for track ${track.id}:`, error)
+      // Get MD5 for each audio track
+      const trackMD5s = {}
+      if (mappedRelease.tracks && mappedRelease.tracks.length > 0) {
+        for (const track of mappedRelease.tracks) {
+          if (track.audio?.url) {
+            try {
+              const audioResult = await calculateMD5({ url: track.audio.url })
+              trackMD5s[track.isrc] = audioResult.data.md5
+              console.log(`Track ${track.isrc} MD5:`, audioResult.data.md5)
+            } catch (error) {
+              console.error(`Error calculating MD5 for track ${track.isrc}:`, error)
+            }
           }
         }
-
-        const discNumber = String(track.discNumber || 1).padStart(2, '0')
-        const trackNumber = String(index + 1).padStart(3, '0')
-        const fileExtension = audioAsset?.metadata?.format?.toLowerCase() || 'wav'
-        // Use the validated UPC here
-        const ddexFileName = `${upc}_${discNumber}_${trackNumber}.${fileExtension}`
-
-        return {
-          resourceReference: `A${String(index + 1).padStart(3, '0')}`,
-          title: track.title || track.metadata?.title || `Track ${index + 1}`,
-          artist: track.artist || track.displayArtist || track.metadata?.displayArtist || release.basic.artist,
-          displayArtist: track.displayArtist || track.artist || track.metadata?.displayArtist || release.basic.artist,
-          isrc: track.isrc || `XX${upc}${String(index + 1).padStart(2, '0')}`,
-          duration: track.duration || track.audio?.duration || 180,
-          fileName: ddexFileName,
-          format: audioAsset?.metadata?.format || 'WAV',
-          codecType: audioAsset?.metadata?.format || 'WAV',
-          storageUrl: audioAsset?.storageUrl || track.audio?.url || '',
-          md5: md5,
-          label: release.basic.label,
-          copyrightLine: release.metadata?.copyrightLine || `© ${new Date().getFullYear()} ${release.basic.label}`,
-          contributors: track.metadata?.contributors || track.contributors || [],
-          bitDepth: audioAsset?.metadata?.bitDepth,
-          sampleRate: audioAsset?.metadata?.sampleRate,
-          channels: audioAsset?.metadata?.channels,
-          // Version-specific fields
-          iswc: track.iswc,
-          isImmersiveAudio: track.isImmersiveAudio,
-          immersiveAudioType: track.immersiveAudioType,
-          subtitle: track.subtitle,
-          genre: track.metadata?.genre || track.genre,
-          language: track.metadata?.language || track.language || 'en'
-        }
-      }))
-
-      // Prepare product data with validated UPC
-      const messageId = `MSG_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-      const product = {
-        messageId,
-        releaseReference: `R${upc}`,  // Use validated UPC
-        grid: release.metadata?.grid || `A1-${upc}-R${upc}-M`,  // Use validated UPC
-        upc: upc,  // Use validated UPC
-        title: release.basic.title,
-        subtitle: release.basic.subtitle,
-        artist: release.basic.artist || release.basic.displayArtist,
-        label: release.basic.label,
-        releaseType: classification.releaseType,
-        secondaryReleaseTypes: release.basic.secondaryReleaseTypes,
-        releaseDate: release.basic.releaseDate,
-        genre: release.metadata?.genre,
-        subGenre: release.metadata?.subGenre,
-        parentalWarning: release.metadata?.parentalWarning || 'NotExplicit',
-        copyrightLine: release.metadata?.copyrightLine,
-        productionYear: release.metadata?.productionYear,
-        territoryCode: targetConfig.territories?.[0] || 'Worldwide',
-        dealStartDate: targetConfig.dealStartDate,
-        dealEndDate: targetConfig.dealEndDate,
-        commercialModels: targetConfig.commercialModels,
-        marketingComment: release.metadata?.marketingComment,
-        displayStartDate: targetConfig.displayStartDate
       }
 
-      // Prepare config with profile from classification
+      // Prepare the product data with mapped genres
+      const product = {
+        ...mappedRelease,
+        basic: {
+          ...mappedRelease.basic,
+          upc: upc,  // Ensure UPC is set
+          ean: upc   // Also set as EAN for compatibility
+        },
+        metadata: {
+          ...mappedRelease.metadata,
+          genreCode: mappedGenre.code,
+          genreName: mappedGenre.name,
+          subgenreCode: mappedGenre.subgenreCode,
+          subgenreName: mappedGenre.subgenreName
+        }
+      }
+
+      // Prepare resource data with calculated MD5 hashes
+      const resourceData = {
+        tracks: mappedRelease.tracks?.map(track => ({
+          ...track,
+          md5: trackMD5s[track.isrc] || null
+        })),
+        coverImage: coverAsset ? {
+          ...coverAsset,
+          md5: coverMD5
+        } : null
+      }
+
+      // Configuration object for the builders
       const config = {
+        // Basic identifiers
         messageId,
-        messageSender: targetConfig.senderName || user.displayName || 'Unknown Sender',
-        senderPartyId: targetConfig.senderPartyId || targetConfig.config?.distributorId,
-        messageRecipient: targetConfig.partyName || targetConfig.name,
-        recipientPartyId: targetConfig.partyId,
+        senderId: targetConfig.config?.distributorId || 'stardust-distro',
+        senderName: targetConfig.senderName || user.displayName || 'Stardust Distro',
+        recipientId: targetConfig.partyId,
+        recipientName: targetConfig.partyName,
+        messageCreatedDateTime: new Date().toISOString(),
+        
+        // Release classification
         profile: classification.profile,
-        releaseType: classification.releaseType,
-        trackCount: classification.trackCount,
-        testMode: targetConfig.testMode || false,
-        includeDeals: options.includeDeals !== false,
+        releaseType: classification.releaseType || 'Album',
+        commercialType: classification.commercialType,
+        
+        // Message type configuration
+        messageType: options.messageType || 'NewReleaseMessage',
         messageSubType: options.messageSubType || 'Initial',
-        coverMD5: coverMD5,
-        coverImageUrl: coverAsset?.url ? escapeUrlForXml(coverAsset.url) : null,
+        updateIndicator: options.messageSubType === 'Update' ? 'OriginalMessage' : null,
+        
+        // Deals configuration
+        includeDeals: options.includeDeals !== false,
+        dealStartDate: targetConfig.dealStartDate || new Date().toISOString().split('T')[0],
+        dealEndDate: targetConfig.dealEndDate,
+        commercialModels: targetConfig.commercialModels || [{
+          type: 'PayAsYouGoModel',
+          usageTypes: ['PermanentDownload', 'OnDemandStream']
+        }],
+        territories: targetConfig.territories || ['Worldwide'],
+        takedownDate: options.takedownDate,
+        
+        // Additional metadata
+        trackCount: mappedRelease.tracks?.length || 0,
+        upc: upc,
+        albumTitle: mappedRelease.basic?.title,
+        albumArtist: mappedRelease.basic?.displayArtist,
+        labelName: mappedRelease.basic?.label,
+        releaseDate: mappedRelease.basic?.releaseDate,
+        originalReleaseDate: mappedRelease.basic?.originalReleaseDate,
+        catalogNumber: mappedRelease.basic?.catalogNumber,
+        pLine: mappedRelease.metadata?.copyright,
+        cLine: mappedRelease.metadata?.copyright,
+        
+        // URL handling - properly escape URLs for XML
+        coverUrl: coverAsset?.url ? escapeUrlForXml(coverAsset.url) : null,
+        
         // Version-specific config
         allowUGCClips: targetConfig.allowUGCClips,
         supportsImmersiveAudio: targetConfig.supportsImmersiveAudio,
@@ -229,7 +351,12 @@ class ERNService {
         releaseType: config.releaseType,
         messageSubType: config.messageSubType,
         trackCount: config.trackCount,
-        upc: upc  // Log the UPC being used
+        upc: upc,
+        genreMapping: {
+          enabled: targetConfig.genreMapping?.enabled,
+          original: release.metadata?.genreCode,
+          mapped: mappedGenre.code
+        }
       })
 
       // Get version-specific builder and generate ERN
@@ -248,11 +375,17 @@ class ERNService {
         }
       }
 
-      // Save ERN with version tracking
+      // Save ERN with version tracking and genre mapping info
       await this.saveERNWithVersion(releaseId, ernXml, targetConfig, classification, {
         messageType: 'NewReleaseMessage',
         messageSubType: options.messageSubType || 'Initial',
-        version: version
+        version: version,
+        genreMapping: {
+          enabled: targetConfig.genreMapping?.enabled,
+          original: release.metadata?.genreCode,
+          mapped: mappedGenre.code,
+          mappingId: targetConfig.genreMapping?.mappingId
+        }
       })
 
       return {
@@ -262,7 +395,11 @@ class ERNService {
         version: version,
         profile: classification.profile,
         releaseType: classification.releaseType,
-        upc: upc  // Return the UPC for confirmation
+        upc: upc,
+        genreMapping: {
+          original: release.metadata?.genreCode,
+          mapped: mappedGenre.code
+        }
       }
     } catch (error) {
       console.error('Error generating ERN:', error)
@@ -367,7 +504,8 @@ class ERNService {
         trackCount: classification.trackCount,
         duration: classification.totalDurationFormatted,
         rationale: classification.rationale
-      } : null
+      } : null,
+      genreMapping: messageConfig.genreMapping || null
     }
     
     // Track ERN history with version
@@ -378,6 +516,7 @@ class ERNService {
       'ddex.version': messageConfig.version,
       'ddex.classification': ernData.classification,
       'ddex.lastMessageType': messageConfig.messageSubType,
+      'ddex.genreMapping': messageConfig.genreMapping,
       [`ddex.ernHistory.${ernHistoryKey}`]: ernData
     })
     

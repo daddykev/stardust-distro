@@ -1,6 +1,7 @@
+<!-- src/components/delivery/DeliveryTargetForm.vue -->
 <template>
   <div class="delivery-target-form">
-    <form @submit.prevent="handleSubmit">
+    <form @submit.prevent="save">
       <!-- Basic Information -->
       <div class="form-section">
         <h3>Basic Information</h3>
@@ -11,44 +12,62 @@
             v-model="formData.name"
             type="text"
             class="form-input"
-            placeholder="e.g., Spotify, Apple Music"
+            placeholder="e.g., Spotify Production"
             required
           />
         </div>
 
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Target Type</label>
-            <select v-model="formData.type" class="form-select" @change="handleTypeChange">
-              <option value="custom">Custom</option>
-              <option value="spotify">Spotify</option>
-              <option value="apple">Apple Music</option>
-              <option value="amazon">Amazon Music</option>
-              <option value="youtube">YouTube Music</option>
-              <option value="tidal">TIDAL</option>
-              <option value="deezer">Deezer</option>
-              <option value="soundcloud">SoundCloud</option>
+            <label class="form-label required">Type</label>
+            <select v-model="formData.type" class="form-select" required>
+              <option value="">Select Type</option>
+              <option value="Spotify">Spotify</option>
+              <option value="Apple Music">Apple Music</option>
+              <option value="Amazon Music">Amazon Music</option>
+              <option value="YouTube Music">YouTube Music</option>
+              <option value="Deezer">Deezer</option>
+              <option value="Tidal">Tidal</option>
+              <option value="Beatport">Beatport</option>
+              <option value="SoundCloud">SoundCloud</option>
+              <option value="custom">Custom DSP</option>
             </select>
           </div>
-
+          
           <div class="form-group">
-            <label class="form-label">Status</label>
-            <select v-model="formData.enabled" class="form-select">
-              <option :value="true">Enabled</option>
-              <option :value="false">Disabled</option>
-            </select>
+            <label class="form-label">
+              <input
+                v-model="formData.active"
+                type="checkbox"
+                class="form-checkbox"
+              />
+              Active
+            </label>
+            <small class="text-muted">Enable this delivery target</small>
           </div>
         </div>
 
-        <!-- ERN Version Selection -->
+        <div class="form-group">
+          <label class="form-label">
+            <input
+              v-model="formData.testMode"
+              type="checkbox"
+              class="form-checkbox"
+            />
+            Test Mode
+          </label>
+          <small class="text-muted">Run deliveries in test mode (no actual delivery)</small>
+        </div>
+      </div>
+
+      <!-- ERN Version Configuration -->
+      <div class="form-section">
+        <h3>ERN Configuration</h3>
+        
         <div class="form-group">
           <label class="form-label required">ERN Version</label>
-          <select 
-            v-model="formData.ernVersion" 
-            class="form-select"
-            @change="handleVersionChange"
-          >
-            <option value="4.3">ERN 4.3 (Latest - Immersive Audio, UGC)</option>
+          <select v-model="formData.ernVersion" class="form-select" required>
+            <option value="4.3">ERN 4.3 (Latest - Recommended)</option>
             <option value="4.2">ERN 4.2 (Enhanced Encoding)</option>
             <option value="3.8.2">ERN 3.8.2 (Most Compatible)</option>
           </select>
@@ -123,6 +142,116 @@
         </div>
       </div>
 
+      <!-- Genre Mapping Configuration -->
+      <div v-if="formData.type !== 'custom'" class="form-section">
+        <h3>Genre Mapping Configuration</h3>
+        
+        <div class="form-group">
+          <label class="form-label">
+            <input
+              v-model="formData.genreMapping.enabled"
+              type="checkbox"
+              class="form-checkbox"
+            />
+            Enable Genre Mapping
+          </label>
+          <small class="text-muted">
+            Automatically translate genres from our truth source to {{ formData.type || 'DSP' }}-specific genres
+          </small>
+        </div>
+        
+        <div v-if="formData.genreMapping.enabled" class="genre-mapping-config">
+          <!-- Genre Mapping Selection -->
+          <div class="form-group">
+            <label class="form-label">Genre Mapping</label>
+            <div v-if="loadingMappings" class="loading-message">
+              <font-awesome-icon icon="spinner" spin /> Loading available mappings...
+            </div>
+            <select 
+              v-else
+              v-model="formData.genreMapping.mappingId" 
+              class="form-select"
+              @change="onMappingSelected"
+            >
+              <option value="">Use built-in mapping (default)</option>
+              <option 
+                v-for="mapping in availableGenreMappings" 
+                :key="mapping.id"
+                :value="mapping.id"
+              >
+                {{ mapping.name }} 
+                ({{ mapping.stats?.totalMapped || 0 }}/{{ mapping.stats?.total || 0 }} genres mapped)
+              </option>
+            </select>
+            <small class="text-muted">
+              Select a custom genre mapping or use the built-in defaults
+            </small>
+          </div>
+          
+          <!-- Strict Mode -->
+          <div class="form-group">
+            <label class="form-label">
+              <input
+                v-model="formData.genreMapping.strictMode"
+                type="checkbox"
+                class="form-checkbox"
+              />
+              Strict Mode
+            </label>
+            <small class="text-muted">
+              Reject deliveries if a genre cannot be mapped (recommended for production)
+            </small>
+          </div>
+          
+          <!-- Fallback Genre -->
+          <div class="form-group">
+            <label class="form-label">Fallback Genre Code</label>
+            <input
+              v-model="formData.genreMapping.fallbackGenre"
+              type="text"
+              class="form-input"
+              placeholder="e.g., ELECTRONIC-00 or BP-ELECTRONICA-00"
+            />
+            <small class="text-muted">
+              Default genre to use when mapping fails (only used if strict mode is disabled)
+            </small>
+          </div>
+          
+          <!-- Mapping Info Display -->
+          <div v-if="formData.genreMapping.mappingId && getSelectedMapping()" class="mapping-info">
+            <div class="info-card">
+              <h4>Selected Mapping Details</h4>
+              <div class="info-row">
+                <span class="info-label">Coverage:</span>
+                <span class="info-value">
+                  {{ getSelectedMapping()?.stats?.percentage || 0 }}%
+                  ({{ getSelectedMapping()?.stats?.totalMapped || 0 }} genres mapped)
+                </span>
+              </div>
+              <div v-if="getSelectedMapping()?.updatedAt" class="info-row">
+                <span class="info-label">Last Updated:</span>
+                <span class="info-value">
+                  {{ new Date(getSelectedMapping().updatedAt.toDate?.() || getSelectedMapping().updatedAt).toLocaleDateString() }}
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Link to Genre Maps -->
+          <div class="form-group">
+            <router-link 
+              :to="`/genre-maps?dsp=${getDSPTypeForMapping()}`" 
+              class="btn btn-sm btn-secondary"
+            >
+              <font-awesome-icon icon="edit" /> Manage Genre Mappings
+            </router-link>
+            <small class="text-muted d-block mt-sm">
+              Create or edit custom genre mappings for {{ formData.type || 'this DSP' }}
+            </small>
+          </div>
+        </div>
+      </div>
+
       <!-- ERN 4.3 Specific Features -->
       <div v-if="formData.ernVersion === '4.3'" class="form-section">
         <h3>ERN 4.3 Advanced Features</h3>
@@ -160,89 +289,30 @@
             v-model="formData.meadUrl"
             type="url"
             class="form-input"
-            placeholder="https://example.com/mead/{messageId}"
+            placeholder="https://api.dsp.com/mead/v1"
           />
-          <small class="text-muted">URL template for Media Enrichment and Description messages</small>
+          <small class="text-muted">URL for media enrichment data (lyrics, credits, etc.)</small>
         </div>
 
+        <!-- Enhanced Deal Structures -->
         <div class="form-group">
-          <label class="form-label">PIE URL (Party Enrichment)</label>
-          <input
-            v-model="formData.pieUrl"
-            type="url"
-            class="form-input"
-            placeholder="https://example.com/pie/{partyId}"
-          />
-          <small class="text-muted">URL template for Party Identification and Enrichment messages</small>
-        </div>
-
-        <!-- Exclusivity Settings -->
-        <div class="form-group">
-          <label class="form-label">Exclusivity Type</label>
-          <select v-model="formData.exclusivity" class="form-select">
-            <option value="">None</option>
-            <option value="Exclusive">Exclusive</option>
-            <option value="NonExclusive">Non-Exclusive</option>
+          <label class="form-label">Deal Type</label>
+          <select v-model="formData.dealType" class="form-select">
+            <option value="standard">Standard Streaming Deal</option>
+            <option value="premium">Premium/Hi-Res Deal</option>
+            <option value="exclusive">Exclusive Window Deal</option>
+            <option value="promotional">Promotional Deal</option>
           </select>
-          <small class="text-muted">Territory exclusivity for this DSP</small>
-        </div>
-
-        <!-- Pre-order Support -->
-        <div class="form-group">
-          <label class="form-label">
-            <input
-              v-model="formData.supportsPreOrder"
-              type="checkbox"
-              class="form-checkbox"
-            />
-            Supports Pre-orders
-          </label>
-          <small class="text-muted">DSP can handle pre-order release dates</small>
         </div>
       </div>
 
-      <!-- ERN 4.2 Specific Features -->
-      <div v-if="formData.ernVersion === '4.2'" class="form-section">
-        <h3>ERN 4.2 Features</h3>
+      <!-- ERN 3.8.2 Legacy Features -->
+      <div v-if="formData.ernVersion === '3.8.2'" class="form-section">
+        <h3>ERN 3.8.2 Legacy Configuration</h3>
         
         <div class="alert alert-info">
           <i class="fas fa-info-circle"></i>
-          <strong>Important:</strong> ERN 4.2 requires the <code>IsProvidedInDelivery</code> flag for all resources.
-          This is handled automatically by the system.
-        </div>
-
-        <!-- Enhanced Audio Encoding -->
-        <div class="form-group">
-          <label class="form-label">Supported Audio Formats</label>
-          <div class="checkbox-group">
-            <label>
-              <input type="checkbox" v-model="formData.audioFormats" value="WAV" />
-              WAV
-            </label>
-            <label>
-              <input type="checkbox" v-model="formData.audioFormats" value="FLAC" />
-              FLAC (Lossless)
-            </label>
-            <label>
-              <input type="checkbox" v-model="formData.audioFormats" value="MP3" />
-              MP3
-            </label>
-            <label>
-              <input type="checkbox" v-model="formData.audioFormats" value="AAC" />
-              AAC
-            </label>
-          </div>
-          <small class="text-muted">Audio formats this DSP can receive</small>
-        </div>
-      </div>
-
-      <!-- ERN 3.8.2 Specific Information -->
-      <div v-if="formData.ernVersion === '3.8.2'" class="form-section">
-        <h3>ERN 3.8.2 Configuration</h3>
-        
-        <div class="alert alert-success">
-          <i class="fas fa-check-circle"></i>
-          <strong>Maximum Compatibility:</strong> ERN 3.8.2 is supported by 80%+ of DSPs worldwide.
+          ERN 3.8.2 is recommended for maximum compatibility with older systems. 
           Ideal for legacy systems and maximum reach.
         </div>
 
@@ -323,7 +393,7 @@
               v-model="formData.config.directory"
               type="text"
               class="form-input"
-              placeholder="/uploads"
+              placeholder="/incoming"
             />
           </div>
         </div>
@@ -352,43 +422,24 @@
             </div>
           </div>
           
-          <div class="form-group">
-            <label class="form-label required">Username</label>
-            <input
-              v-model="formData.config.username"
-              type="text"
-              class="form-input"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Authentication Method</label>
-            <select v-model="formData.config.authMethod" class="form-select">
-              <option value="password">Password</option>
-              <option value="privateKey">Private Key</option>
-            </select>
-          </div>
-          
-          <div v-if="formData.config.authMethod === 'password'" class="form-group">
-            <label class="form-label required">Password</label>
-            <input
-              v-model="formData.config.password"
-              type="password"
-              class="form-input"
-              required
-            />
-          </div>
-          
-          <div v-if="formData.config.authMethod === 'privateKey'" class="form-group">
-            <label class="form-label required">Private Key</label>
-            <textarea
-              v-model="formData.config.privateKey"
-              class="form-textarea"
-              rows="4"
-              placeholder="-----BEGIN RSA PRIVATE KEY-----"
-              required
-            ></textarea>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label required">Username</label>
+              <input
+                v-model="formData.config.username"
+                type="text"
+                class="form-input"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Password/Key Passphrase</label>
+              <input
+                v-model="formData.config.password"
+                type="password"
+                class="form-input"
+              />
+            </div>
           </div>
           
           <div class="form-group">
@@ -397,34 +448,42 @@
               v-model="formData.config.directory"
               type="text"
               class="form-input"
-              placeholder="/home/user/uploads"
+              placeholder="/home/user/incoming"
             />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Private Key (if using key auth)</label>
+            <textarea
+              v-model="formData.config.privateKey"
+              class="form-input"
+              rows="4"
+              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+            ></textarea>
           </div>
         </div>
 
         <!-- S3 Configuration -->
         <div v-if="formData.protocol === 's3'" class="protocol-config">
           <div class="form-group">
-            <label class="form-label required">Bucket Name</label>
+            <label class="form-label required">S3 Bucket</label>
             <input
               v-model="formData.config.bucket"
               type="text"
               class="form-input"
-              placeholder="my-music-bucket"
+              placeholder="my-delivery-bucket"
               required
             />
           </div>
           
           <div class="form-group">
-            <label class="form-label required">AWS Region</label>
-            <select v-model="formData.config.region" class="form-select" required>
-              <option value="us-east-1">US East (N. Virginia)</option>
-              <option value="us-west-2">US West (Oregon)</option>
-              <option value="eu-west-1">EU (Ireland)</option>
-              <option value="eu-central-1">EU (Frankfurt)</option>
-              <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
-              <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
-            </select>
+            <label class="form-label">Prefix/Path</label>
+            <input
+              v-model="formData.config.prefix"
+              type="text"
+              class="form-input"
+              placeholder="deliveries/"
+            />
           </div>
           
           <div class="form-row">
@@ -449,13 +508,14 @@
           </div>
           
           <div class="form-group">
-            <label class="form-label">Prefix/Path</label>
-            <input
-              v-model="formData.config.prefix"
-              type="text"
-              class="form-input"
-              placeholder="releases/"
-            />
+            <label class="form-label">Region</label>
+            <select v-model="formData.config.region" class="form-select">
+              <option value="us-east-1">US East (N. Virginia)</option>
+              <option value="us-west-2">US West (Oregon)</option>
+              <option value="eu-west-1">EU (Ireland)</option>
+              <option value="eu-central-1">EU (Frankfurt)</option>
+              <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+            </select>
           </div>
         </div>
 
@@ -467,7 +527,7 @@
               v-model="formData.config.endpoint"
               type="url"
               class="form-input"
-              placeholder="https://api.example.com/v1/releases"
+              placeholder="https://api.dsp.com/v1/deliveries"
               required
             />
           </div>
@@ -477,7 +537,7 @@
             <select v-model="formData.config.authType" class="form-select">
               <option value="bearer">Bearer Token</option>
               <option value="basic">Basic Auth</option>
-              <option value="apiKey">API Key</option>
+              <option value="apikey">API Key</option>
               <option value="oauth2">OAuth 2.0</option>
             </select>
           </div>
@@ -486,6 +546,16 @@
             <label class="form-label required">Bearer Token</label>
             <input
               v-model="formData.config.bearerToken"
+              type="password"
+              class="form-input"
+              required
+            />
+          </div>
+          
+          <div v-if="formData.config.authType === 'apikey'" class="form-group">
+            <label class="form-label required">API Key</label>
+            <input
+              v-model="formData.config.apiKey"
               type="password"
               class="form-input"
               required
@@ -512,36 +582,15 @@
               />
             </div>
           </div>
-          
-          <div v-if="formData.config.authType === 'apiKey'" class="form-group">
-            <label class="form-label required">API Key</label>
-            <input
-              v-model="formData.config.apiKey"
-              type="password"
-              class="form-input"
-              required
-            />
-          </div>
         </div>
 
         <!-- Azure Configuration -->
         <div v-if="formData.protocol === 'azure'" class="protocol-config">
           <div class="form-group">
-            <label class="form-label required">Account Name</label>
+            <label class="form-label required">Storage Account Name</label>
             <input
               v-model="formData.config.accountName"
               type="text"
-              class="form-input"
-              placeholder="mystorageaccount"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label required">Account Key</label>
-            <input
-              v-model="formData.config.accountKey"
-              type="password"
               class="form-input"
               required
             />
@@ -553,423 +602,280 @@
               v-model="formData.config.containerName"
               type="text"
               class="form-input"
-              placeholder="releases"
               required
             />
           </div>
           
           <div class="form-group">
-            <label class="form-label">Prefix/Path</label>
+            <label class="form-label required">Access Key</label>
             <input
-              v-model="formData.config.prefix"
-              type="text"
+              v-model="formData.config.accessKey"
+              type="password"
               class="form-input"
-              placeholder="music/"
+              required
             />
+          </div>
+        </div>
+
+        <!-- Firebase Storage Configuration -->
+        <div v-if="formData.protocol === 'storage'" class="protocol-config">
+          <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i>
+            Files will be delivered to Firebase Storage for testing purposes.
+            They will be stored in: <code>/deliveries/{targetId}/{timestamp}/</code>
           </div>
         </div>
       </div>
 
-      <!-- Commercial Configuration -->
+      <!-- Commercial Model Configuration -->
       <div class="form-section">
-        <h3>Commercial Configuration</h3>
+        <h3>Commercial Models</h3>
         
-        <!-- Commercial Models -->
-        <div class="form-group">
-          <label class="form-label">Commercial Models</label>
-          <div class="commercial-models">
-            <div
-              v-for="(model, index) in formData.commercialModels"
-              :key="index"
-              class="commercial-model"
-            >
-              <select v-model="model.type" class="form-select">
-                <option value="SubscriptionModel">Subscription</option>
-                <option value="PayAsYouGoModel">Pay As You Go</option>
-                <option value="AdvertisementSupportedModel">Ad-Supported</option>
-                <option value="FreeOfChargeModel">Free</option>
-              </select>
-              
-              <div class="usage-types">
-                <label class="checkbox-label">
-                  <input
-                    type="checkbox"
-                    :checked="model.usageTypes.includes('PermanentDownload')"
-                    @change="toggleUsageType(index, 'PermanentDownload')"
-                  />
-                  Download
-                </label>
-                <label class="checkbox-label">
-                  <input
-                    type="checkbox"
-                    :checked="model.usageTypes.includes('OnDemandStream')"
-                    @change="toggleUsageType(index, 'OnDemandStream')"
-                  />
-                  Stream
-                </label>
-                <label v-if="formData.ernVersion !== '3.8.2'" class="checkbox-label">
-                  <input
-                    type="checkbox"
-                    :checked="model.usageTypes.includes('ConditionalDownload')"
-                    @change="toggleUsageType(index, 'ConditionalDownload')"
-                  />
-                  Offline
-                </label>
-              </div>
-              
-              <!-- Quality Tier for ERN 4.3 -->
-              <div v-if="formData.ernVersion === '4.3' && model.usageTypes.includes('OnDemandStream')" class="form-group mt-sm">
-                <select v-model="model.qualityTier" class="form-select form-select-sm">
-                  <option value="">Standard Quality</option>
-                  <option value="HighQuality">High Quality</option>
-                  <option value="Lossless">Lossless</option>
+        <div class="commercial-models">
+          <div v-for="(model, index) in formData.commercialModels" :key="index" class="commercial-model">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Model Type</label>
+                <select v-model="model.type" class="form-select">
+                  <option value="SubscriptionModel">Subscription</option>
+                  <option value="PayAsYouGoModel">Pay As You Go</option>
+                  <option value="AdvertisementSupportedModel">Ad Supported</option>
                 </select>
               </div>
               
+              <div class="form-group">
+                <label class="form-label">Usage Types</label>
+                <div class="checkbox-group">
+                  <label>
+                    <input
+                      type="checkbox"
+                      value="OnDemandStream"
+                      v-model="model.usageTypes"
+                    />
+                    Streaming
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      value="PermanentDownload"
+                      v-model="model.usageTypes"
+                    />
+                    Download
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      value="TetheredDownload"
+                      v-model="model.usageTypes"
+                    />
+                    Tethered
+                  </label>
+                </div>
+              </div>
+              
               <button
-                v-if="formData.commercialModels.length > 1"
                 type="button"
-                class="btn-icon"
                 @click="removeCommercialModel(index)"
-                title="Remove model"
+                class="btn btn-sm btn-danger"
               >
-                <i class="fas fa-times"></i>
+                Remove
               </button>
             </div>
-            
-            <button
-              type="button"
-              class="btn btn-sm btn-secondary"
-              @click="addCommercialModel"
-            >
-              <i class="fas fa-plus mr-sm"></i>
-              Add Model
-            </button>
           </div>
-        </div>
-
-        <!-- Territories -->
-        <div class="form-group">
-          <label class="form-label">Territories</label>
-          <select v-model="formData.territories" class="form-select" multiple>
-            <option value="Worldwide">Worldwide</option>
-            <option value="US">United States</option>
-            <option value="CA">Canada</option>
-            <option value="GB">United Kingdom</option>
-            <option value="DE">Germany</option>
-            <option value="FR">France</option>
-            <option value="JP">Japan</option>
-            <option value="AU">Australia</option>
-          </select>
-          <small class="text-muted">Hold Ctrl/Cmd to select multiple territories</small>
-        </div>
-
-        <!-- Deal Dates -->
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Deal Start Date</label>
-            <input
-              v-model="formData.dealStartDate"
-              type="date"
-              class="form-input"
-            />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Deal End Date</label>
-            <input
-              v-model="formData.dealEndDate"
-              type="date"
-              class="form-input"
-            />
-          </div>
-        </div>
-
-        <!-- Display Start Date for ERN 4.3 -->
-        <div v-if="formData.ernVersion === '4.3'" class="form-group">
-          <label class="form-label">Display Start Date</label>
-          <input
-            v-model="formData.displayStartDate"
-            type="datetime-local"
-            class="form-input"
-          />
-          <small class="text-muted">When the release should become visible (separate from availability)</small>
+          
+          <button
+            type="button"
+            @click="addCommercialModel"
+            class="btn btn-sm btn-secondary"
+          >
+            Add Commercial Model
+          </button>
         </div>
       </div>
 
-      <!-- Actions -->
+      <!-- Form Actions -->
       <div class="form-actions">
-        <button type="button" class="btn btn-secondary" @click="handleCancel">
+        <button type="button" @click="cancel" class="btn btn-secondary">
           Cancel
         </button>
-        <button 
-          v-if="!isNew" 
-          type="button" 
-          class="btn btn-outline"
-          @click="testConnection"
-          :disabled="testing"
-        >
-          <i v-if="testing" class="fas fa-spinner fa-spin mr-sm"></i>
-          <i v-else class="fas fa-bolt mr-sm"></i>
+        <button type="button" @click="testConnection" class="btn btn-secondary">
           Test Connection
         </button>
-        <button type="submit" class="btn btn-primary" :disabled="saving">
-          <i v-if="saving" class="fas fa-spinner fa-spin mr-sm"></i>
-          <span>{{ isNew ? 'Create' : 'Update' }} Target</span>
+        <button type="submit" class="btn btn-primary">
+          {{ mode === 'edit' ? 'Update' : 'Create' }} Target
         </button>
       </div>
     </form>
-
-    <!-- Test Results -->
-    <div v-if="testResult" class="test-result mt-lg">
-      <div :class="['alert', testResult.success ? 'alert-success' : 'alert-error']">
-        <i :class="['fas', testResult.success ? 'fa-check-circle' : 'fa-times-circle', 'mr-sm']"></i>
-        <div>
-          <strong>{{ testResult.success ? 'Connection Successful' : 'Connection Failed' }}</strong>
-          <p>{{ testResult.message }}</p>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import deliveryTargetService from '../../services/deliveryTargets'
-import ernService from '../../services/ern'
+import { useAuth } from '@/composables/useAuth'
+import genreMappingService from '@/services/genreMappings'
 
 const props = defineProps({
-  target: {
-    type: Object,
-    default: null
+  target: Object,
+  mode: {
+    type: String,
+    default: 'create'
   }
 })
 
-const emit = defineEmits(['save', 'cancel'])
+const emit = defineEmits(['save', 'cancel', 'test'])
 
-const router = useRouter()
-const saving = ref(false)
-const testing = ref(false)
-const testResult = ref(null)
+const { user } = useAuth()
 
-const isNew = computed(() => !props.target?.id)
+// State
+const availableGenreMappings = ref([])
+const loadingMappings = ref(false)
 
-// Form data with ERN version support
 const formData = ref({
   name: '',
-  type: 'custom',
-  enabled: true,
-  ernVersion: '4.3', // Default to latest
+  type: '',
   protocol: 'ftp',
+  active: true,
+  testMode: false,
+  ernVersion: '4.3',
   partyName: '',
   partyId: '',
+  allowUGCClips: false,
+  supportsImmersiveAudio: false,
+  meadUrl: '',
+  dealType: 'standard',
   config: {
-    distributorId: '',
     host: '',
     port: null,
     username: '',
     password: '',
     directory: '',
-    authMethod: 'password',
     privateKey: '',
     bucket: '',
-    region: 'us-east-1',
+    prefix: '',
     accessKeyId: '',
     secretAccessKey: '',
-    prefix: '',
+    region: 'us-east-1',
     endpoint: '',
     authType: 'bearer',
     bearerToken: '',
     apiKey: '',
     accountName: '',
-    accountKey: '',
-    containerName: ''
+    containerName: '',
+    accessKey: '',
+    distributorId: ''
   },
   commercialModels: [
     {
       type: 'SubscriptionModel',
-      usageTypes: ['OnDemandStream'],
-      qualityTier: ''
+      usageTypes: ['OnDemandStream']
     }
   ],
-  territories: ['Worldwide'],
-  dealStartDate: '',
-  dealEndDate: '',
-  // ERN 4.3 specific fields
-  allowUGCClips: false,
-  supportsImmersiveAudio: false,
-  meadUrl: '',
-  pieUrl: '',
-  exclusivity: '',
-  supportsPreOrder: false,
-  displayStartDate: '',
-  // ERN 4.2 specific fields
-  audioFormats: ['WAV', 'FLAC']
+  genreMapping: {
+    enabled: false,
+    mappingId: '',
+    mappingName: '',
+    strictMode: false,
+    fallbackGenre: ''
+  }
 })
 
-// ERN version features
+// ERN Version Features
 const ernVersionFeatures = {
   '4.3': {
     name: 'ERN 4.3',
-    description: 'Latest standard with immersive audio, UGC clips, MEAD/PIE hooks, and enhanced metadata support.'
+    description: 'Latest version with UGC clips, immersive audio, and enhanced metadata support'
   },
   '4.2': {
     name: 'ERN 4.2',
-    description: 'Enhanced encoding support with mandatory IsProvidedInDelivery flag for all resources.'
+    description: 'Stable version with improved encoding and deal structures'
   },
   '3.8.2': {
     name: 'ERN 3.8.2',
-    description: 'Industry standard with 80%+ DSP support. Simplified structure, maximum compatibility.'
+    description: 'Legacy version for maximum compatibility with older systems'
   }
 }
 
-// Version compatibility warnings
-const versionCompatibilityWarning = computed(() => {
-  if (!formData.value.type || formData.value.type === 'custom') return null
-  
-  const compatibility = ernService.isVersionCompatible(
-    formData.value.ernVersion,
-    formData.value.type
-  )
-  
-  if (!compatibility) {
-    return `${formData.value.type} may not fully support ERN ${formData.value.ernVersion}. Consider using the recommended version.`
-  }
-  
+// Computed
+const recommendedVersion = computed(() => {
+  const type = formData.value.type
+  if (type === 'Spotify' || type === 'Apple Music') return '4.3'
+  if (type === 'Amazon Music' || type === 'YouTube Music') return '4.2'
+  if (type === 'Beatport' || type === 'SoundCloud') return '4.2'
+  if (type === 'Deezer' || type === 'Tidal') return '4.3'
   return null
 })
 
-// Recommended version based on DSP type
-const recommendedVersion = computed(() => {
-  if (!formData.value.type || formData.value.type === 'custom') return null
-  return ernService.getRecommendedVersion(formData.value.type)
+const versionCompatibilityWarning = computed(() => {
+  const type = formData.value.type
+  const version = formData.value.ernVersion
+  
+  if (type === 'Spotify' && version === '3.8.2') {
+    return 'Spotify recommends ERN 4.3 for full feature support'
+  }
+  if (type === 'Apple Music' && version !== '4.3') {
+    return 'Apple Music requires ERN 4.3 for immersive audio delivery'
+  }
+  return null
 })
 
-// DSP Presets with ERN version recommendations
-const dspPresets = {
-  spotify: {
-    name: 'Spotify',
-    partyName: 'Spotify AB',
-    partyId: 'PADPIDA20230615SPO',
-    ernVersion: '4.3',
-    protocol: 'api',
-    commercialModels: [
-      {
-        type: 'SubscriptionModel',
-        usageTypes: ['OnDemandStream', 'ConditionalDownload'],
-        qualityTier: 'Lossless'
-      },
-      {
-        type: 'AdvertisementSupportedModel',
-        usageTypes: ['OnDemandStream']
-      }
-    ],
-    supportsImmersiveAudio: true,
-    allowUGCClips: true
-  },
-  apple: {
-    name: 'Apple Music',
-    partyName: 'Apple Inc.',
-    partyId: 'PADPIDA20230615APL',
-    ernVersion: '4.3',
-    protocol: 's3',
-    commercialModels: [
-      {
-        type: 'SubscriptionModel',
-        usageTypes: ['OnDemandStream', 'ConditionalDownload'],
-        qualityTier: 'Lossless'
-      },
-      {
-        type: 'PayAsYouGoModel',
-        usageTypes: ['PermanentDownload']
-      }
-    ],
-    supportsImmersiveAudio: true,
-    supportsPreOrder: true
-  },
-  amazon: {
-    name: 'Amazon Music',
-    partyName: 'Amazon.com Inc.',
-    partyId: 'PADPIDA20230615AMZ',
-    ernVersion: '3.8.2', // Amazon still prefers 3.8.2
-    protocol: 's3',
-    commercialModels: [
-      {
-        type: 'SubscriptionModel',
-        usageTypes: ['OnDemandStream', 'ConditionalDownload']
-      }
-    ]
-  },
-  deezer: {
-    name: 'Deezer',
-    partyName: 'Deezer SA',
-    partyId: 'PADPIDA20230615DEE',
-    ernVersion: '3.8.2', // Deezer prefers 3.8.2
-    protocol: 'ftp',
-    commercialModels: [
-      {
-        type: 'SubscriptionModel',
-        usageTypes: ['OnDemandStream', 'ConditionalDownload']
-      }
-    ]
-  }
-}
-
-// Handle DSP type change
-const handleTypeChange = () => {
-  if (formData.value.type !== 'custom') {
-    const preset = dspPresets[formData.value.type]
-    if (preset) {
-      // Apply preset values
-      formData.value.name = preset.name
-      formData.value.partyName = preset.partyName
-      formData.value.partyId = preset.partyId
-      formData.value.ernVersion = preset.ernVersion
-      formData.value.protocol = preset.protocol
-      formData.value.commercialModels = [...preset.commercialModels]
-      
-      // Apply version-specific features
-      if (preset.ernVersion === '4.3') {
-        formData.value.supportsImmersiveAudio = preset.supportsImmersiveAudio || false
-        formData.value.allowUGCClips = preset.allowUGCClips || false
-        formData.value.supportsPreOrder = preset.supportsPreOrder || false
-      }
-    }
-  }
-}
-
-// Handle ERN version change
-const handleVersionChange = () => {
-  // Reset version-specific fields when changing versions
-  if (formData.value.ernVersion !== '4.3') {
-    formData.value.allowUGCClips = false
-    formData.value.supportsImmersiveAudio = false
-    formData.value.meadUrl = ''
-    formData.value.pieUrl = ''
-    formData.value.exclusivity = ''
-    formData.value.supportsPreOrder = false
-    formData.value.displayStartDate = ''
-    
-    // Remove quality tiers from commercial models
-    formData.value.commercialModels.forEach(model => {
-      delete model.qualityTier
-    })
-  }
+// Methods
+const loadGenreMappings = async () => {
+  if (!user.value) return
   
-  if (formData.value.ernVersion === '3.8.2') {
-    // Remove ConditionalDownload from usage types (not in 3.8.2)
-    formData.value.commercialModels.forEach(model => {
-      model.usageTypes = model.usageTypes.filter(type => type !== 'ConditionalDownload')
-    })
+  loadingMappings.value = true
+  try {
+    // Determine the DSP type based on the form
+    let dspType = 'generic'
+    
+    if (formData.value.type === 'Spotify' || formData.value.name?.toLowerCase().includes('spotify')) {
+      dspType = 'spotify'
+    } else if (formData.value.type === 'Apple Music' || formData.value.name?.toLowerCase().includes('apple')) {
+      dspType = 'apple'
+    } else if (formData.value.type === 'Beatport' || formData.value.name?.toLowerCase().includes('beatport')) {
+      dspType = 'beatport'
+    } else if (formData.value.type === 'Amazon Music' || formData.value.name?.toLowerCase().includes('amazon')) {
+      dspType = 'amazon'
+    }
+    
+    availableGenreMappings.value = await genreMappingService.getTenantMappings(
+      user.value.uid,
+      dspType
+    )
+  } catch (error) {
+    console.error('Error loading genre mappings:', error)
+  } finally {
+    loadingMappings.value = false
   }
 }
 
-// Commercial model management
+const onMappingSelected = (event) => {
+  const selectedMapping = availableGenreMappings.value.find(
+    m => m.id === formData.value.genreMapping.mappingId
+  )
+  if (selectedMapping) {
+    formData.value.genreMapping.mappingName = selectedMapping.name
+  }
+}
+
+const getSelectedMapping = () => {
+  return availableGenreMappings.value.find(
+    m => m.id === formData.value.genreMapping.mappingId
+  )
+}
+
+const getDSPTypeForMapping = () => {
+  const type = formData.value.type?.toLowerCase() || ''
+  if (type.includes('spotify')) return 'spotify'
+  if (type.includes('apple')) return 'apple'
+  if (type.includes('beatport')) return 'beatport'
+  if (type.includes('amazon')) return 'amazon'
+  return 'generic'
+}
+
 const addCommercialModel = () => {
   formData.value.commercialModels.push({
-    type: 'PayAsYouGoModel',
-    usageTypes: ['PermanentDownload'],
-    qualityTier: ''
+    type: 'SubscriptionModel',
+    usageTypes: ['OnDemandStream']
   })
 }
 
@@ -977,172 +883,245 @@ const removeCommercialModel = (index) => {
   formData.value.commercialModels.splice(index, 1)
 }
 
-const toggleUsageType = (modelIndex, usageType) => {
-  const model = formData.value.commercialModels[modelIndex]
-  const index = model.usageTypes.indexOf(usageType)
-  if (index > -1) {
-    model.usageTypes.splice(index, 1)
-  } else {
-    model.usageTypes.push(usageType)
+const validateForm = () => {
+  // Basic validation
+  if (!formData.value.name) {
+    alert('Please enter a target name')
+    return false
   }
-}
-
-// Test connection
-const testConnection = async () => {
-  testing.value = true
-  testResult.value = null
   
-  try {
-    const result = await deliveryTargetService.testConnection(formData.value)
-    testResult.value = result
-  } catch (error) {
-    testResult.value = {
-      success: false,
-      message: error.message
+  if (!formData.value.type) {
+    alert('Please select a target type')
+    return false
+  }
+  
+  if (!formData.value.partyName || !formData.value.partyId) {
+    alert('Please enter DDEX party information')
+    return false
+  }
+  
+  // Protocol-specific validation
+  const protocol = formData.value.protocol
+  const config = formData.value.config
+  
+  if (protocol === 'ftp' || protocol === 'sftp') {
+    if (!config.host || !config.username) {
+      alert('Please enter connection details')
+      return false
     }
-  } finally {
-    testing.value = false
+  }
+  
+  if (protocol === 's3') {
+    if (!config.bucket || !config.accessKeyId || !config.secretAccessKey) {
+      alert('Please enter S3 credentials')
+      return false
+    }
+  }
+  
+  if (protocol === 'api') {
+    if (!config.endpoint) {
+      alert('Please enter API endpoint')
+      return false
+    }
+  }
+  
+  if (protocol === 'azure') {
+    if (!config.accountName || !config.containerName || !config.accessKey) {
+      alert('Please enter Azure storage details')
+      return false
+    }
+  }
+  
+  return true
+}
+
+const save = () => {
+  if (validateForm()) {
+    // Build connection object based on protocol
+    const connection = {}
+    const config = formData.value.config
+    
+    switch (formData.value.protocol) {
+      case 'ftp':
+      case 'sftp':
+        connection.host = config.host
+        connection.port = config.port || (formData.value.protocol === 'ftp' ? 21 : 22)
+        connection.username = config.username
+        connection.password = config.password
+        connection.directory = config.directory || '/'
+        if (formData.value.protocol === 'sftp' && config.privateKey) {
+          connection.privateKey = config.privateKey
+        }
+        break
+        
+      case 's3':
+        connection.bucket = config.bucket
+        connection.prefix = config.prefix || ''
+        connection.accessKeyId = config.accessKeyId
+        connection.secretAccessKey = config.secretAccessKey
+        connection.region = config.region || 'us-east-1'
+        break
+        
+      case 'api':
+        connection.endpoint = config.endpoint
+        connection.authType = config.authType
+        if (config.authType === 'bearer') {
+          connection.bearerToken = config.bearerToken
+        } else if (config.authType === 'apikey') {
+          connection.apiKey = config.apiKey
+        } else if (config.authType === 'basic') {
+          connection.username = config.username
+          connection.password = config.password
+        }
+        break
+        
+      case 'azure':
+        connection.accountName = config.accountName
+        connection.containerName = config.containerName
+        connection.accessKey = config.accessKey
+        break
+    }
+    
+    // Emit save event with formatted data
+    emit('save', {
+      ...formData.value,
+      connection,
+      config: {
+        distributorId: config.distributorId
+      },
+      genreMapping: formData.value.genreMapping
+    })
   }
 }
 
-// Handle form submission
-const handleSubmit = async () => {
-  saving.value = true
-  try {
-    if (isNew.value) {
-      await deliveryTargetService.create(formData.value)
-    } else {
-      await deliveryTargetService.update(props.target.id, formData.value)
-    }
-    emit('save')
-  } catch (error) {
-    console.error('Error saving target:', error)
-    alert('Failed to save delivery target. Please try again.')
-  } finally {
-    saving.value = false
-  }
-}
-
-const handleCancel = () => {
+const cancel = () => {
   emit('cancel')
 }
 
-// Initialize form with existing data
+const testConnection = () => {
+  if (validateForm()) {
+    emit('test', formData.value)
+  }
+}
+
+// Watch for DSP type changes to reload mappings
+watch(() => formData.value.type, () => {
+  loadGenreMappings()
+})
+
+// Initialize
 onMounted(() => {
   if (props.target) {
-    // Merge existing target data with defaults
-    formData.value = {
-      ...formData.value,
+    // Load existing target data
+    formData.value = { 
       ...props.target,
       config: {
         ...formData.value.config,
         ...props.target.config
       },
-      // Ensure ERN version is set
-      ernVersion: props.target.ernVersion || '4.3'
+      genreMapping: props.target.genreMapping || {
+        enabled: false,
+        mappingId: '',
+        mappingName: '',
+        strictMode: false,
+        fallbackGenre: ''
+      }
+    }
+    
+    // Map connection back to config for editing
+    if (props.target.connection) {
+      Object.assign(formData.value.config, props.target.connection)
     }
   }
+  
+  // Load available genre mappings
+  loadGenreMappings()
 })
 </script>
 
 <style scoped>
 .delivery-target-form {
   max-width: 800px;
+  margin: 0 auto;
 }
 
 .form-section {
-  margin-bottom: var(--space-2xl);
-  padding-bottom: var(--space-xl);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.form-section:last-of-type {
-  border-bottom: none;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
 }
 
 .form-section h3 {
-  margin-bottom: var(--space-lg);
+  margin: 0 0 var(--space-lg) 0;
   color: var(--color-text);
+  font-size: var(--text-lg);
 }
 
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-lg);
+.form-group {
+  margin-bottom: var(--space-md);
 }
 
-.protocol-config {
-  padding: var(--space-lg);
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  margin-top: var(--space-lg);
-}
-
-.commercial-models {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-}
-
-.commercial-model {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-md);
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-}
-
-.usage-types {
-  display: flex;
-  gap: var(--space-md);
-  flex: 1;
-}
-
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
+.form-label {
+  display: block;
+  margin-bottom: var(--space-xs);
+  color: var(--color-text-secondary);
   font-size: var(--text-sm);
+  font-weight: var(--font-medium);
 }
 
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-md);
-  margin-top: var(--space-2xl);
-  padding-top: var(--space-xl);
-  border-top: 1px solid var(--color-border);
+.form-label.required::after {
+  content: ' *';
+  color: var(--color-error);
 }
 
-.test-result {
-  animation: slideIn 0.3s ease;
-}
-
-.test-result .alert {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-sm);
-}
-
-.test-result .alert i {
-  font-size: 1.25rem;
-  margin-top: 2px;
-}
-
-.version-features {
+.form-input,
+.form-select,
+textarea.form-input {
+  width: 100%;
   padding: var(--space-sm);
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-size: var(--text-base);
+  transition: all var(--transition-base);
+}
+
+.form-input:focus,
+.form-select:focus,
+textarea.form-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
 }
 
 .form-checkbox {
   margin-right: var(--space-xs);
 }
 
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.protocol-config {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.commercial-model {
+  padding: var(--space-md);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-sm);
+}
+
 .checkbox-group {
   display: flex;
-  flex-wrap: wrap;
   gap: var(--space-md);
 }
 
@@ -1150,105 +1129,181 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
+  cursor: pointer;
 }
 
-.form-select-sm {
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+  margin-top: var(--space-xl);
+}
+
+.alert {
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-md);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.alert-info {
+  background-color: var(--color-info-light);
+  color: var(--color-info-dark);
+  border: 1px solid var(--color-info);
+}
+
+.alert-warning {
+  background-color: var(--color-warning-light);
+  color: var(--color-warning-dark);
+  border: 1px solid var(--color-warning);
+}
+
+.version-features {
+  padding: var(--space-sm);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.text-muted {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.btn {
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.btn-primary {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: var(--color-primary-dark);
+}
+
+.btn-secondary {
+  background-color: var(--color-secondary);
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-secondary-dark);
+}
+
+.btn-danger {
+  background-color: var(--color-error);
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: var(--color-error-dark);
+}
+
+.btn-text {
+  background: none;
+  color: var(--color-primary);
+  padding: var(--space-xs);
+}
+
+.btn-text:hover {
+  text-decoration: underline;
+}
+
+.btn-sm {
   padding: var(--space-xs) var(--space-sm);
   font-size: var(--text-sm);
 }
 
-.btn-icon {
-  background: transparent;
-  border: none;
+/* Genre Mapping Styles */
+.genre-mapping-config {
+  margin-top: var(--space-md);
+  padding-left: var(--space-lg);
+  border-left: 3px solid var(--color-border);
+}
+
+.mapping-info {
+  margin-top: var(--space-md);
+}
+
+.info-card {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.info-card h4 {
+  margin: 0 0 var(--space-sm) 0;
+  font-size: var(--text-sm);
   color: var(--color-text-secondary);
-  cursor: pointer;
-  padding: var(--space-xs);
-  border-radius: var(--radius-sm);
-  transition: all var(--transition-base);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.btn-icon:hover {
-  color: var(--color-danger);
-  background: var(--color-bg-tertiary);
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-xs) 0;
+  font-size: var(--text-sm);
 }
 
-/* Font Awesome specific styles */
-.fa-spin {
-  animation: fa-spin 1s infinite linear;
+.info-label {
+  color: var(--color-text-secondary);
 }
 
-@keyframes fa-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+.info-value {
+  font-weight: var(--font-medium);
 }
 
-.mr-sm {
-  margin-right: var(--space-sm);
+.loading-message {
+  padding: var(--space-sm);
+  color: var(--color-text-secondary);
 }
 
-.ml-sm {
-  margin-left: var(--space-sm);
+.d-block {
+  display: block;
 }
 
 .mt-sm {
   margin-top: var(--space-sm);
 }
 
-.mt-lg {
-  margin-top: var(--space-lg);
+.ml-sm {
+  margin-left: var(--space-sm);
 }
 
-/* Alert styles from CSS architecture */
-.alert {
-  padding: var(--space-md);
-  border-radius: var(--radius-md);
-  border: 1px solid;
-  margin-bottom: var(--space-lg);
-}
-
-.alert-info {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.3);
-  color: var(--color-primary);
-}
-
-.alert-success {
-  background: rgba(34, 197, 94, 0.1);
-  border-color: rgba(34, 197, 94, 0.3);
-  color: var(--color-success);
-}
-
-.alert-warning {
-  background: rgba(245, 158, 11, 0.1);
-  border-color: rgba(245, 158, 11, 0.3);
-  color: var(--color-warning);
-}
-
-.alert-error {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.3);
-  color: var(--color-danger);
-}
-
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
+/* Responsive */
 @media (max-width: 768px) {
   .form-row {
     grid-template-columns: 1fr;
   }
   
-  .commercial-model {
+  .checkbox-group {
     flex-direction: column;
-    align-items: stretch;
+  }
+  
+  .form-actions {
+    flex-direction: column;
+  }
+  
+  .btn {
+    width: 100%;
+    justify-content: center;
   }
 }
 </style>

@@ -1,78 +1,83 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useCatalog } from '../composables/useCatalog'
-import deliveryTargetService from '../services/deliveryTargets'
-import ernService from '../services/ern'
 import { db } from '../firebase'
-import { collection, addDoc, updateDoc, doc, query, where, getDocs, orderBy } from 'firebase/firestore'
-import { validateXmlUrls } from '@/utils/urlUtils'
-import { getGenrePath } from '@/dictionaries/genres'
+import { collection, addDoc, query, where, orderBy, getDocs, Timestamp } from 'firebase/firestore'
+import ernService from '../services/ern'
+import deliveryTargetService from '../services/deliveryTargets'
+import genreMappingService from '../services/genreMappings'
+import { validateXmlUrls } from '../utils/urlUtils'
 
-const route = useRoute()
 const router = useRouter()
+const route = useRoute()
 const { user } = useAuth()
-const { releases, loadReleases } = useCatalog()
+const { releases, fetchReleases } = useCatalog()
 
 // State
 const currentStep = ref(1)
-const totalSteps = 4
+const isLoading = ref(false)
+const isGeneratingERN = ref(false)
+const isQueuingDelivery = ref(false)
+const error = ref(null)
+const successMessage = ref('')
+const showERNPreview = ref(false)
+const previewERN = ref('')
+const previewTargetName = ref('')
 
-// Form data
+// Wizard data
 const deliveryData = ref({
-  releaseId: route.query.releaseId || '',
+  releaseId: null,
   selectedTargets: [],
-  scheduledAt: new Date().toISOString().split('T')[0],
-  scheduledTime: new Date().toTimeString().split(' ')[0].slice(0, 5),
   priority: 'normal',
+  scheduleType: 'immediate',
   testMode: false,
   notes: ''
 })
 
-// Data loading
+// Additional state
 const availableTargets = ref([])
 const selectedRelease = ref(null)
-const isLoading = ref(false)
-const error = ref(null)
-const successMessage = ref(null)
-
-// ERN Generation
 const generatedERNs = ref({})
-const isGeneratingERN = ref(false)
 const ernErrors = ref({})
-const showERNPreview = ref(false)
-const previewERN = ref(null)
-const previewTargetName = ref('')
-
-// Message type management
 const messageTypes = ref({})
 const takedownDates = ref({})
 const deliveryHistory = ref({})
-
-// Delivery queue
-const isQueuingDelivery = ref(false)
-const deliveryResult = ref(null)
+const scheduledDateTime = ref(new Date(Date.now() + 3600000).toISOString().slice(0, 16))
+const genreMappingCache = ref({})
 
 // Step titles
 const stepTitles = [
   'Select Release',
-  'Choose Delivery Targets',
-  'Generate & Review ERN',
-  'Schedule Delivery'
+  'Choose Targets',
+  'Generate ERN',
+  'Schedule & Confirm'
 ]
 
 // Computed
 const currentStepTitle = computed(() => stepTitles[currentStep.value - 1])
 
+const progressPercentage = computed(() => {
+  return (currentStep.value / 4) * 100
+})
+
+const readyReleases = computed(() => {
+  return releases.value.filter(r => r.status === 'ready')
+})
+
+const activeTargets = computed(() => {
+  return availableTargets.value.filter(t => t.active)
+})
+
 const canProceed = computed(() => {
   switch (currentStep.value) {
     case 1:
-      return deliveryData.value.releaseId !== ''
+      return deliveryData.value.releaseId !== null
     case 2:
       return deliveryData.value.selectedTargets.length > 0
     case 3:
-      return Object.keys(generatedERNs.value).length === deliveryData.value.selectedTargets.length
+      return Object.keys(generatedERNs.value).length > 0
     case 4:
       return true
     default:
@@ -80,34 +85,53 @@ const canProceed = computed(() => {
   }
 })
 
-const readyReleases = computed(() => 
-  releases.value.filter(r => r.status === 'ready' || r.status === 'delivered')
-)
-
-const activeTargets = computed(() => 
-  availableTargets.value.filter(t => t.active)
-)
-
-const selectedTargetDetails = computed(() => 
-  availableTargets.value.filter(t => deliveryData.value.selectedTargets.includes(t.id))
-)
-
-const scheduledDateTime = computed(() => {
-  const date = new Date(deliveryData.value.scheduledAt + 'T' + deliveryData.value.scheduledTime)
-  return date.toISOString()
+const canQueueDelivery = computed(() => {
+  return (
+    deliveryData.value.releaseId &&
+    deliveryData.value.selectedTargets.length > 0 &&
+    Object.keys(generatedERNs.value).length > 0
+  )
 })
 
-// Helper method to display genre
-const getGenreDisplay = (release) => {
-  if (release.metadata?.subgenreCode) {
-    return getGenrePath(release.metadata.subgenreCode, 'apple')
-  } else if (release.metadata?.genreCode) {
-    return getGenrePath(release.metadata.genreCode, 'apple')
+// Methods
+const formatDate = (date) => {
+  if (!date) return 'N/A'
+  try {
+    if (date.toDate) {
+      return date.toDate().toLocaleDateString()
+    }
+    return new Date(date).toLocaleDateString()
+  } catch (error) {
+    return 'N/A'
   }
-  return 'No genre specified'
 }
 
-// Methods
+const goToStep = (step) => {
+  if (step < currentStep.value || (step === currentStep.value + 1 && canProceed.value)) {
+    currentStep.value = step
+  }
+}
+
+const nextStep = () => {
+  if (canProceed.value && currentStep.value < 4) {
+    currentStep.value++
+  }
+}
+
+const previousStep = () => {
+  if (currentStep.value > 1) {
+    currentStep.value--
+  }
+}
+
+const loadReleases = async () => {
+  try {
+    await fetchReleases()
+  } catch (error) {
+    console.error('Error loading releases:', error)
+  }
+}
+
 const loadData = async () => {
   isLoading.value = true
   error.value = null
@@ -192,6 +216,37 @@ const deselectAllTargets = () => {
   messageTypes.value = {}
   takedownDates.value = {}
   deliveryHistory.value = {}
+}
+
+const getTarget = (targetId) => {
+  return availableTargets.value.find(t => t.id === targetId)
+}
+
+const getTargetName = (targetId) => {
+  const target = getTarget(targetId)
+  return target?.name || 'Unknown Target'
+}
+
+// Genre mapping preview
+const getMappedGenrePreview = (genreCode, target) => {
+  if (!genreCode || !target?.genreMapping?.enabled) {
+    return genreCode || 'N/A'
+  }
+  
+  // Check cache first
+  const cacheKey = `${genreCode}_${target.id}`
+  if (genreMappingCache.value[cacheKey]) {
+    return genreMappingCache.value[cacheKey]
+  }
+  
+  // For preview, show what will be mapped
+  if (target.genreMapping.mappingId) {
+    // This is a simplified preview - actual mapping happens during ERN generation
+    return 'Will be mapped'
+  }
+  
+  // If using built-in mapping
+  return 'Auto-mapped'
 }
 
 // Check delivery history for a release/target combination
@@ -290,7 +345,11 @@ const generateERNs = async () => {
       } catch (err) {
         console.error(`Error generating ERN for ${target.name}:`, err)
         ernErrors.value[targetId] = err.message
-        error.value = `Failed to generate ERN for ${target.name}: ${err.message}`
+        
+        // If it's a genre mapping error in strict mode, provide helpful context
+        if (err.message.includes('genre') && err.message.includes('strict')) {
+          ernErrors.value[targetId] = `Genre mapping failed: ${err.message}`
+        }
       }
     }
     
@@ -305,6 +364,9 @@ const generateERNs = async () => {
         const target = availableTargets.value.find(t => t.id === targetId)
         if (target) {
           console.log(`ERN generated for ${target.name}: Message ID ${ernResult.messageId}, Type: ${ernResult.messageSubType}`)
+          if (ernResult.genreMapping) {
+            console.log(`Genre mapped: ${ernResult.genreMapping.original} → ${ernResult.genreMapping.mapped}`)
+          }
         }
       }
     }
@@ -350,6 +412,18 @@ const downloadERN = (targetId) => {
   }
 }
 
+const copyERNToClipboard = () => {
+  navigator.clipboard.writeText(previewERN.value)
+    .then(() => {
+      successMessage.value = 'ERN copied to clipboard!'
+      setTimeout(() => successMessage.value = '', 3000)
+    })
+    .catch(err => {
+      console.error('Failed to copy:', err)
+      error.value = 'Failed to copy to clipboard'
+    })
+}
+
 const queueDelivery = async () => {
   isQueuingDelivery.value = true
   error.value = null
@@ -376,13 +450,18 @@ const queueDelivery = async () => {
         tenantId: user.value.uid,
         status: 'queued',
         priority: deliveryData.value.priority,
-        scheduledAt: new Date(scheduledDateTime.value),
+        scheduledAt: deliveryData.value.scheduleType === 'scheduled' 
+          ? new Date(scheduledDateTime.value)
+          : new Date(),
         testMode: deliveryData.value.testMode,
         notes: deliveryData.value.notes,
         
         // Message type information
         messageType: 'NewReleaseMessage',
         messageSubType: messageTypes.value[target.id] || 'Initial',
+        
+        // Genre mapping information
+        genreMapping: ern.genreMapping || null,
         
         // ERN data
         ernVersion: target.ernVersion || '4.3',
@@ -410,139 +489,56 @@ const queueDelivery = async () => {
         },
         
         createdAt: new Date(),
-        updatedAt: new Date(),
-        attempts: []
+        createdBy: user.value.uid
       }
       
-      // Log the delivery structure for debugging
-      console.log('Creating delivery:', {
-        targetName: delivery.targetName,
-        targetProtocol: delivery.targetProtocol,
-        messageSubType: delivery.messageSubType,
-        distributorId: delivery.config.distributorId,
-        endpoint: delivery.connection.endpoint,
-        testMode: delivery.testMode
-      })
-      
+      // Save to Firestore
       const docRef = await addDoc(collection(db, 'deliveries'), delivery)
       deliveries.push({ id: docRef.id, ...delivery })
       
-      // Record in delivery history (initial record - will be updated when completed)
+      // Save to delivery history for tracking message types
       await addDoc(collection(db, 'deliveryHistory'), {
-        releaseId: delivery.releaseId,
-        targetId: delivery.targetId,
-        targetName: delivery.targetName,
-        messageType: delivery.messageType,
-        messageSubType: delivery.messageSubType,
-        ernVersion: delivery.ernVersion,
-        messageId: delivery.ernMessageId,
         deliveryId: docRef.id,
-        tenantId: delivery.tenantId,
+        releaseId: deliveryData.value.releaseId,
+        targetId: target.id,
+        messageType: 'NewReleaseMessage',
+        messageSubType: messageTypes.value[target.id] || 'Initial',
         status: 'queued',
-        deliveredAt: null,
         createdAt: new Date()
       })
     }
     
-    // Update release status
-    await updateDoc(doc(db, 'releases', deliveryData.value.releaseId), {
-      lastDeliveryAt: new Date(),
-      'ddex.lastDeliveryTargets': deliveryData.value.selectedTargets
-    })
+    successMessage.value = `Successfully queued ${deliveries.length} delivery(ies)!`
     
-    deliveryResult.value = {
-      success: true,
-      count: deliveries.length,
-      deliveries
-    }
-    
-    // Show success message with more detail
-    successMessage.value = `Successfully queued ${deliveries.length} ${deliveries.length === 1 ? 'delivery' : 'deliveries'}! They will be processed within 1 minute.`
-    
+    // Redirect to deliveries page after a short delay
     setTimeout(() => {
       router.push('/deliveries')
-    }, 3000)
+    }, 2000)
   } catch (err) {
     console.error('Error queuing delivery:', err)
-    error.value = `Failed to queue delivery: ${err.message}`
+    error.value = 'Failed to queue delivery. Please try again.'
   } finally {
     isQueuingDelivery.value = false
   }
 }
 
 const calculatePackageSize = () => {
-  // Rough estimation - in production, calculate actual sizes
-  let size = 0
+  // Estimate package size (this is simplified)
+  let size = 10240 // ERN XML ~10KB
   
-  // ERN file (roughly 10-50KB)
-  size += 50 * 1024
-  
-  // Audio files (roughly 30-50MB per track for WAV)
+  // Add audio file sizes (estimate 10MB per track)
   const trackCount = selectedRelease.value?.tracks?.length || 0
-  size += trackCount * 40 * 1024 * 1024
+  size += trackCount * 10485760 // 10MB per track
   
-  // Cover image (roughly 1-5MB)
-  size += 3 * 1024 * 1024
+  // Add cover image (estimate 500KB)
+  if (selectedRelease.value?.assets?.coverImage) {
+    size += 512000
+  }
   
-  return formatFileSize(size)
+  return size
 }
 
-const formatFileSize = (bytes) => {
-  if (!bytes) return '0 B'
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i]
-}
-
-const formatDate = (date) => {
-  if (!date) return 'N/A'
-  const d = date?.toDate ? date.toDate() : new Date(date)
-  return d.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  })
-}
-
-// Navigation
-const nextStep = () => {
-  if (currentStep.value < totalSteps) {
-    currentStep.value++
-    
-    // Auto-generate ERNs when reaching step 3
-    if (currentStep.value === 3 && Object.keys(generatedERNs.value).length === 0) {
-      generateERNs()
-    }
-  }
-}
-
-const previousStep = () => {
-  if (currentStep.value > 1) {
-    currentStep.value--
-  }
-}
-
-const goToStep = (step) => {
-  if (step <= currentStep.value || (step === currentStep.value + 1 && canProceed.value)) {
-    currentStep.value = step
-  }
-}
-
-const cancelDelivery = () => {
-  if (confirm('Are you sure you want to cancel? All progress will be lost.')) {
-    router.push('/deliveries')
-  }
-}
-
-// Copy ERN to clipboard
-const copyERNToClipboard = () => {
-  if (previewERN.value) {
-    navigator.clipboard.writeText(previewERN.value)
-    alert('ERN copied to clipboard!')
-  }
-}
-
-// Load data on mount
+// Lifecycle
 onMounted(() => {
   loadData()
 })
@@ -551,48 +547,37 @@ onMounted(() => {
 <template>
   <div class="new-delivery">
     <div class="container">
-      <!-- Header -->
-      <div class="header">
-        <router-link to="/deliveries" class="back-link">
-          <font-awesome-icon icon="chevron-left" />
-          Back to Deliveries
-        </router-link>
-        
-        <div class="header-actions">
-          <button @click="cancelDelivery" class="btn btn-secondary">
-            Cancel
-          </button>
+      <!-- Page Header -->
+      <div class="page-header">
+        <div class="header-content">
+          <router-link to="/deliveries" class="back-link">
+            <font-awesome-icon icon="chevron-left" />
+            <span>Back to Deliveries</span>
+          </router-link>
+          <h1>New Delivery</h1>
+          <p class="subtitle">Create and schedule a new release delivery to DSPs</p>
         </div>
       </div>
-      
-      <!-- Page Title -->
-      <div class="page-header">
-        <h1 class="page-title">Create New Delivery</h1>
-        <p class="page-subtitle">Select a release and delivery targets to distribute your music</p>
-      </div>
-      
-      <!-- Messages -->
-      <div v-if="successMessage" class="message success-message">
+
+      <!-- Success/Error Messages -->
+      <div v-if="successMessage" class="alert success-message">
         <font-awesome-icon icon="check-circle" />
         {{ successMessage }}
       </div>
       
-      <div v-if="error" class="message error-message">
+      <div v-if="error" class="alert error-message">
         <font-awesome-icon icon="exclamation-triangle" />
         {{ error }}
       </div>
-      
-      <!-- Progress Bar -->
+
+      <!-- Wizard Progress -->
       <div class="wizard-progress">
         <div class="progress-bar">
-          <div 
-            class="progress-fill" 
-            :style="{ width: `${(currentStep / totalSteps) * 100}%` }"
-          ></div>
+          <div class="progress-fill" :style="{ width: progressPercentage + '%' }"></div>
         </div>
         <div class="progress-steps">
           <div 
-            v-for="step in totalSteps" 
+            v-for="step in 4" 
             :key="step"
             class="progress-step"
             :class="{ 
@@ -652,8 +637,8 @@ onMounted(() => {
                 <div class="release-content">
                   <div class="release-cover">
                     <img 
-                      v-if="release.assets?.coverImage?.url"
-                      :src="release.assets.coverImage.url"
+                      v-if="release.assets?.coverImage?.url" 
+                      :src="release.assets.coverImage.url" 
                       :alt="release.basic?.title"
                     />
                     <div v-else class="cover-placeholder">
@@ -662,24 +647,28 @@ onMounted(() => {
                   </div>
                   
                   <div class="release-info">
-                    <h3>{{ release.basic?.title || 'Untitled' }}</h3>
-                    <p>{{ release.basic?.displayArtist || 'Unknown Artist' }}</p>
+                    <h3>{{ release.basic?.title }}</h3>
+                    <p>{{ release.basic?.displayArtist }}</p>
                     
-                    <!-- Add genre display -->
-                    <div v-if="release.metadata?.genreCode" class="release-genre">
-                      <font-awesome-icon icon="music" class="genre-icon" />
-                      <span>{{ getGenreDisplay(release) }}</span>
+                    <!-- Genre Display with Badge -->
+                    <div v-if="release.metadata?.genreCode || release.metadata?.genre" class="genre-info">
+                      <span class="genre-badge">
+                        <font-awesome-icon icon="music" />
+                        {{ release.metadata?.genreName || release.metadata?.genre || 'No Genre' }}
+                      </span>
+                      <span v-if="release.metadata?.subgenreName" class="subgenre-badge">
+                        {{ release.metadata.subgenreName }}
+                      </span>
                     </div>
                     
                     <div class="release-meta">
-                      <span class="badge" :class="release.status === 'ready' ? 'badge-info' : 'badge-success'">
+                      <span class="badge" :class="release.status === 'ready' ? 'badge-success' : 'badge-info'">
                         {{ release.status }}
                       </span>
                       <span>{{ release.tracks?.length || 0 }} tracks</span>
                       <span>{{ formatDate(release.basic?.releaseDate) }}</span>
                     </div>
                   </div>
-
                 </div>
               </label>
             </div>
@@ -726,118 +715,115 @@ onMounted(() => {
                   <div class="target-header">
                     <h3>{{ target.name }}</h3>
                     <span class="badge" :class="target.testMode ? 'badge-warning' : 'badge-success'">
-                      {{ target.testMode ? 'Test' : 'Live' }}
+                      {{ target.testMode ? 'Test' : 'Production' }}
                     </span>
+                  </div>
+                  
+                  <!-- Genre Mapping Indicator -->
+                  <div v-if="target.genreMapping?.enabled" class="genre-mapping-indicator">
+                    <div class="mapping-badge">
+                      <font-awesome-icon icon="music" />
+                      <span>Genre Mapping Enabled</span>
+                      <span v-if="target.genreMapping.strictMode" class="strict-badge">
+                        Strict
+                      </span>
+                    </div>
+                    <div v-if="target.genreMapping.mappingName" class="mapping-name">
+                      {{ target.genreMapping.mappingName }}
+                    </div>
+                    <div v-if="selectedRelease && selectedRelease.metadata?.genreCode" class="genre-preview">
+                      <span class="original-genre">
+                        {{ selectedRelease.metadata.genreName || selectedRelease.metadata.genre }}
+                      </span>
+                      <font-awesome-icon icon="arrow-right" class="mapping-arrow" />
+                      <span class="mapped-genre">
+                        {{ getMappedGenrePreview(selectedRelease.metadata.genreCode, target) }}
+                      </span>
+                    </div>
                   </div>
                   
                   <div class="target-details">
                     <div class="detail-row">
-                      <span class="detail-label">Party:</span>
-                      <span>{{ target.partyName || 'Not configured' }}</span>
+                      <span class="detail-label">Type:</span>
+                      <span>{{ target.type }}</span>
                     </div>
                     <div class="detail-row">
                       <span class="detail-label">Protocol:</span>
-                      <span>{{ target.protocol }}</span>
+                      <span>{{ target.protocol?.toUpperCase() }}</span>
                     </div>
                     <div class="detail-row">
-                      <span class="detail-label">ERN:</span>
+                      <span class="detail-label">ERN Version:</span>
                       <span>{{ target.ernVersion || '4.3' }}</span>
                     </div>
-                    <!-- Add distributor ID display for DSP targets -->
-                    <div v-if="target.type === 'DSP'" class="detail-row">
-                      <span class="detail-label">Distributor ID:</span>
-                      <span class="mono-text">{{ target.config?.distributorId || 'stardust-distro' }}</span>
+                    <div v-if="target.partyName" class="detail-row">
+                      <span class="detail-label">Party:</span>
+                      <span>{{ target.partyName }}</span>
                     </div>
-                    <!-- Add endpoint display for API targets -->
-                    <div v-if="target.protocol === 'API'" class="detail-row">
-                      <span class="detail-label">Endpoint:</span>
-                      <span class="mono-text">{{ target.connection?.endpoint ? '✓ Configured' : '✗ Not configured' }}</span>
-                    </div>
-                  </div>
-                  
-                  <div class="target-models">
-                    <span class="models-label">Commercial Models:</span>
-                    <div class="models-list">
-                      <span 
-                        v-for="(model, index) in target.commercialModels" 
-                        :key="index"
-                        class="model-badge"
-                      >
-                        {{ model.type.replace('Model', '') }}
-                      </span>
+                    <div v-if="deliveryHistory[target.id]?.hasBeenDelivered" class="detail-row">
+                      <span class="detail-label">Status:</span>
+                      <span class="badge badge-info">Previously Delivered</span>
                     </div>
                   </div>
                 </div>
               </label>
             </div>
-            
-            <div v-if="deliveryData.selectedTargets.length > 0" class="selection-summary">
-              <font-awesome-icon icon="info-circle" />
-              {{ deliveryData.selectedTargets.length }} target{{ deliveryData.selectedTargets.length !== 1 ? 's' : '' }} selected
-            </div>
           </div>
           
-          <!-- Step 3: Generate & Review ERN -->
+          <!-- Step 3: Generate ERN -->
           <div v-else-if="currentStep === 3" class="wizard-step">
-            <p class="step-description">Configure message type and generate ERN messages</p>
+            <p class="step-description">Configure and generate ERN messages for each target</p>
             
-            <!-- Message Type Selection -->
-            <div v-if="!isGeneratingERN && Object.keys(generatedERNs).length === 0" class="message-type-section">
-              <h3>Message Type Configuration</h3>
-              <div class="message-type-grid">
-                <div 
-                  v-for="target in selectedTargetDetails" 
-                  :key="target.id"
-                  class="message-type-card"
-                >
-                  <div class="target-name">{{ target.name }}</div>
-                  
-                  <div class="message-type-selector">
-                    <label class="radio-option">
-                      <input 
-                        type="radio" 
-                        :name="`messageType_${target.id}`"
-                        value="Initial"
-                        v-model="messageTypes[target.id]"
-                        :disabled="deliveryHistory[target.id]?.hasBeenDelivered"
-                      />
-                      <span>New Release</span>
-                      <span class="option-hint" v-if="!deliveryHistory[target.id]?.hasBeenDelivered">
-                        First time delivery
-                      </span>
-                    </label>
-                    
-                    <label class="radio-option">
-                      <input 
-                        type="radio" 
-                        :name="`messageType_${target.id}`"
-                        value="Update"
-                        v-model="messageTypes[target.id]"
-                        :disabled="!deliveryHistory[target.id]?.hasBeenDelivered"
-                      />
-                      <span>Update</span>
-                      <span class="option-hint" v-if="deliveryHistory[target.id]?.hasBeenDelivered">
-                        Last delivered: {{ formatDate(deliveryHistory[target.id].lastDelivery) }}
-                      </span>
-                    </label>
-                    
-                    <label class="radio-option">
-                      <input 
-                        type="radio" 
-                        :name="`messageType_${target.id}`"
-                        value="Takedown"
-                        v-model="messageTypes[target.id]"
-                      />
-                      <span>Takedown</span>
-                      <span class="option-hint">Remove from DSP</span>
-                    </label>
+            <!-- Message Type Configuration -->
+            <div class="message-config-section">
+              <h3>Message Configuration</h3>
+              <div class="message-config-grid">
+                <div v-for="targetId in deliveryData.selectedTargets" :key="targetId" class="message-config-card">
+                  <div class="config-header">
+                    <h4>{{ getTargetName(targetId) }}</h4>
+                    <span v-if="deliveryHistory[targetId]?.hasBeenDelivered" class="badge badge-info">
+                      Previously Delivered
+                    </span>
                   </div>
                   
-                  <!-- Takedown date for takedown messages -->
-                  <div v-if="messageTypes[target.id] === 'Takedown'" class="takedown-config">
-                    <label class="form-label">Takedown Date</label>
+                  <!-- Genre Mapping Display -->
+                  <div v-if="getTarget(targetId)?.genreMapping?.enabled" class="genre-mapping-display">
+                    <div class="mapping-info-card">
+                      <div class="mapping-title">
+                        <font-awesome-icon icon="music" />
+                        Genre Mapping Active
+                      </div>
+                      <div class="mapping-details">
+                        <div class="mapping-row">
+                          <span class="label">Original:</span>
+                          <span class="value">{{ selectedRelease?.metadata?.genreName || 'Unknown' }}</span>
+                        </div>
+                        <div class="mapping-row">
+                          <span class="label">Mapped to:</span>
+                          <span class="value mapped">
+                            {{ getMappedGenrePreview(selectedRelease?.metadata?.genreCode, getTarget(targetId)) }}
+                          </span>
+                        </div>
+                        <div v-if="getTarget(targetId)?.genreMapping?.strictMode" class="mapping-warning">
+                          <font-awesome-icon icon="exclamation-triangle" />
+                          Strict mode enabled - delivery will fail if genre cannot be mapped
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label>Message Type</label>
+                    <select v-model="messageTypes[targetId]" class="form-select">
+                      <option value="Initial">Initial Delivery</option>
+                      <option value="Update">Update Existing</option>
+                      <option value="Takedown">Takedown</option>
+                    </select>
+                  </div>
+                  
+                  <div v-if="messageTypes[targetId] === 'Takedown'" class="form-group">
+                    <label>Takedown Date</label>
                     <input 
-                      v-model="takedownDates[target.id]" 
+                      v-model="takedownDates[targetId]"
                       type="date"
                       class="form-input"
                       :min="new Date().toISOString().split('T')[0]"
@@ -845,257 +831,298 @@ onMounted(() => {
                   </div>
                 </div>
               </div>
-              
+            </div>
+            
+            <!-- Generate ERN Button -->
+            <div class="ern-actions">
               <button 
-                @click="generateERNs" 
+                @click="generateERNs"
                 class="btn btn-primary btn-lg"
-                style="margin-top: var(--space-lg);"
+                :disabled="isGeneratingERN || deliveryData.selectedTargets.length === 0"
               >
-                Generate ERN Messages
+                <font-awesome-icon v-if="isGeneratingERN" icon="spinner" spin />
+                <font-awesome-icon v-else icon="file-code" />
+                {{ isGeneratingERN ? 'Generating...' : 'Generate ERN Messages' }}
               </button>
             </div>
             
-            <div v-if="isGeneratingERN" class="generating-status">
-              <div class="loading-spinner"></div>
-              <p>Generating ERN messages...</p>
-            </div>
-            
-            <div v-else-if="Object.keys(generatedERNs).length > 0" class="ern-results">
-              <div 
-                v-for="target in selectedTargetDetails" 
-                :key="target.id"
-                class="ern-result-card"
-              >
-                <div class="ern-header">
-                  <h3>{{ target.name }}</h3>
-                  <div class="ern-status">
-                    <span v-if="generatedERNs[target.id]" class="badge badge-success">
-                      <font-awesome-icon icon="check" />
-                      {{ generatedERNs[target.id].messageSubType }}
-                    </span>
-                    <span v-else-if="ernErrors[target.id]" class="badge badge-error">
-                      <font-awesome-icon icon="times" />
-                      Failed
+            <!-- Generated ERNs Display -->
+            <div v-if="Object.keys(generatedERNs).length > 0" class="generated-erns">
+              <h3>Generated ERN Messages</h3>
+              <div class="ern-cards">
+                <div v-for="(ern, targetId) in generatedERNs" :key="targetId" class="ern-card">
+                  <div class="ern-header">
+                    <h4>{{ getTargetName(targetId) }}</h4>
+                    <span class="badge badge-success">
+                      <font-awesome-icon icon="check-circle" />
+                      Generated
                     </span>
                   </div>
-                </div>
-                
-                <div v-if="generatedERNs[target.id]" class="ern-details">
-                  <div class="detail-row">
-                    <span class="detail-label">Message ID:</span>
-                    <span class="mono-text">{{ generatedERNs[target.id].messageId }}</span>
+                  
+                  <!-- Show Genre Mapping Result -->
+                  <div v-if="ern.genreMapping" class="genre-mapping-result">
+                    <div class="result-badge">
+                      <font-awesome-icon icon="music" />
+                      Genre Mapped: {{ ern.genreMapping.original }} → {{ ern.genreMapping.mapped }}
+                    </div>
                   </div>
-                  <div class="detail-row">
-                    <span class="detail-label">Version:</span>
-                    <span>ERN {{ generatedERNs[target.id].version }}</span>
-                  </div>
-                  <div class="detail-row">
-                    <span class="detail-label">Type:</span>
-                    <span>{{ generatedERNs[target.id].messageSubType }} Message</span>
+                  
+                  <div class="ern-details">
+                    <div class="detail-row">
+                      <span>Message ID:</span>
+                      <code>{{ ern.messageId }}</code>
+                    </div>
+                    <div class="detail-row">
+                      <span>Version:</span>
+                      <span>ERN {{ ern.version || '4.3' }}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span>Type:</span>
+                      <span>{{ ern.messageSubType || messageTypes[targetId] }}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span>Profile:</span>
+                      <span>{{ ern.profile }}</span>
+                    </div>
                   </div>
                   
                   <div class="ern-actions">
-                    <button 
-                      @click="previewERNForTarget(target.id)"
-                      class="btn btn-sm btn-secondary"
-                    >
+                    <button @click="previewERNForTarget(targetId)" class="btn btn-sm btn-secondary">
                       <font-awesome-icon icon="eye" />
                       Preview
                     </button>
-                    <button 
-                      @click="validateERN(target.id)"
-                      class="btn btn-sm btn-secondary"
-                    >
+                    <button @click="validateERN(targetId)" class="btn btn-sm btn-secondary">
                       <font-awesome-icon icon="check-circle" />
                       Validate
                     </button>
-                    <button 
-                      @click="downloadERN(target.id)"
-                      class="btn btn-sm btn-secondary"
-                    >
+                    <button @click="downloadERN(targetId)" class="btn btn-sm btn-primary">
                       <font-awesome-icon icon="download" />
                       Download
                     </button>
                   </div>
                 </div>
-                
-                <div v-else-if="ernErrors[target.id]" class="ern-error">
+              </div>
+            </div>
+            
+            <!-- ERN Errors Display -->
+            <div v-if="Object.keys(ernErrors).length > 0" class="ern-errors">
+              <h3>Generation Errors</h3>
+              <div v-for="(error, targetId) in ernErrors" :key="targetId" class="error-card">
+                <div class="error-header">
+                  <h4>{{ getTargetName(targetId) }}</h4>
+                  <span class="badge badge-error">Failed</span>
+                </div>
+                <div class="error-message">
                   <font-awesome-icon icon="exclamation-triangle" />
-                  {{ ernErrors[target.id] }}
+                  {{ error }}
+                </div>
+                <div v-if="error.includes('genre') && error.includes('strict')" class="error-hint">
+                  <strong>Hint:</strong> This target has strict genre mapping enabled. 
+                  Either disable strict mode or ensure the genre can be mapped.
+                  <router-link :to="`/genre-maps?dsp=${getTarget(targetId)?.type?.toLowerCase()}`" class="link">
+                    Manage Genre Mappings
+                  </router-link>
                 </div>
               </div>
-              
-              <button 
-                v-if="Object.keys(ernErrors).length > 0"
-                @click="generateERNs" 
-                class="btn btn-secondary"
-              >
-                <font-awesome-icon icon="redo" />
-                Regenerate Failed ERNs
-              </button>
             </div>
           </div>
           
-          <!-- Step 4: Schedule Delivery -->
+          <!-- Step 4: Schedule & Confirm -->
           <div v-else-if="currentStep === 4" class="wizard-step">
-            <p class="step-description">Configure delivery schedule and options</p>
-            
-            <div class="form-section">
-              <h3>Delivery Schedule</h3>
-              <div class="form-row">
-                <div class="form-group">
-                  <label class="form-label">Date</label>
-                  <input 
-                    v-model="deliveryData.scheduledAt" 
-                    type="date"
-                    class="form-input"
-                    :min="new Date().toISOString().split('T')[0]"
-                  />
-                </div>
-                
-                <div class="form-group">
-                  <label class="form-label">Time</label>
-                  <input 
-                    v-model="deliveryData.scheduledTime" 
-                    type="time"
-                    class="form-input"
-                  />
-                </div>
-              </div>
-              
-              <div class="form-group">
-                <label class="form-label">Priority</label>
-                <select v-model="deliveryData.priority" class="form-select">
-                  <option value="low">Low Priority</option>
-                  <option value="normal">Normal Priority</option>
-                  <option value="high">High Priority</option>
-                  <option value="urgent">Urgent</option>
-                </select>
-              </div>
-            </div>
-            
-            <div class="form-section">
-              <h3>Delivery Options</h3>
-              <label class="checkbox-option">
-                <input 
-                  v-model="deliveryData.testMode" 
-                  type="checkbox"
-                />
-                <div class="option-content">
-                  <span class="option-title">Test Mode</span>
-                  <span class="option-description">Mark this delivery as a test (won't affect live catalog)</span>
-                </div>
-              </label>
-            </div>
-            
-            <div class="form-section">
-              <h3>Notes</h3>
-              <div class="form-group">
-                <label class="form-label">Internal Notes (Optional)</label>
-                <textarea 
-                  v-model="deliveryData.notes"
-                  class="form-textarea"
-                  rows="4"
-                  placeholder="Add any notes about this delivery..."
-                ></textarea>
-              </div>
-            </div>
+            <p class="step-description">Review and schedule your delivery</p>
             
             <!-- Delivery Summary -->
             <div class="delivery-summary">
               <h3>Delivery Summary</h3>
-              <div class="summary-grid">
-                <div class="summary-item">
-                  <span class="summary-label">Release:</span>
-                  <span>{{ selectedRelease?.basic?.title }}</span>
+              
+              <div class="summary-section">
+                <h4>Release</h4>
+                <div class="summary-card">
+                  <div class="summary-content">
+                    <div class="summary-cover">
+                      <img 
+                        v-if="selectedRelease?.assets?.coverImage?.url" 
+                        :src="selectedRelease.assets.coverImage.url" 
+                        :alt="selectedRelease.basic?.title"
+                      />
+                      <div v-else class="cover-placeholder">
+                        <font-awesome-icon icon="music" />
+                      </div>
+                    </div>
+                    <div class="summary-info">
+                      <h5>{{ selectedRelease?.basic?.title }}</h5>
+                      <p>{{ selectedRelease?.basic?.displayArtist }}</p>
+                      <div class="summary-meta">
+                        <span>{{ selectedRelease?.tracks?.length || 0 }} tracks</span>
+                        <span>UPC: {{ selectedRelease?.basic?.barcode || 'N/A' }}</span>
+                        <span v-if="selectedRelease?.metadata?.genreName" class="genre-badge">
+                          <font-awesome-icon icon="music" />
+                          {{ selectedRelease.metadata.genreName }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div class="summary-item">
-                  <span class="summary-label">Targets:</span>
-                  <span>{{ deliveryData.selectedTargets.length }} selected</span>
+              </div>
+              
+              <div class="summary-section">
+                <h4>Targets ({{ deliveryData.selectedTargets.length }})</h4>
+                <div class="targets-summary">
+                  <div v-for="targetId in deliveryData.selectedTargets" :key="targetId" class="target-summary-card">
+                    <div class="target-summary-header">
+                      <h5>{{ getTargetName(targetId) }}</h5>
+                      <span v-if="generatedERNs[targetId]" class="badge badge-success">
+                        <font-awesome-icon icon="check-circle" />
+                        ERN Ready
+                      </span>
+                    </div>
+                    
+                    <!-- Genre Mapping Summary -->
+                    <div v-if="getTarget(targetId)?.genreMapping?.enabled" class="genre-mapping-summary">
+                      <div class="mapping-summary-badge">
+                        <font-awesome-icon icon="music" />
+                        <span>Genre will be mapped</span>
+                      </div>
+                      <div v-if="generatedERNs[targetId]?.genreMapping" class="mapping-result-summary">
+                        {{ generatedERNs[targetId].genreMapping.original }} → 
+                        {{ generatedERNs[targetId].genreMapping.mapped }}
+                      </div>
+                    </div>
+                    
+                    <div class="target-summary-details">
+                      <span>{{ getTarget(targetId)?.protocol?.toUpperCase() }}</span>
+                      <span>{{ messageTypes[targetId] || 'Initial' }}</span>
+                      <span v-if="getTarget(targetId)?.testMode" class="badge badge-warning">Test Mode</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="summary-item">
-                  <span class="summary-label">Message Types:</span>
-                  <span>
-                    {{ Object.values(messageTypes).filter(t => t === 'Initial').length }} New,
-                    {{ Object.values(messageTypes).filter(t => t === 'Update').length }} Update,
-                    {{ Object.values(messageTypes).filter(t => t === 'Takedown').length }} Takedown
-                  </span>
-                </div>
-                <div class="summary-item">
-                  <span class="summary-label">Scheduled:</span>
-                  <span>{{ new Date(scheduledDateTime).toLocaleString() }}</span>
-                </div>
-                <div class="summary-item">
-                  <span class="summary-label">Priority:</span>
-                  <span>{{ deliveryData.priority }}</span>
-                </div>
-                <div class="summary-item">
-                  <span class="summary-label">Mode:</span>
-                  <span>{{ deliveryData.testMode ? 'Test' : 'Live' }}</span>
+              </div>
+              
+              <div class="summary-section">
+                <h4>Delivery Options</h4>
+                <div class="delivery-options">
+                  <div class="form-group">
+                    <label>Delivery Priority</label>
+                    <select v-model="deliveryData.priority" class="form-select">
+                      <option value="low">Low Priority</option>
+                      <option value="normal">Normal Priority</option>
+                      <option value="high">High Priority</option>
+                      <option value="urgent">Urgent</option>
+                    </select>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label>Schedule Delivery</label>
+                    <div class="schedule-options">
+                      <label class="radio-option">
+                        <input 
+                          type="radio" 
+                          value="immediate" 
+                          v-model="deliveryData.scheduleType"
+                        />
+                        <span>Deliver Immediately</span>
+                      </label>
+                      <label class="radio-option">
+                        <input 
+                          type="radio" 
+                          value="scheduled" 
+                          v-model="deliveryData.scheduleType"
+                        />
+                        <span>Schedule for Later</span>
+                      </label>
+                    </div>
+                    
+                    <div v-if="deliveryData.scheduleType === 'scheduled'" class="schedule-datetime">
+                      <input 
+                        v-model="scheduledDateTime"
+                        type="datetime-local"
+                        class="form-input"
+                        :min="new Date().toISOString().slice(0, 16)"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label>
+                      <input 
+                        type="checkbox"
+                        v-model="deliveryData.testMode"
+                        class="form-checkbox"
+                      />
+                      Run in Test Mode (no actual delivery)
+                    </label>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label>Delivery Notes (Optional)</label>
+                    <textarea 
+                      v-model="deliveryData.notes"
+                      class="form-input"
+                      rows="3"
+                      placeholder="Add any notes about this delivery..."
+                    ></textarea>
+                  </div>
                 </div>
               </div>
             </div>
-            
-            <!-- Queue Delivery Button -->
-            <div class="queue-section">
-              <button 
-                @click="queueDelivery"
-                class="btn btn-success btn-lg"
-                :disabled="isQueuingDelivery"
-              >
-                <font-awesome-icon :icon="isQueuingDelivery ? 'spinner' : 'truck'" :spin="isQueuingDelivery" />
-                {{ isQueuingDelivery ? 'Queuing Delivery...' : 'Queue Delivery' }}
-              </button>
-              
-              <p class="queue-info">
-                <font-awesome-icon icon="info-circle" />
-                Your delivery will be processed at the scheduled time. You can monitor progress in the Deliveries page.
-              </p>
-            </div>
           </div>
         </div>
+      </div>
+      
+      <!-- Wizard Navigation -->
+      <div class="wizard-navigation">
+        <button 
+          @click="previousStep"
+          class="btn btn-secondary"
+          :disabled="currentStep === 1"
+        >
+          <font-awesome-icon icon="chevron-left" />
+          Previous
+        </button>
         
-        <!-- Navigation Footer -->
-        <div class="card-footer wizard-footer">
-          <button 
-            @click="previousStep" 
-            class="btn btn-secondary"
-            :disabled="currentStep === 1"
-          >
-            <font-awesome-icon icon="chevron-left" />
-            Previous
-          </button>
-          
-          <button 
-            v-if="currentStep < totalSteps"
-            @click="nextStep" 
-            class="btn btn-primary"
-            :disabled="!canProceed"
-          >
-            Next
-            <font-awesome-icon icon="chevron-right" />
-          </button>
-        </div>
+        <button 
+          v-if="currentStep < 4"
+          @click="nextStep"
+          class="btn btn-primary"
+          :disabled="!canProceed"
+        >
+          Next
+          <font-awesome-icon icon="chevron-right" />
+        </button>
+        
+        <button 
+          v-else
+          @click="queueDelivery"
+          class="btn btn-success btn-lg"
+          :disabled="!canQueueDelivery || isQueuingDelivery"
+        >
+          <font-awesome-icon v-if="isQueuingDelivery" icon="spinner" spin />
+          <font-awesome-icon v-else icon="paper-plane" />
+          {{ isQueuingDelivery ? 'Queuing...' : 'Queue Delivery' }}
+        </button>
       </div>
     </div>
     
     <!-- ERN Preview Modal -->
-    <div v-if="showERNPreview" class="modal-overlay" @click.self="showERNPreview = false">
-      <div class="modal modal-large">
+    <div v-if="showERNPreview" class="modal-overlay" @click="showERNPreview = false">
+      <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h3>ERN Preview - {{ previewTargetName }}</h3>
-          <div class="modal-actions">
-            <button @click="copyERNToClipboard" class="btn btn-sm btn-secondary">
-              <font-awesome-icon icon="copy" />
-              Copy
-            </button>
-            <button @click="showERNPreview = false" class="btn-icon">
-              <font-awesome-icon icon="times" />
-            </button>
-          </div>
+          <h2>ERN Preview - {{ previewTargetName }}</h2>
+          <button @click="showERNPreview = false" class="modal-close">
+            <font-awesome-icon icon="times" />
+          </button>
         </div>
         <div class="modal-body">
           <pre class="ern-preview">{{ previewERN }}</pre>
+        </div>
+        <div class="modal-footer">
+          <button @click="copyERNToClipboard" class="btn btn-secondary">
+            <font-awesome-icon icon="copy" />
+            Copy to Clipboard
+          </button>
+          <button @click="showERNPreview = false" class="btn btn-primary">
+            Close
+          </button>
         </div>
       </div>
     </div>
@@ -1103,6 +1130,199 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* Genre Mapping Styles */
+.genre-info {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.genre-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 4px 10px;
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.subgenre-badge {
+  padding: 4px 10px;
+  background-color: var(--color-secondary-light);
+  color: var(--color-secondary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.genre-mapping-indicator {
+  margin-top: var(--space-md);
+  padding: var(--space-sm);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.mapping-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-sm);
+  color: var(--color-primary);
+  font-weight: var(--font-medium);
+}
+
+.strict-badge {
+  padding: 2px 6px;
+  background-color: var(--color-warning);
+  color: white;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  margin-left: var(--space-xs);
+}
+
+.mapping-name {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-xs);
+}
+
+.genre-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  padding: var(--space-xs);
+  background-color: var(--color-bg);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.original-genre {
+  color: var(--color-text-secondary);
+}
+
+.mapping-arrow {
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+}
+
+.mapped-genre {
+  color: var(--color-primary);
+  font-weight: var(--font-medium);
+}
+
+.genre-mapping-display {
+  margin-top: var(--space-md);
+}
+
+.mapping-info-card {
+  padding: var(--space-md);
+  background-color: var(--color-info-light);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-md);
+}
+
+.mapping-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-weight: var(--font-medium);
+  color: var(--color-info-dark);
+  margin-bottom: var(--space-sm);
+}
+
+.mapping-details {
+  font-size: var(--text-sm);
+}
+
+.mapping-row {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+}
+
+.mapping-row .label {
+  color: var(--color-text-secondary);
+  min-width: 80px;
+}
+
+.mapping-row .value {
+  color: var(--color-text);
+}
+
+.mapping-row .value.mapped {
+  color: var(--color-primary);
+  font-weight: var(--font-medium);
+}
+
+.mapping-warning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  padding: var(--space-xs);
+  background-color: var(--color-warning-light);
+  color: var(--color-warning-dark);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.genre-mapping-result {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+  background-color: var(--color-success-light);
+  border-radius: var(--radius-md);
+}
+
+.result-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--color-success-dark);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.genre-mapping-summary {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.mapping-summary-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-sm);
+  color: var(--color-primary);
+}
+
+.mapping-result-summary {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-xs);
+  padding-left: var(--space-lg);
+}
+
+.error-hint {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+  background-color: var(--color-info-light);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.error-hint .link {
+  color: var(--color-primary);
+  text-decoration: underline;
+  margin-left: var(--space-xs);
+}
+
 .new-delivery {
   padding: var(--space-xl) 0;
   min-height: calc(100vh - 64px);

@@ -429,10 +429,16 @@ const signOut = async () => {
         <div v-if="activeTab === 'delivery'" class="card">
           <div class="card-header">
             <h2 class="section-title">Delivery Targets</h2>
-            <button @click="addDeliveryTarget" class="btn btn-primary btn-sm">
-              <font-awesome-icon icon="plus" />
-              Add Target
-            </button>
+            <div class="header-actions">
+              <router-link to="/genre-maps" class="btn btn-secondary btn-sm">
+                <font-awesome-icon icon="music" />
+                Manage Genre Mappings
+              </router-link>
+              <button @click="addDeliveryTarget" class="btn btn-primary btn-sm">
+                <font-awesome-icon icon="plus" />
+                Add Target
+              </button>
+            </div>
           </div>
           <div class="card-body">
             <p class="section-description">
@@ -1117,6 +1123,20 @@ const signOut = async () => {
   color: var(--color-error);
 }
 
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.header-actions {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .settings-tabs {
@@ -1130,6 +1150,20 @@ const signOut = async () => {
   
   .targets-grid {
     grid-template-columns: 1fr;
+  }
+
+  .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-md);
+  }
+  
+  .header-actions {
+    width: 100%;
+  }
+  
+  .header-actions .btn {
+    flex: 1;
   }
 }
 </style>

@@ -111,6 +111,25 @@
       "density": "SPARSE_ALL"
     },
     {
+      "collectionGroup": "genreMappings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "targetDSP",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updatedAt",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
       "collectionGroup": "releases",
       "queryScope": "COLLECTION",
       "fields": [

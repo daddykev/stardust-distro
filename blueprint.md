@@ -243,6 +243,7 @@ stardust-distro/
 │   │   │   ├── Deliveries.vue     # Delivery management ✅
 │   │   │   ├── NewDelivery.vue    # Create delivery ✅
 │   │   │   ├── Analytics.vue      # Usage analytics ✅
+│   │   │   ├── GenreMaps.vue      # Genre map management ✅
 │   │   │   ├── Testing.vue        # Comprehensive testing suite ✅
 │   │   │   └── NotFound.vue       # 404 page ✅
 │   │   ├── composables/           # Vue composables
@@ -263,6 +264,7 @@ stardust-distro/
 │   │   │   │   ├── ern-42.js      # ERN 4.2 builder ✅
 │   │   │   │   ├── ern-43.js      # ERN 4.3 builder ✅
 │   │   │   │   └── ern-382.js     # ERN 3.8.2 builder ✅
+│   │   │   ├── genreMappings.js   # Genre map Firestore service ✅
 │   │   │   └── testTargets.js     # Test DSP targets ✅
 │   │   ├── utils/                 # Utils ✅
 │   │   │   ├── releaseClassifier.js  # Classify release by DDEX standards ✅
