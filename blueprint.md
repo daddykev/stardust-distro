@@ -1844,8 +1844,8 @@ const results = await delivery.deliver(stardustRelease);
 
   - [x] **Dual-Mode Catalog Import System**
       - [x] **Standard Mode**: CSV metadata + audio files + cover art images
-      - [x .**Metadata-less Mode**: Audio files + cover art (optional)
-      
+      - [x] **Metadata-less Mode**: Audio files + optional cover art
+
   - [x] **Standard Import Mode (CSV + Asset Files)**
       - [x] **Three-Step Migration Process**
           - [x] Step 1: CSV metadata import with intelligent field mapping
