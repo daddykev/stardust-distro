@@ -20,7 +20,7 @@ Stardust Distro is a production-ready music distribution platform, built with an
 A complete, production-ready distribution platform that includes:
 
 - **Full Catalog Management** - Unlimited releases, tracks, and assets with smart duplicate detection
-- **Multi-Format Generation** - Full support for **DDEX ERN (3.8.2, 4.2, 4.3)** and **Apple Music XML (Spec 5.3.23)**
+- **Multi-Format Generation** - Full support for DDEX ERN (3.8.2, 4.2, 4.3) and Apple Music XML (5.3.23 spec)
 - **All Delivery Protocols** - FTP, SFTP, S3, API, and Azure with automatic retry logic
 - **Powerful Catalog Migration** - Dual-mode bulk import wizard with metadata-less mode
 - **Genre Intelligence** - DSP-specific genre mapping with 200+ hierarchical genres
@@ -49,13 +49,11 @@ We're excited to announce that **Phase 6 is now complete**, bringing the platfor
 - **Resume Capability**: Import jobs persist in Firestore - close your browser and resume anytime
 - **Visual Progress**: Real-time progress tracking with animated indicators and statistics
 
-**Complete Email Notification System**
-- Welcome emails for new users with onboarding instructions
-- Delivery status notifications (success/failure/retry)
-- Weekly summary reports with platform statistics
-- User preference controls in Settings
-- Test email functionality for verification
-- Gmail SMTP integration via Firebase Extension
+**Multi-Format Support**
+- DDEX ERN support (3.8.2, 4.2, 4.3)
+- Apple Music XML generation (5.3.23 spec)
+- Enhanced delivery receipts with reconciliation dashboard
+- DSP acknowledgment tracking across all protocols
 
 **Advanced Genre Classification**
 - Genre Truth System with 200+ hierarchical genres
@@ -65,17 +63,12 @@ We're excited to announce that **Phase 6 is now complete**, bringing the platfor
 - Import/export genre mappings as JSON
 
 **Core Reliability Features**
+- Delivery status notifications (success/failure/retry)
 - Idempotency protection prevents duplicate deliveries
 - Content fingerprinting detects duplicate files on upload
 - Audio similarity detection with percentage matching
 - Transaction locks ensure single processing
 - Enhanced error recovery and retry logic
-
-**Multi-Format Support**
-- Apple Music XML generation (Spec 5.3.23)
-- Legacy ERN support (3.8.2, 4.2, 4.3)
-- Enhanced delivery receipts with reconciliation dashboard
-- DSP acknowledgment tracking across all protocols
 
 ### ✅ Complete Development Timeline
 
@@ -103,23 +96,23 @@ We're excited to announce that **Phase 6 is now complete**, bringing the platfor
 
 -----
 
-## ✨ Core Features (100% Free & Open Source)
+## ✨ Core Features
 
-### 🎯 Catalog Migration - NEW!
+### 🌊 Smart Catalog Migration - NEW!
 
 **Two Ways to Import Your Catalog:**
 
-**📊 Standard Mode (CSV + Files)**
+**📊 Standard Mode (CSV + Assets)**
 1. Upload your catalog CSV with flexible field mapping
 2. Bulk upload DDEX-named audio files and cover art
 3. System automatically matches and creates releases
 4. Support for multi-track releases and various CSV formats
 
-**🎵 Metadata-less Mode (Files Only)**
-1. Upload DDEX-named audio files (no metadata needed!)
-2. System extracts UPCs and fetches from Deezer
-3. Automatically downloads missing cover art
-4. Creates complete releases with full metadata
+**🎵 "Metadata-less" Mode (Assets Only)**
+1. Upload audio files (no metadata needed)
+2. System extracts UPCs and queries API
+3. Automatically downloads cover art
+4. Creates valid releases with complete metadata
 
 **Key Features:**
 - Resume interrupted imports anytime
