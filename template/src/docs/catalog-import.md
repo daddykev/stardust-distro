@@ -1,110 +1,208 @@
-# Catalog Import Guide 📦
+# Catalog Import & Migration Guide 📦
 
-Import your existing music catalog into Stardust Distro using our powerful bulk import system with DDEX-compliant file naming support.
+Complete guide for importing your existing catalog and migrating from other platforms to Stardust Distro.
 
-## Overview
+## Table of Contents
+1. [Quick Import](#quick-import)
+2. [Migration from Other Platforms](#migration-from-other-platforms)
+3. [CSV Format Specification](#csv-format-specification)
+4. [File Organization](#file-organization)
+5. [Import Process](#import-process)
+6. [Advanced Features](#advanced-features)
+7. [Troubleshooting](#troubleshooting)
 
-The catalog import system allows you to:
-- Import metadata from CSV files
-- Upload audio and images in bulk
-- Automatically match files to releases using DDEX naming
-- Resume interrupted imports
-- Create draft releases automatically
+---
 
-## Import Process
+## Quick Import
 
-### Three-Step Workflow
+### Prerequisites
+- CSV file with your catalog data (UTF-8 encoded)
+- Audio files in WAV, FLAC, or MP3 format
+- Cover images (minimum 3000x3000px)
+- Files named according to DDEX standards
 
-1. **CSV Import**: Upload catalog metadata
-2. **File Upload**: Bulk upload audio and images
-3. **Auto-Matching**: System creates releases
+### Three-Step Process
 
-## Preparing Your Import
+1. **Upload CSV** → System parses catalog data
+2. **Upload Files** → Automatic matching by UPC
+3. **Review & Create** → Verify and import releases
 
-### Step 1: Organize Your Data
+---
 
-#### Required CSV Columns
+## Migration from Other Platforms
 
-Your CSV must include:
-- `release_title` or `album_title`
-- `display_artist` or `artist`
-- `upc` or `barcode` (12-14 digits)
-- `track_title`
-- `track_number` or `sequence`
+### Export Your Current Catalog
 
-#### Optional CSV Columns
+Most distribution platforms allow you to export your catalog data. Common export formats include:
+- CSV (Comma-Separated Values)
+- TSV (Tab-Separated Values)
+- XML (Extensible Markup Language)
+- JSON (JavaScript Object Notation)
 
-Enhance your import with:
-- `release_date`
-- `label`
-- `catalog_number`
-- `isrc`
-- `track_artist`
-- `genre`
-- `copyright`
-- `duration` (seconds)
+### Preparing Your Export
 
-#### Sample CSV Format
+1. **Request or download catalog export** from your current platform
+2. **Download all assets** (audio files and artwork)
+3. **Convert to CSV format** if necessary
+4. **Map columns** to Stardust Distro format
+
+### Generic Column Mapping
+
+| Common Field Names | Our Column | Notes |
+|-------------------|------------|--------|
+| Album/Release/Title | title | Required |
+| Artist/Performer | artist | Required |
+| UPC/EAN/Barcode | upc | Required, 12-14 digits |
+| ISRC/Track Code | isrc | Per track |
+| Release Date/Street Date | releaseDate | YYYY-MM-DD format |
+| Track Name/Song Title | trackTitle | Required per track |
+| Track #/Position | trackNumber | Required per track |
+| Disc #/Volume | discNumber | Default: 1 |
+| Label/Record Label | label | Optional |
+| Catalog #/Cat Number | catalogNumber | Optional |
+
+### Migration Strategy
+
+#### Phase 1: Export & Prepare
+1. Export catalog from current platform
+2. Download all assets (audio + artwork)
+3. Organize files by release
+4. Create backup of everything
+
+#### Phase 2: Transform Data
+1. Convert export to our CSV format
+2. Rename files to DDEX standard
+3. Verify UPCs and ISRCs
+4. Fix any data inconsistencies
+
+#### Phase 3: Import to Stardust
+1. Import back catalog (oldest first)
+2. Verify each batch of 50 releases
+3. Complete metadata for drafts
+4. Schedule re-delivery to DSPs
+
+#### Phase 4: Transition
+1. Continue using old platform for new releases
+2. Gradually transition workflows
+3. Update DSP configurations
+4. Notify partners of change
+
+---
+
+## CSV Format Specification
+
+### Required Columns
 
 ```csv
-upc,release_title,display_artist,release_date,track_number,track_title,isrc,duration
-123456789012,Summer Album,Beach Band,2024-07-01,1,Sunrise,USRC12400001,215
-123456789012,Summer Album,Beach Band,2024-07-01,2,Ocean Waves,USRC12400002,189
-123456789012,Summer Album,Beach Band,2024-07-01,3,Sunset Dreams,USRC12400003,201
-987654321098,Winter EP,Mountain Duo,2024-12-15,1,Snow Falls,USRC12400004,180
-987654321098,Winter EP,Mountain Duo,2024-12-15,2,Ice Crystals,USRC12400005,195
+title,artist,upc,releaseDate,trackTitle,trackNumber,discNumber
+"Album Name","Artist Name","123456789012","2024-01-01","Song Title",1,1
 ```
 
-### Step 2: Prepare Your Files
+### Complete Column Reference
 
-#### DDEX File Naming Convention
+| Column | Required | Format | Example | Notes |
+|--------|----------|--------|---------|-------|
+| **Release Fields** | | | | |
+| title | ✅ Yes | Text | "My Album" | Release title |
+| artist | ✅ Yes | Text | "Artist Name" | Display artist |
+| upc | ✅ Yes | 12-14 digits | "123456789012" | No spaces/dashes |
+| releaseDate | ✅ Yes | YYYY-MM-DD | "2024-01-01" | ISO format |
+| label | No | Text | "My Label" | Record label |
+| catalogNumber | No | Text | "CAT001" | Catalog ID |
+| genre | No | Text | "Rock" | Primary genre |
+| subgenre | No | Text | "Alternative Rock" | Secondary |
+| **Track Fields** | | | | |
+| trackTitle | ✅ Yes | Text | "Song Name" | Track title |
+| trackNumber | ✅ Yes | Integer | 1 | Track position |
+| discNumber | No | Integer | 1 | Default: 1 |
+| trackArtist | No | Text | "Feat. Artist" | If different |
+| isrc | No | 12 chars | "USRC17607839" | Track ISRC |
+| duration | No | Seconds | 180 | Length in seconds |
+| explicit | No | Boolean | "true"/"false" | Explicit content |
+| **Credits** | | | | |
+| composer | No | Text | "John Doe" | Songwriter |
+| lyricist | No | Text | "Jane Doe" | Lyric writer |
+| producer | No | Text | "Producer Name" | Producer |
+| mixer | No | Text | "Mixer Name" | Mixing engineer |
+| **Additional** | | | | |
+| copyright | No | Text | "© 2024 Label" | Copyright line |
+| copyrightYear | No | Year | 2024 | Copyright year |
+| originalReleaseDate | No | YYYY-MM-DD | "2020-01-01" | First release |
+| language | No | ISO 639-1 | "en" | Primary language |
+| notes | No | Text | "Special edition" | Internal notes |
 
-**Audio Files:**
+### Multi-Disc Format
+
+For releases with multiple discs:
+
+```csv
+title,artist,upc,releaseDate,trackTitle,trackNumber,discNumber
+"Double Album","Artist","123456789012","2024-01-01","Song 1",1,1
+"Double Album","Artist","123456789012","2024-01-01","Song 2",2,1
+"Double Album","Artist","123456789012","2024-01-01","Song 3",1,2
+"Double Album","Artist","123456789012","2024-01-01","Song 4",2,2
 ```
-{UPC}_{DiscNumber}_{TrackNumber}.{extension}
+
+### Compilation/Various Artists
+
+For compilations:
+
+```csv
+title,artist,upc,releaseDate,trackTitle,trackArtist,trackNumber
+"Compilation","Various Artists","123456789012","2024-01-01","Song 1","Artist A",1
+"Compilation","Various Artists","123456789012","2024-01-01","Song 2","Artist B",2
 ```
 
-Examples:
-- `123456789012_01_001.wav` (Album track 1)
-- `123456789012_01_002.flac` (Album track 2)
-- `987654321098_01_001.mp3` (EP track 1)
+---
 
-**Cover Images:**
+## File Organization
+
+### DDEX-Compliant Naming
+
+#### Audio Files
 ```
-{UPC}.jpg                    # Main cover
-{UPC}_{ImageNumber}.jpg      # Additional images
+Pattern: {UPC}_{DiscNumber}_{TrackNumber}.{extension}
+Example: 123456789012_01_001.wav
 ```
 
-Examples:
-- `123456789012.jpg` (Album cover)
-- `123456789012_02.jpg` (Back cover)
-- `987654321098.jpg` (EP cover)
-
-#### File Organization Structure
-
-Organize files in folders for easier upload:
+#### Cover Images
 ```
-import-files/
+Pattern: {UPC}_cover.{extension}
+Example: 123456789012_cover.jpg
+```
+
+#### Additional Images
+```
+Pattern: {UPC}_image_{number}.{extension}
+Example: 123456789012_image_01.jpg
+```
+
+### Folder Structure
+
+Recommended organization:
+```
+import_files/
 ├── audio/
 │   ├── 123456789012_01_001.wav
 │   ├── 123456789012_01_002.wav
-│   ├── 123456789012_01_003.wav
-│   ├── 987654321098_01_001.wav
-│   └── 987654321098_01_002.wav
-└── images/
-    ├── 123456789012.jpg
-    └── 987654321098.jpg
+│   └── 123456789012_01_003.wav
+├── images/
+│   ├── 123456789012_cover.jpg
+│   └── 123456789012_image_01.jpg
+└── catalog.csv
 ```
 
-## Using the Import Tool
+---
 
-### Accessing the Importer
+## Import Process
 
-1. Navigate to **Catalog** view
+### Step 1: Navigate to Import
+
+1. Go to **Catalog** view
 2. Click **"Import Catalog"** button
 3. Migration wizard opens
 
-### Step 1: Upload CSV
+### Step 2: Upload CSV
 
 1. **Select your CSV file**
    - Drag and drop or click to browse
@@ -116,12 +214,12 @@ import-files/
    - Adjust mappings if needed
    - Verify required fields are mapped
 
-3. **Validate and import**
+3. **Validate and proceed**
    - System validates UPC checksums
    - Checks for required fields
    - Shows preview of releases to import
 
-### Step 2: Upload Files
+### Step 3: Upload Files
 
 1. **Select all audio files**
    - Multi-select with Ctrl/Cmd+Click
@@ -138,7 +236,7 @@ import-files/
    - Progress shown per file
    - Can pause/resume upload
 
-### Step 3: Automatic Matching
+### Step 4: Automatic Matching
 
 System automatically:
 1. **Matches files to releases by UPC**
@@ -151,6 +249,105 @@ Results shown:
 - ⚠️ Incomplete releases (missing files)
 - ❌ Failed matches (naming issues)
 
+### Step 5: Review & Complete
+
+1. **Review matched releases**
+   - Verify track order
+   - Check cover art
+   - Confirm metadata
+
+2. **Fix incomplete releases**
+   - Upload missing files
+   - Correct file names
+   - Manual association
+
+3. **Bulk create releases**
+   - Select releases to import
+   - Click "Create Releases"
+   - Monitor progress
+
+---
+
+## Advanced Features
+
+### Field Mapping
+
+#### Custom Column Names
+
+System recognizes common variations:
+- Title variations: `title`, `release_title`, `album_title`, `name`
+- Artist variations: `artist`, `display_artist`, `album_artist`, `performer`
+- UPC variations: `upc`, `barcode`, `ean`, `gtin`
+- Track variations: `track_title`, `song_title`, `track_name`, `song`
+
+#### Manual Mapping
+
+For non-standard columns:
+1. Click "Manual Mapping" mode
+2. Drag CSV columns to target fields
+3. Save mapping as template
+4. Reuse for future imports
+
+### Bulk Processing Options
+
+#### Import Settings
+
+Configure before import:
+- **Skip duplicates**: Ignore existing UPCs
+- **Update existing**: Overwrite catalog entries
+- **Draft only**: Don't auto-publish
+- **Validate ISRCs**: Check ISRC format
+- **Auto-detect type**: Single/EP/Album detection
+- **Generate missing ISRCs**: Create ISRCs for tracks without
+
+#### Batch Size
+
+For large catalogs:
+- Process in batches of 100 releases
+- Prevents timeout issues
+- Shows batch progress
+- Auto-saves progress
+
+### Data Transformation
+
+#### Automatic Corrections
+
+System auto-fixes:
+- Removes whitespace from UPCs
+- Capitalizes ISRCs
+- Formats dates (YYYY-MM-DD)
+- Trims extra spaces
+- Normalizes apostrophes and quotes
+- Converts duration formats
+
+#### Genre Mapping
+
+During import:
+- Maps CSV genres to system genres
+- Uses intelligent matching
+- Falls back to "Other" if unknown
+- Can configure custom mappings
+
+### Incremental Import
+
+For ongoing migrations:
+
+1. **Initial Import**
+   - Import back catalog
+   - Note last successful UPC
+
+2. **Weekly Updates**
+   - Export new releases only
+   - Append to existing catalog
+   - Use "Skip duplicates" option
+
+3. **Final Migration**
+   - Complete remaining releases
+   - Verify all imported
+   - Deactivate old platform
+
+---
+
 ## Import Management
 
 ### Monitoring Import Progress
@@ -160,6 +357,8 @@ Results shown:
 - Files uploaded
 - Releases matched
 - Drafts created
+- Errors encountered
+- Estimated time remaining
 
 ### Handling Incomplete Releases
 
@@ -171,10 +370,12 @@ For releases missing files:
 2. **Complete manually**
    - Upload missing files individually
    - Edit release to add missing data
+   - Change status to "Ready"
 
 3. **Re-run matching**
    - After uploading more files
    - Click "Re-match Files"
+   - System attempts matching again
 
 ### Resume Interrupted Imports
 
@@ -184,58 +385,7 @@ If import is interrupted:
 3. Choose "Resume" or "Start New"
 4. Continue from last checkpoint
 
-## Advanced Features
-
-### Field Mapping
-
-#### Custom Column Names
-
-System recognizes variations:
-- Title: `title`, `release_title`, `album_title`, `name`
-- Artist: `artist`, `display_artist`, `album_artist`
-- UPC: `upc`, `barcode`, `ean`, `gtin`
-- Track: `track_title`, `song_title`, `track_name`
-
-#### Manual Mapping
-
-For non-standard columns:
-1. Click "Manual Mapping" mode
-2. Drag CSV columns to target fields
-3. Save mapping as template
-
-### Bulk Processing Options
-
-#### Import Settings
-
-Configure before import:
-- **Skip duplicates**: Ignore existing UPCs
-- **Update existing**: Overwrite catalog entries
-- **Draft only**: Don't auto-publish
-- **Validate ISRCs**: Check ISRC format
-
-#### Batch Size
-
-For large catalogs:
-- Process in batches of 100 releases
-- Prevents timeout issues
-- Shows batch progress
-
-### Data Transformation
-
-#### Automatic Corrections
-
-System auto-fixes:
-- Removes whitespace from UPCs
-- Capitalizes ISRCs
-- Formats dates (YYYY-MM-DD)
-- Trims extra spaces
-
-#### Genre Mapping
-
-During import:
-- Maps CSV genres to system genres
-- Uses intelligent matching
-- Falls back to "Other" if unknown
+---
 
 ## File Validation
 
@@ -246,6 +396,9 @@ Before import, files are validated for:
 - **Naming**: DDEX compliance
 - **Size**: Under 200MB per file
 - **Integrity**: Not corrupted
+- **Duration**: Between 30s and 30min
+- **Sample Rate**: 44.1kHz or higher
+- **Bit Depth**: 16-bit or higher
 
 ### Image Requirements
 
@@ -254,6 +407,8 @@ Cover images must be:
 - **Format**: JPG or PNG
 - **Aspect**: Square (1:1)
 - **Size**: Under 10MB
+- **Color**: RGB (not CMYK)
+- **Resolution**: 72 DPI or higher
 
 ### Common Validation Errors
 
@@ -272,16 +427,20 @@ Cover images must be:
 - Maintain square aspect ratio
 - Use high-quality source
 
+---
+
 ## Best Practices
 
 ### Pre-Import Checklist
 
 Before starting import:
 - ✅ CSV validated in spreadsheet app
-- ✅ All UPCs verified
-- ✅ Files named correctly
-- ✅ Cover images ready
+- ✅ All UPCs verified (12-14 digits)
+- ✅ Files named correctly (DDEX)
+- ✅ Cover images ready (3000x3000)
 - ✅ Audio files normalized
+- ✅ Backup created of all data
+- ✅ Test with 5 releases first
 
 ### Optimizing Import Speed
 
@@ -291,14 +450,20 @@ Before starting import:
 3. Upload in batches of 50-100
 4. Use wired internet connection
 5. Import during off-peak hours
+6. Close other browser tabs
+7. Disable browser extensions temporarily
 
 ### Error Recovery
 
 **If import fails:**
 1. Note the last successful UPC
-2. Fix issues in CSV/files
-3. Re-run import from failure point
-4. System skips already imported
+2. Export error log
+3. Fix issues in CSV/files
+4. Re-run import from failure point
+5. System skips already imported
+6. Contact support if persistent
+
+---
 
 ## Troubleshooting
 
@@ -306,52 +471,64 @@ Before starting import:
 
 **"CSV parsing failed"**
 - Save as UTF-8 encoding
-- Use comma delimiter
-- Escape special characters
-- Remove blank rows
+- Use comma delimiter (not semicolon)
+- Escape special characters with quotes
+- Remove blank rows at end
+- Check for BOM characters
+- Ensure line endings are consistent
 
 **"Required column missing"**
 - Ensure headers match exactly
 - Check for typos in column names
 - Use template CSV as guide
+- Remove extra spaces in headers
+- Verify case sensitivity
 
 ### File Matching Problems
 
 **"Files not matching to releases"**
-- Verify UPC in filename matches CSV
-- Check disc/track numbering
+- Verify UPC in filename matches CSV exactly
+- Check disc/track numbering format
 - Ensure file extensions are correct
-- Remove special characters
+- Remove special characters from filenames
+- Check for leading zeros in numbers
 
 **"Duplicate files detected"**
 - System found same content hash
 - Choose to skip or replace
 - Clean up source folders
+- Check for duplicate UPCs in CSV
 
 ### Performance Issues
 
 **"Upload very slow"**
-- Reduce concurrent uploads
-- Check internet speed
-- Try different browser
+- Reduce concurrent uploads to 3
+- Check internet speed (need 10+ Mbps)
+- Try different browser (Chrome recommended)
 - Clear browser cache
+- Disable browser extensions
+- Check available disk space
+
+---
 
 ## Import Templates
 
 ### Download Sample Files
 
 Available templates:
-- [Basic CSV Template](./templates/basic-import.csv)
-- [Full Metadata CSV](./templates/full-import.csv)
-- [Multi-Disc Template](./templates/multi-disc.csv)
-- [Compilation Template](./templates/compilation.csv)
+- [Basic CSV Template](./templates/basic-import.csv) - Minimal required fields
+- [Full Metadata CSV](./templates/full-import.csv) - All supported fields
+- [Multi-Disc Template](./templates/multi-disc.csv) - Multi-disc release example
+- [Compilation Template](./templates/compilation.csv) - Various artists example
 
 ### Creating Custom Templates
 
-1. Export existing catalog
-2. Modify in spreadsheet app
-3. Save as CSV (UTF-8)
-4. Test with small batch
+1. Export a sample from your current catalog
+2. Map columns to our format
+3. Save as template for future use
+4. Share with team members
+
+---
 
 ## Post-Import Tasks
 
@@ -367,6 +544,7 @@ After import:
    - Add missing genres
    - Set copyright info
    - Configure territories
+   - Add production credits
 
 3. **Validate releases**
    - Run DDEX validation
@@ -380,92 +558,73 @@ After import:
 - Apply common metadata
 - Set release dates
 - Update status together
+- Generate ISRCs if missing
 
 ### Quality Assurance
 
 **Verify import quality:**
 - Spot-check random releases
 - Play audio samples
-- Review cover art
+- Review cover art quality
 - Check track sequences
-
-## Migration Strategies
-
-### From Other Platforms
-
-**Exporting from competitors:**
-1. Export catalog as CSV
-2. Map columns to our format
-3. Batch download assets
-4. Rename files to DDEX standard
-
-### From Legacy Systems
-
-**Modernizing old catalogs:**
-1. Digitize physical media
-2. Generate UPCs if missing
-3. Research missing metadata
-4. Enhance audio quality
-
-### Incremental Migration
-
-**For active catalogs:**
-1. Import back catalog first
-2. Continue using old system
-3. Import new releases weekly
-4. Switch over when complete
-
-## Advanced Scenarios
-
-### Multi-Disc Albums
-
-CSV format for multi-disc:
-```csv
-upc,disc_number,track_number,track_title
-123456789012,1,1,Disc 1 Track 1
-123456789012,1,2,Disc 1 Track 2
-123456789012,2,1,Disc 2 Track 1
-```
-
-File naming:
-- `123456789012_01_001.wav` (Disc 1, Track 1)
-- `123456789012_02_001.wav` (Disc 2, Track 1)
-
-### Compilations
-
-Include track-level artists:
-```csv
-upc,track_title,track_artist,display_artist
-123456789012,Song One,Artist A,Various Artists
-123456789012,Song Two,Artist B,Various Artists
-```
-
-### Box Sets
-
-Use catalog numbers:
-```csv
-upc,catalog_number,release_title,disc_title
-123456789012,BOX001,Complete Collection,Volume 1
-123456789013,BOX001,Complete Collection,Volume 2
-```
-
-## Support Resources
-
-### Video Tutorials
-- [CSV Preparation](https://youtube.com/watch?v=xxx)
-- [File Organization](https://youtube.com/watch?v=yyy)
-- [Import Walkthrough](https://youtube.com/watch?v=zzz)
-
-### Help Documentation
-- [CSV Format Reference](./csv-format.md)
-- [DDEX Naming Convention](./ddex-naming.md)
-- [Troubleshooting Guide](./troubleshooting.md#import-issues)
-
-### Community Resources
-- Import tips and tricks forum
-- Shared import templates
-- Migration success stories
+- Verify metadata accuracy
+- Test with delivery preview
 
 ---
 
-💡 **Pro Tip**: Start with a test import of 5-10 releases to familiarize yourself with the process before importing your entire catalog.
+## Migration Timeline
+
+### Recommended Schedule
+
+**Week 1: Preparation**
+- Day 1-2: Export from current platform
+- Day 3-4: Organize and rename files
+- Day 5-7: Prepare CSV and test import
+
+**Week 2: Import**
+- Day 1-3: Import back catalog
+- Day 4-5: Fix incomplete releases
+- Day 6-7: Quality assurance
+
+**Week 3: Transition**
+- Day 1-2: Configure delivery targets
+- Day 3-4: Test deliveries
+- Day 5-7: Train team on new platform
+
+**Week 4: Go Live**
+- Switch to Stardust Distro for new releases
+- Monitor deliveries
+- Gather feedback
+- Optimize workflow
+
+---
+
+## Support Resources
+
+### Import Assistance
+
+- **Documentation**: Complete guides in `/docs` folder
+- **Templates**: Sample CSV files in `/templates`
+- **Community Forum**: Share tips and get help
+- **Video Tutorials**: Step-by-step walkthroughs
+
+### Frequently Asked Questions
+
+**Q: How long does import take?**
+A: Typically 1-2 minutes per release including file upload.
+
+**Q: Can I import without ISRCs?**
+A: Yes, you can generate ISRCs after import or add them later.
+
+**Q: What if my files aren't DDEX named?**
+A: Use our file renaming tool or rename manually before import.
+
+**Q: Can I update releases after import?**
+A: Yes, all imported releases can be edited.
+
+**Q: Is there a limit to import size?**
+A: No hard limit, but we recommend batches of 500 releases.
+
+---
+
+*Import System Version: 1.0.0 | Last Updated: August 2025*
