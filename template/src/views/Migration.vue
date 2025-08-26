@@ -35,6 +35,9 @@ const fetchingMetadata = ref(false)
 const metadataFetchProgress = ref({})
 const metadataFetchStatus = ref('')
 
+// Auto-process metadata ref
+const autoProcessMetadata = ref(false)
+
 // UI state
 const isLoading = ref(false)
 const error = ref(null)
@@ -283,10 +286,13 @@ const processMetadatalessUpload = async () => {
   metadataFetchStatus.value = 'Initializing metadata fetch...'
   
   try {
-    // Extract unique UPCs from uploaded files
+    // Extract unique UPCs from ALL uploaded files (not just recent ones)
     const upcs = new Set()
     
-    console.log('📝 Extracting UPCs from uploaded files...')
+    console.log('📝 Extracting UPCs from all uploaded files...')
+    console.log(`  Audio files: ${uploadedFiles.value.audio.length}`)
+    console.log(`  Image files: ${uploadedFiles.value.images.length}`)
+    
     uploadedFiles.value.audio.forEach(file => {
       const upc = extractUPCFromFilename(file.name)
       if (upc) {
@@ -650,11 +656,10 @@ const processFileUpload = async (files, type) => {
       user.value.uid,
       importJob.value?.id,
       (progress) => {
-        // Ensure progress is a valid object
+        // Progress handling remains the same
         if (progress && typeof progress === 'object') {
           uploadProgress.value = { ...progress }
           
-          // Log and track progress for each file
           const progressEntries = Object.entries(progress)
           if (progressEntries.length > 0) {
             const lastEntry = progressEntries[progressEntries.length - 1]
@@ -662,7 +667,6 @@ const processFileUpload = async (files, type) => {
               const [fileName, percent] = lastEntry
               currentUploadFile.value = fileName
               
-              // Only log at certain intervals to avoid spam
               if (percent % 20 === 0 || percent === 100) {
                 console.log(`  📊 Upload progress: ${fileName} - ${Math.round(percent)}%`)
               }
@@ -688,12 +692,11 @@ const processFileUpload = async (files, type) => {
       })
     }
 
-    // In metadata-less mode, process after files are uploaded
+    // MODIFIED: Don't auto-process metadata immediately
+    // Instead, check if we should trigger it manually or wait
     if (isMetadatalessMode.value && currentStep.value === 1) {
-      console.log('🎵 Metadata-less mode detected, starting Deezer metadata fetch...')
-      // Add a small delay for UX
-      await new Promise(resolve => setTimeout(resolve, 500))
-      await processMetadatalessUpload()
+      // Don't auto-trigger - let user decide when ready
+      console.log('📝 Files uploaded. Upload more files or click "Process Metadata" when ready.')
     }
 
   } catch (err) {
@@ -703,10 +706,16 @@ const processFileUpload = async (files, type) => {
     isLoading.value = false
     uploadingFiles.value[type] = false
     currentUploadFile.value = ''
-    // Clear progress after a delay
     setTimeout(() => {
       uploadProgress.value = {}
     }, 2000)
+  }
+}
+
+// Add a manual trigger for metadata processing
+const triggerMetadataProcessing = async () => {
+  if (isMetadatalessMode.value && (uploadedFiles.value.audio.length > 0 || uploadedFiles.value.images.length > 0)) {
+    await processMetadatalessUpload()
   }
 }
 
@@ -1424,6 +1433,24 @@ onMounted(() => {
                       </div>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <!-- Add a process button after upload sections -->
+              <div v-if="(uploadedFiles.audio.length > 0 || uploadedFiles.images.length > 0) && !fetchingMetadata && Object.keys(deezerMetadata).length === 0" 
+                  class="process-metadata-section">
+                <div class="process-card">
+                  <h3>Files Ready for Processing</h3>
+                  <p>You have uploaded {{ uploadedFiles.audio.length }} audio file(s) and {{ uploadedFiles.images.length }} image file(s).</p>
+                  <p>Click below to fetch metadata from Deezer and match your files.</p>
+                  <button 
+                    @click="triggerMetadataProcessing" 
+                    class="btn btn-primary btn-lg"
+                    :disabled="isLoading"
+                  >
+                    <font-awesome-icon icon="search" />
+                    Process Metadata & Match Files
+                  </button>
                 </div>
               </div>
 
@@ -2718,6 +2745,33 @@ onMounted(() => {
 
 .btn-icon:hover {
   color: var(--color-text);
+}
+
+.process-metadata-section {
+  margin-top: var(--space-xl);
+}
+
+.process-card {
+  background: linear-gradient(135deg, var(--color-primary-light), var(--color-bg-secondary));
+  border: 2px solid var(--color-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  text-align: center;
+}
+
+.process-card h3 {
+  color: var(--color-heading);
+  margin-bottom: var(--space-md);
+}
+
+.process-card p {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-md);
+}
+
+.btn-lg {
+  padding: var(--space-md) var(--space-xl);
+  font-size: var(--text-lg);
 }
 
 /* Dark mode adjustments */

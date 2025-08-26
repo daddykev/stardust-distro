@@ -76,7 +76,8 @@ import {
   faTachometerAlt,
   faShieldAlt,
   faEnvelope,
-  faFileImport
+  faFileImport,
+  faImages
 } from '@fortawesome/free-solid-svg-icons'
 
 // Import brand icons
@@ -153,7 +154,8 @@ library.add(
   faTachometerAlt,
   faShieldAlt,
   faEnvelope,
-  faFileImport
+  faFileImport,
+  faImages
 )
 
 // Add brand icons to the library
