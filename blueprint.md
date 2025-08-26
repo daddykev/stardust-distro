@@ -292,11 +292,15 @@ stardust-distro/
 │   │   ├── package-lock.json      # Locked dependencies ✅
 │   │   └── node_modules/          # Dependencies (git-ignored) ✅
 │   ├── docs/                      # Documentation
-│   │   ├── DDEX.md                # DDEX standards implementation ✅
-│   │   ├── getting-started.md     # Quick start guide ✅
+│   │   ├── catalog-import.md      # Catalog migration guide ✅
 │   │   ├── configuration.md       # Configuration guide ✅
-│   │   └── delivery-setup.md      # Delivery target setup ✅
-│   ├── public/                    # Static assets ✅
+│   │   ├── DDEX.md                # DDEX standards implementation ✅
+│   │   ├── delivery-setup.md      # Delivery target setup ✅
+│   │   ├── genre-mapping.md       # Genre mapping guide ✅
+│   │   ├── getting-started.md     # Quick start guide ✅
+│   │   ├── release-creation.md    # Release creation guide ✅
+│   │   └── troubleshooting.md     # Troubleshooting guide ✅
+│   ├── public/                    # Static assets
 │   │   └── index.html             # HTML template ✅
 │   ├── node_modules/              # Dependencies (git-ignored) ✅
 │   ├── dist/                      # Build output (git-ignored) ✅

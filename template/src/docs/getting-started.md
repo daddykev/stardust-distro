@@ -1,156 +1,253 @@
-# Getting Started with Stardust Distro
+# Getting Started with Stardust Distro 🚀
 
-Welcome to Stardust Distro! This guide will walk you through setting up your own professional, open-source music distribution platform. In about 15-20 minutes, you'll go from zero to a fully deployed system.
+Welcome to Stardust Distro! This guide will walk you through setting up your own professional, open-source music distribution platform. In about 15-20 minutes, you'll go from zero to a fully deployed system ready to deliver your music catalog to DSPs worldwide.
 
-Stardust Distro is a self-hosted platform, which means you have complete ownership and control over your data and infrastructure. Our goal is to democratize music distribution by providing a powerful, DDEX-compliant toolset for everyone.
+## What is Stardust Distro?
+
+Stardust Distro is a self-hosted, DDEX-compliant music distribution platform that gives you complete control over your catalog and distribution pipeline. Key features include:
+
+- **DDEX ERN Support**: Generate compliant ERN messages (versions 3.8.2, 4.2, and 4.3)
+- **Apple Music XML**: Full support for Apple Music Spec 5.3.23
+- **Multi-Protocol Delivery**: FTP, SFTP, Amazon S3, Azure Blob Storage, and REST APIs
+- **Genre Intelligence**: Automatic genre mapping between different DSP taxonomies
+- **Content Fingerprinting**: Duplicate detection and audio similarity analysis
+- **Catalog Import**: Bulk import existing catalogs via CSV and DDEX file naming
+- **Real-time Monitoring**: Live delivery tracking with comprehensive logging
 
 ## Prerequisites
 
-Before you begin, make sure you have the following installed and configured:
+Before you begin, ensure you have:
 
-1.  **Node.js**: We recommend version `18.x` or higher. You can download it from [nodejs.org](https://nodejs.org/).
-2.  **A Google Account**: This is required to create and manage your Firebase project, which will serve as the backend for your Stardust Distro instance.
-3.  **Firebase CLI**: This command-line tool allows you to deploy your project. Install it globally by running:
-    ```bash
-    npm install -g firebase-tools
-    ```
+1. **Node.js 18.x or higher** - [Download from nodejs.org](https://nodejs.org/)
+2. **A Google Account** - Required for Firebase project creation
+3. **Firebase CLI** - Install globally:
+   ```bash
+   npm install -g firebase-tools
+   ```
+4. **Git** (optional but recommended) - For version control
 
----
+## Quick Start (5 minutes)
 
-## Step 1: Create Your Stardust Distro Project
-
-We've made this part incredibly simple. Just run the following command in your terminal. Replace `my-label-distro` with the name of your project.
+For the fastest setup, use our one-command installer:
 
 ```bash
-npx create-stardust-distro my-label-distro
+npx create-stardust-distro my-music-distro
+cd my-music-distro
+npm run init
+npm run deploy
 ```
 
-This command will create a new folder with your chosen name, download the latest version of Stardust Distro, and install all the necessary dependencies. It's your complete, ready-to-configure platform in a box.
+Your platform will be live at `https://your-project-id.web.app` 🎉
 
------
+## Detailed Installation
 
-## Step 2: Set Up Your Firebase Backend
+### Step 1: Create Your Project
 
-Stardust Distro uses Google Firebase for its database, authentication, file storage, and serverless functions. This provides a scalable, secure, and cost-effective backend.
+```bash
+# Create a new Stardust Distro instance
+npx create-stardust-distro my-label-distro
 
-1.  **Create a Firebase Project**:
+# Navigate to your project
+cd my-label-distro
 
-      * Go to the [Firebase Console](https://console.firebase.google.com/).
-      * Click "**Create a project**" and follow the on-screen instructions. Give it a name you'll recognize (e.g., "My Label Distro Backend").
+# Install dependencies
+npm install
+```
 
-2.  **Enable Required Services**:
+### Step 2: Firebase Setup
 
-      * In your new project's dashboard, go to the "**Build**" section in the left-hand menu.
-      * **Authentication**: Click "**Get started**". Choose "**Email/Password**" and "**Google**" as sign-in methods and enable them.
-      * **Firestore Database**: Click "**Create database**". Start in **Production mode** and choose a location close to you (e.g., `us-central`).
-      * **Storage**: Click "**Get started**". Follow the prompts to create a default storage bucket.
-      * **Functions**: Click "**Get started**".
+#### 2.1 Create Firebase Project
 
-3.  **Upgrade to the Blaze Plan (Important\!)**:
+1. Visit [Firebase Console](https://console.firebase.google.com/)
+2. Click **"Create a project"**
+3. Name it (e.g., "My Label Distro")
+4. Disable Google Analytics (optional)
+5. Click **"Create Project"**
 
-      * Stardust Distro uses modern Cloud Functions (v2) which require the "**Blaze (Pay as you go)**" plan.
-      * Click the gear icon next to "Project Overview" -\> "Usage and billing" and select the Blaze plan.
-      * **Don't worry\!** The free tier is very generous. You won't pay anything unless your platform usage exceeds the free limits (hundreds of releases, thousands of deliveries per month).
+#### 2.2 Enable Required Services
 
-4.  **Get Your Firebase Configuration**:
+In your Firebase project dashboard:
 
-      * Go to **Project Overview** -\> **Project settings** (gear icon).
-      * In the "General" tab, scroll down to "**Your apps**".
-      * Click the web icon (`</>`) to create a new web app.
-      * Give it a nickname (e.g., "Stardust Web App") and click "**Register app**".
-      * Firebase will provide you with a configuration object. It will look like this:
-        ```javascript
-        const firebaseConfig = {
-          apiKey: "AIzaSy...",
-          authDomain: "my-label-distro.firebaseapp.com",
-          projectId: "my-label-distro",
-          storageBucket: "my-label-distro.appspot.com",
-          messagingSenderId: "1234567890",
-          appId: "1:1234567890:web:..."
-        };
-        ```
-      * **Copy this entire object.** You'll need it in the next step.
+**Authentication** (Build → Authentication)
+- Click **"Get started"**
+- Enable **Email/Password** provider
+- Enable **Google** provider (optional)
 
------
+**Firestore Database** (Build → Firestore Database)
+- Click **"Create database"**
+- Choose **Production mode**
+- Select your region (e.g., `us-central1`)
+- Click **"Enable"**
 
-## Step 3: Initialize and Configure
+**Storage** (Build → Storage)
+- Click **"Get started"**
+- Accept the default rules
+- Choose the same region as Firestore
+- Click **"Done"**
 
-Now, let's connect your Stardust Distro code to your new Firebase backend.
+**Functions** (Build → Functions)
+- Click **"Get started"**
+- **IMPORTANT**: Upgrade to Blaze (Pay as you go) plan
+  - Required for Cloud Functions v2
+  - Free tier includes 2M invocations/month
+  - You won't be charged unless you exceed generous free limits
 
-1.  Navigate into your project directory:
+#### 2.3 Configure Email Notifications
 
-    ```bash
-    cd my-label-distro
-    ```
+1. Go to **Extensions** in Firebase Console
+2. Search for **"Trigger Email from Firestore"**
+3. Click **"Install"** and configure:
+   - SMTP connection URI: `smtps://username@gmail.com:password@smtp.gmail.com:465`
+   - Email documents collection: `mail`
+   - Default FROM address: `noreply@yourdomain.com`
+4. For Gmail, use an [App Password](https://support.google.com/accounts/answer/185833) instead of your regular password
 
-2.  Run the initialization command:
+#### 2.4 Get Firebase Configuration
 
-    ```bash
-    npm run init
-    ```
+1. Go to **Project Settings** (gear icon)
+2. Scroll to **"Your apps"** section
+3. Click the **Web icon** (`</>`)
+4. Register your app with a nickname
+5. Copy the configuration object
 
-3.  The CLI will guide you through the setup:
+### Step 3: Initialize Your Platform
 
-      * It will ask you to **paste your Firebase configuration** object.
-      * It will ask for the **Firebase Project ID** (from your config).
-      * It will then configure all the necessary files automatically.
+```bash
+# Run the initialization wizard
+npm run init
 
------
+# The wizard will ask for:
+# 1. Your Firebase configuration (paste the object from Step 2.4)
+# 2. Your Firebase project ID
+# 3. Initial admin email (optional)
+```
 
-## Step 4: Deploy to the Cloud
+### Step 4: Deploy to Production
 
-With everything configured, it's time to go live\!
+```bash
+# Build and deploy everything
+npm run deploy
 
-1.  Log in to Firebase from your terminal:
+# This will:
+# ✓ Build the Vue.js application
+# ✓ Deploy to Firebase Hosting
+# ✓ Deploy Cloud Functions (delivery engine)
+# ✓ Set up Firestore security rules
+# ✓ Configure Storage rules
+```
 
-    ```bash
-    firebase login
-    ```
+### Step 5: Initial Setup
 
-2.  Run the deploy command:
+1. **Visit your live site**: `https://your-project-id.web.app`
 
-    ```bash
-    npm run deploy
-    ```
+2. **Create Admin Account**:
+   - Click **"Sign Up"**
+   - Enter your email and password
+   - The first user automatically becomes admin
 
-This command will:
+3. **Complete Platform Setup**:
+   - Navigate to **Settings**
+   - Fill in your organization details
+   - Configure notification preferences
+   - Set up your first delivery target (see [Delivery Setup Guide](./delivery-setup.md))
 
-  * Build the Vue.js frontend for production.
-  * Deploy the application to Firebase Hosting.
-  * Deploy the security rules for Firestore and Storage.
-  * Deploy the Cloud Functions that power the delivery engine.
+## Your First Release
 
-After a few minutes, the process will complete. Your platform is now live and accessible at `https://<your-project-id>.web.app`.
+Once your platform is configured:
 
------
+1. **Create a Release** (Catalog → New Release):
+   - Step through the 6-step wizard
+   - Upload audio files and cover art
+   - Select genre using our intelligent genre selector
+   - Set release date and territories
 
-## Your First Hour with Stardust Distro
+2. **Validate Your Release**:
+   - The system automatically validates against DDEX standards
+   - Fix any validation errors before proceeding
 
-Congratulations on deploying your platform\! Here are the recommended next steps:
+3. **Queue a Delivery** (Deliveries → New Delivery):
+   - Select your release
+   - Choose delivery targets
+   - Generate ERN messages
+   - Schedule or send immediately
 
-1.  **Create Your Admin Account**: Navigate to your new URL and sign up. The first user to register is automatically granted `admin` privileges.
-2.  **Log In**: Sign in with your new account to access the dashboard.
-3.  **Configure a Delivery Target**:
-      * Go to **Settings** -\> **Delivery Targets**.
-      * Click "**Add New Target**" and fill in the details for a test server or a real DSP. Use the "**Test Connection**" button to verify your credentials.
-4.  **Create Your First Release**:
-      * Click the "**New Release**" button and follow the step-by-step wizard to input metadata and upload your audio and artwork.
-5.  **Run a Test Delivery**:
-      * Go to "**New Delivery**", select your newly created release and your test target, and watch the delivery engine work in real-time.
+4. **Monitor Progress**:
+   - Real-time delivery tracking
+   - View detailed logs
+   - Download delivery receipts
 
-## What's Next?
+## Platform Features
 
-Your Stardust Distro platform is ready to go. To learn more about its advanced features, check out our other guides:
+### 🎵 Genre Intelligence
+- Automatic mapping between DSP taxonomies
+- Support for Apple Music, Spotify, Beatport, and Amazon genres
+- Visual genre mapping interface
+- Strict mode for compliance enforcement
 
-  * **[Configuration Guide](https://www.google.com/search?q=./configuration.md)**: For custom branding, domains, and advanced settings.
-  * **[Catalog Migration Guide](https://www.google.com/search?q=./migration.md)**: Learn how to import your existing catalog in bulk.
-  * **[Troubleshooting Guide](https://www.google.com/search?q=./troubleshooting.md)**: Find solutions to common issues.
+### 🔍 Content Fingerprinting
+- Automatic duplicate detection
+- Audio similarity analysis
+- Prevents redundant uploads
+- Maintains catalog integrity
+
+### 📦 Catalog Import
+- Bulk import via CSV
+- DDEX-compliant file naming support
+- Automatic file matching
+- Resume interrupted imports
+
+### 📊 Analytics & Monitoring
+- Real-time delivery status
+- Comprehensive logging system
+- Performance metrics
+- Weekly email summaries
+
+## Development Mode
+
+For local development:
+
+```bash
+# Start development server
+npm run dev
+
+# Run tests
+npm test
+
+# Run Firebase emulators
+npm run emulators
+```
 
 ## Getting Help
 
-If you get stuck, the Stardust Distro community is here to help.
+### Resources
+- **Documentation**: Browse all guides in the `/docs` folder
+- **Blueprint**: Read `/blueprint.md` for technical architecture
+- **Issues**: Report bugs on [GitHub Issues](https://github.com/yourusername/stardust-distro)
 
-  * **GitHub Discussions**: [link-to-your-discussions-page]
-  * **Discord Server**: [link-to-your-discord-server]
+### Common Issues
 
-Happy distributing\!
+**Firebase deployment fails**
+- Ensure you're logged in: `firebase login`
+- Check you've upgraded to Blaze plan
+- Verify all services are enabled
+
+**Email notifications not working**
+- Check SMTP configuration in Firebase Extensions
+- Verify sender email is authorized
+- Test with Settings → Notifications → Test Email
+
+**Genre mapping errors**
+- Configure genre mappings in Settings → Genre Maps
+- Disable strict mode for initial testing
+- See [Genre Mapping Guide](./genre-mapping.md)
+
+## Next Steps
+
+1. ✅ **[Configure Delivery Targets](./delivery-setup.md)** - Connect to your DSPs
+2. ✅ **[Create Your First Release](./release-creation.md)** - Step-by-step guide
+3. ✅ **[Import Existing Catalog](./catalog-import.md)** - Migrate your catalog
+4. ✅ **[Set Up Genre Mappings](./genre-mapping.md)** - Configure DSP taxonomies
+
+---
+
+**Congratulations!** 🎉 You now have your own professional music distribution platform. Start delivering your music to the world!
