@@ -116,20 +116,46 @@ export class ImportService {
     }
   }
 
+  cleanObjectForFirestore(obj) {
+    if (obj === null || obj === undefined) {
+      return null;
+    }
+    
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.cleanObjectForFirestore(item)).filter(item => item !== undefined);
+    }
+    
+    if (typeof obj === 'object' && obj.constructor === Object) {
+      const cleaned = {};
+      for (const [key, value] of Object.entries(obj)) {
+        const cleanedValue = this.cleanObjectForFirestore(value);
+        if (cleanedValue !== undefined) {
+          cleaned[key] = cleanedValue;
+        }
+      }
+      return cleaned;
+    }
+    
+    return obj;
+  }
+
   /**
    * Update import job
    */
   async updateImportJob(jobId, updates) {
     try {
-      const docRef = doc(db, this.collection, jobId)
-      await updateDoc(docRef, {
-        ...updates,
+      // Clean the updates object before sending to Firestore
+      const cleanedUpdates = this.cleanObjectForFirestore(updates);
+      
+      await updateDoc(doc(db, 'importJobs', jobId), {
+        ...cleanedUpdates,
         updatedAt: serverTimestamp()
-      })
-      return { id: jobId, ...updates }
+      });
+      
+      console.log('Import job updated successfully');
     } catch (error) {
-      console.error('Error updating import job:', error)
-      throw error
+      console.error('Error updating import job:', error);
+      throw error;
     }
   }
 

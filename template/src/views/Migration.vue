@@ -1,4 +1,3 @@
-<!-- src/views/Migration.vue -->
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -34,12 +33,20 @@ const isMetadatalessMode = ref(false)
 const deezerMetadata = ref({})
 const fetchingMetadata = ref(false)
 const metadataFetchProgress = ref({})
+const metadataFetchStatus = ref('')
 
 // UI state
 const isLoading = ref(false)
 const error = ref(null)
 const uploadProgress = ref({})
 const showStatusModal = ref(false)
+
+// New refs for enhanced upload tracking
+const uploadingFiles = ref({
+  audio: false,
+  images: false
+})
+const currentUploadFile = ref('')
 
 // Step configuration based on mode
 const steps = computed(() => {
@@ -107,6 +114,31 @@ const importStats = computed(() => {
   }
 })
 
+// Helper functions
+const cleanObjectForFirestore = (obj) => {
+  if (obj === null || obj === undefined) {
+    return null;
+  }
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => cleanObjectForFirestore(item)).filter(item => item !== undefined);
+  }
+  
+  if (typeof obj === 'object' && obj.constructor === Object) {
+    const cleaned = {};
+    for (const [key, value] of Object.entries(obj)) {
+      const cleanedValue = cleanObjectForFirestore(value);
+      if (cleanedValue !== undefined) {
+        cleaned[key] = cleanedValue;
+      }
+    }
+    return cleaned;
+  }
+  
+  // Return primitive values as-is
+  return obj;
+}
+
 // Watch for mode changes
 watch(isMetadatalessMode, (newVal) => {
   // Reset step to 1 when switching modes
@@ -143,6 +175,8 @@ const extractUPCFromFilename = (filename) => {
 
 const fetchDeezerMetadata = async (upc) => {
   try {
+    console.log(`  🌐 Calling Deezer API for UPC: ${upc}`)
+    
     // Use the deployed Cloud Function API
     const apiUrl = process.env.NODE_ENV === 'development' 
       ? 'http://localhost:5001/stardust-distro/us-central1/api'
@@ -157,29 +191,35 @@ const fetchDeezerMetadata = async (upc) => {
     
     if (!response.ok) {
       const errorData = await response.json();
-      console.error(`Deezer API error for UPC ${upc}:`, errorData);
+      console.error(`    ❌ Deezer API error for UPC ${upc}:`, errorData);
       throw new Error(`Failed to fetch from Deezer: ${response.status}`);
     }
     
     const data = await response.json();
     
     if (!data.success || !data.album) {
-      console.warn(`Album not found on Deezer for UPC: ${upc}`);
+      console.warn(`    ⚠️ Album not found on Deezer for UPC: ${upc}`);
       return null;
     }
     
     const album = data.album;
-    console.log(`Found album: ${album.title} by ${album.artist.name}`);
+    console.log(`    ✅ Found album: "${album.title}" by ${album.artist.name}`);
+    console.log(`    📀 Album details:`)
+    console.log(`      - Tracks: ${album.tracks?.data?.length || 0}`)
+    console.log(`      - Release date: ${album.release_date}`)
+    console.log(`      - Label: ${album.label || 'Unknown'}`)
+    console.log(`      - Cover: ${album.cover_medium ? 'Available' : 'Not available'}`)
     
     // The album already includes tracks in the response!
     const tracks = album.tracks?.data || [];
     
-    // Fetch ISRCs for tracks if needed (Deezer doesn't always include them in album response)
+    // Fetch ISRCs for tracks if needed
     const trackIds = tracks.map(t => t.id);
     let isrcMap = {};
     
     if (trackIds.length > 0) {
       try {
+        console.log(`    🎵 Fetching ISRCs for ${trackIds.length} tracks...`)
         const isrcResponse = await fetch(`${apiUrl}/deezer/tracks/batch-isrc`, {
           method: 'POST',
           headers: {
@@ -192,18 +232,20 @@ const fetchDeezerMetadata = async (upc) => {
           const isrcData = await isrcResponse.json();
           if (isrcData.tracks) {
             isrcData.tracks.forEach(t => {
-              isrcMap[t.id] = t.isrc;
+              if (t.isrc) {
+                isrcMap[t.id] = t.isrc;
+              }
             });
+            console.log(`      - Found ${Object.keys(isrcMap).length} ISRCs`)
           }
         }
       } catch (error) {
-        console.warn('Could not fetch ISRCs:', error);
-        // Continue without ISRCs
+        console.warn('      ⚠️ Could not fetch ISRCs:', error.message);
       }
     }
     
     // Build release data from Deezer metadata
-    return {
+    const releaseData = {
       upc: upc,
       title: album.title,
       artist: album.artist?.name || 'Unknown Artist',
@@ -213,8 +255,8 @@ const fetchDeezerMetadata = async (upc) => {
       coverUrl: album.cover_xl || album.cover_big || album.cover_medium || album.cover,
       duration: album.duration || 0,
       tracks: tracks.map((track, index) => ({
-        trackNumber: index + 1, // Deezer doesn't provide track number in this response
-        discNumber: 1, // Default to disc 1
+        trackNumber: index + 1,
+        discNumber: 1,
         title: track.title || `Track ${index + 1}`,
         artist: track.artist?.name || album.artist?.name || 'Unknown Artist',
         isrc: isrcMap[track.id] || '',
@@ -223,71 +265,105 @@ const fetchDeezerMetadata = async (upc) => {
       }))
     };
     
+    console.log(`    ✅ Successfully processed metadata for UPC ${upc}`)
+    return releaseData;
+    
   } catch (error) {
-    console.error(`Error fetching Deezer metadata for UPC ${upc}:`, error);
+    console.error(`    ❌ Error fetching Deezer metadata for UPC ${upc}:`, error.message);
     return null;
   }
 }
 
 const processMetadatalessUpload = async () => {
-  fetchingMetadata.value = true;
-  error.value = null;
-  deezerMetadata.value = {};
-  metadataFetchProgress.value = {};
+  console.log('🎵 === Starting Metadata-less Upload Processing ===')
+  fetchingMetadata.value = true
+  error.value = null
+  deezerMetadata.value = {}
+  metadataFetchProgress.value = {}
+  metadataFetchStatus.value = 'Initializing metadata fetch...'
   
   try {
     // Extract unique UPCs from uploaded files
-    const upcs = new Set();
+    const upcs = new Set()
     
+    console.log('📝 Extracting UPCs from uploaded files...')
     uploadedFiles.value.audio.forEach(file => {
-      const upc = extractUPCFromFilename(file.name);
-      if (upc) upcs.add(upc);
-    });
+      const upc = extractUPCFromFilename(file.name)
+      if (upc) {
+        upcs.add(upc)
+        console.log(`  Found UPC in audio: ${upc} (${file.name})`)
+      }
+    })
     
     uploadedFiles.value.images.forEach(file => {
-      const upc = extractUPCFromFilename(file.name);
-      if (upc) upcs.add(upc);
-    });
+      const upc = extractUPCFromFilename(file.name)
+      if (upc) {
+        upcs.add(upc)
+        console.log(`  Found UPC in image: ${upc} (${file.name})`)
+      }
+    })
+    
+    console.log(`📊 Found ${upcs.size} unique UPCs:`, Array.from(upcs))
     
     if (upcs.size === 0) {
-      error.value = 'No valid UPCs found in uploaded files. Files must follow DDEX naming convention.';
-      return;
+      error.value = 'No valid UPCs found in uploaded files. Files must follow DDEX naming convention.'
+      console.error('❌ No UPCs found in any uploaded files')
+      return
     }
     
     // Fetch metadata for each UPC
-    const upcArray = Array.from(upcs);
-    let successCount = 0;
+    const upcArray = Array.from(upcs)
+    let successCount = 0
+    let failedUPCs = []
     
+    console.log('🌐 Starting Deezer API calls...')
     for (let i = 0; i < upcArray.length; i++) {
-      const upc = upcArray[i];
+      const upc = upcArray[i]
+      metadataFetchStatus.value = `Fetching metadata for UPC ${upc}...`
       metadataFetchProgress.value = {
         current: i + 1,
         total: upcArray.length,
         upc: upc
-      };
+      }
       
-      const metadata = await fetchDeezerMetadata(upc);
+      console.log(`\n🔄 [${i + 1}/${upcArray.length}] Fetching metadata for UPC: ${upc}`)
+      const metadata = await fetchDeezerMetadata(upc)
       
       if (metadata) {
-        deezerMetadata.value[upc] = metadata;
-        successCount++;
+        deezerMetadata.value[upc] = metadata
+        successCount++
+        console.log(`  ✅ Success! Found: "${metadata.title}" by ${metadata.artist}`)
+        console.log(`     - ${metadata.tracks.length} tracks`)
+        console.log(`     - Release date: ${metadata.releaseDate}`)
+        console.log(`     - Label: ${metadata.label || 'Unknown'}`)
       } else {
-        console.warn(`Could not fetch metadata for UPC: ${upc}`);
+        failedUPCs.push(upc)
+        console.warn(`  ⚠️ Could not fetch metadata for UPC: ${upc}`)
       }
       
       // Add a small delay to avoid rate limiting
       if (i < upcArray.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 500))
       }
     }
     
-    if (successCount === 0) {
-      error.value = 'Could not fetch metadata for any of the uploaded files from Deezer.';
-      return;
+    console.log(`\n📊 Metadata Fetch Results:`)
+    console.log(`  ✅ Successful: ${successCount}/${upcArray.length}`)
+    if (failedUPCs.length > 0) {
+      console.log(`  ❌ Failed UPCs: ${failedUPCs.join(', ')}`)
     }
     
+    if (successCount === 0) {
+      error.value = 'Could not fetch metadata for any of the uploaded files from Deezer.'
+      console.error('❌ All Deezer API calls failed')
+      return
+    }
+    
+    metadataFetchStatus.value = `Successfully fetched metadata for ${successCount} releases`
+    
     // Transform Deezer metadata to match our standard format
-    const releases = Object.values(deezerMetadata.value);
+    console.log('🔄 Transforming Deezer metadata to standard format...')
+    const releases = Object.values(deezerMetadata.value)
     parsedData.value = releases.flatMap(release => 
       release.tracks.map(track => ({
         upc: release.upc,
@@ -303,32 +379,46 @@ const processMetadatalessUpload = async () => {
         isrc: track.isrc,
         duration: track.duration
       }))
-    );
+    )
+    
+    console.log(`✅ Transformed ${parsedData.value.length} tracks from ${releases.length} releases`)
     
     // Update import job
     if (!importJob.value) {
+      console.log('📝 Creating new import job...')
       importJob.value = await importService.createImportJob(user.value.uid, {
         mode: 'metadata-less',
         upcCount: upcs.size,
-        successfulFetches: successCount
-      });
+        successfulFetches: successCount,
+        failedUPCs: failedUPCs
+      })
+      console.log(`  Created import job: ${importJob.value.id}`)
     }
     
+    console.log('💾 Saving metadata to import job...')
     await importService.updateImportJob(importJob.value.id, {
       deezerMetadata: deezerMetadata.value,
       parsedReleases: releases,
       status: 'metadata_fetched'
-    });
+    })
     
-    // Move to next step
-    currentStep.value = 2;
+    // Automatically proceed to matching
+    console.log('➡️ Moving to matching step...')
+    currentStep.value = 2
+    
+    // Auto-trigger matching after a short delay
+    setTimeout(() => {
+      console.log('🔄 Auto-triggering matching process...')
+      performMatching()
+    }, 1000)
     
   } catch (err) {
-    console.error('Error processing metadata-less upload:', err);
-    error.value = err.message;
+    console.error('❌ Error processing metadata-less upload:', err)
+    error.value = err.message
   } finally {
-    fetchingMetadata.value = false;
-    metadataFetchProgress.value = {};
+    fetchingMetadata.value = false
+    metadataFetchStatus.value = ''
+    metadataFetchProgress.value = {}
   }
 }
 
@@ -513,16 +603,24 @@ const handleImageUpload = async (event) => {
 }
 
 const processFileUpload = async (files, type) => {
+  console.log(`📁 Starting file upload for ${files.length} ${type} files`)
+  console.log('Files:', files.map(f => f.name).join(', '))
+  
   isLoading.value = true
+  uploadingFiles.value[type] = true
   error.value = null
+  uploadProgress.value = {} // Reset progress
 
   try {
     // Validate DDEX naming
     const validatedFiles = []
     const errors = []
 
+    console.log('🔍 Validating DDEX naming conventions...')
     for (const file of files) {
       const validation = validateDDEXNaming(file.name, type)
+      console.log(`  ${file.name}: ${validation.valid ? '✅' : '❌'} ${validation.valid ? `UPC: ${validation.upc}` : validation.error}`)
+      
       if (validation.valid) {
         validatedFiles.push({
           file,
@@ -533,27 +631,57 @@ const processFileUpload = async (files, type) => {
       }
     }
 
+    console.log(`✅ Validated ${validatedFiles.length}/${files.length} files successfully`)
+
     if (errors.length > 0) {
       error.value = `Invalid file names:\n${errors.join('\n')}`
       if (validatedFiles.length === 0) {
+        console.error('❌ No valid files to upload')
+        uploadingFiles.value[type] = false
         return
       }
     }
 
     // Upload validated files
+    console.log(`📤 Starting upload of ${validatedFiles.length} files to Firebase Storage...`)
+    
     const uploaded = await importService.uploadBatchFiles(
       validatedFiles,
       user.value.uid,
       importJob.value?.id,
       (progress) => {
-        uploadProgress.value = progress
+        // Ensure progress is a valid object
+        if (progress && typeof progress === 'object') {
+          uploadProgress.value = { ...progress }
+          
+          // Log and track progress for each file
+          const progressEntries = Object.entries(progress)
+          if (progressEntries.length > 0) {
+            const lastEntry = progressEntries[progressEntries.length - 1]
+            if (lastEntry && lastEntry.length === 2) {
+              const [fileName, percent] = lastEntry
+              currentUploadFile.value = fileName
+              
+              // Only log at certain intervals to avoid spam
+              if (percent % 20 === 0 || percent === 100) {
+                console.log(`  📊 Upload progress: ${fileName} - ${Math.round(percent)}%`)
+              }
+            }
+          }
+        }
       }
     )
 
+    console.log(`✅ Successfully uploaded ${uploaded.length} files`)
+    uploaded.forEach(file => {
+      console.log(`  - ${file.name} (${file.url})`)
+    })
+    
     uploadedFiles.value[type].push(...uploaded)
 
     // Update import job if exists
     if (importJob.value) {
+      console.log('💾 Updating import job...')
       await importService.updateImportJob(importJob.value.id, {
         uploadedFiles: uploadedFiles.value,
         status: 'files_uploading'
@@ -562,14 +690,23 @@ const processFileUpload = async (files, type) => {
 
     // In metadata-less mode, process after files are uploaded
     if (isMetadatalessMode.value && currentStep.value === 1) {
+      console.log('🎵 Metadata-less mode detected, starting Deezer metadata fetch...')
+      // Add a small delay for UX
+      await new Promise(resolve => setTimeout(resolve, 500))
       await processMetadatalessUpload()
     }
 
   } catch (err) {
-    console.error('Upload error:', err)
+    console.error('❌ Upload error:', err)
     error.value = err.message
   } finally {
     isLoading.value = false
+    uploadingFiles.value[type] = false
+    currentUploadFile.value = ''
+    // Clear progress after a delay
+    setTimeout(() => {
+      uploadProgress.value = {}
+    }, 2000)
   }
 }
 
@@ -612,6 +749,7 @@ const validateDDEXNaming = (fileName, type) => {
 
 // Step 3: Automatic Matching
 const performMatching = async () => {
+  console.log('🎯 === Starting Matching Process ===')
   isLoading.value = true
   error.value = null
 
@@ -619,6 +757,8 @@ const performMatching = async () => {
     const releases = isMetadatalessMode.value 
       ? Object.values(deezerMetadata.value)
       : groupIntoReleases(parsedData.value)
+    
+    console.log(`📊 Processing ${releases.length} releases for matching...`)
       
     const results = {
       matched: [],
@@ -626,38 +766,73 @@ const performMatching = async () => {
       errors: []
     }
 
-    for (const release of releases) {
+    for (let i = 0; i < releases.length; i++) {
+      const release = releases[i]
+      console.log(`\n🔍 [${i + 1}/${releases.length}] Matching release: "${release.title}" (UPC: ${release.upc})`)
+      
       const matchResult = await matchReleaseWithFiles(release)
+      
+      console.log(`  Result: ${matchResult.complete ? '✅ COMPLETE' : matchResult.hasPartialData ? '⚠️ INCOMPLETE' : '❌ ERROR'}`)
+      console.log(`  - Cover image: ${matchResult.matchedFiles.coverImage ? '✅' : '❌'}`)
+      console.log(`  - Audio tracks: ${matchResult.matchedFiles.audioTracks.filter(t => !t.missing).length}/${release.tracks.length}`)
       
       if (matchResult.complete) {
         results.matched.push(matchResult)
+        console.log(`  ✅ Added to matched releases`)
       } else if (matchResult.hasPartialData) {
         results.incomplete.push(matchResult)
+        console.log(`  ⚠️ Added to incomplete releases`)
+        const missingTracks = matchResult.matchedFiles.audioTracks.filter(t => t.missing)
+        if (missingTracks.length > 0) {
+          console.log(`  Missing tracks:`)
+          missingTracks.forEach(t => {
+            console.log(`    - Track ${t.trackNumber}: ${t.title}`)
+          })
+        }
       } else {
         results.errors.push({
           release,
           error: matchResult.error || 'No matching files found'
         })
+        console.log(`  ❌ Added to errors: ${matchResult.error || 'No matching files found'}`)
       }
     }
 
+    console.log(`\n📊 === Matching Results Summary ===`)
+    console.log(`  ✅ Matched: ${results.matched.length} releases`)
+    console.log(`  ⚠️ Incomplete: ${results.incomplete.length} releases`)
+    console.log(`  ❌ Errors: ${results.errors.length} releases`)
+
     matchingResults.value = results
 
-    // Update import job
+    // Update import job - Deep clean the data before saving
     if (importJob.value) {
-      await importService.updateImportJob(importJob.value.id, {
-        matchingResults: results,
-        status: 'matching_complete'
-      })
+      console.log('💾 Saving matching results to import job...')
+      
+      // Deep clean the entire results object to remove any undefined values
+      const cleanedResults = cleanObjectForFirestore(results)
+      
+      try {
+        await importService.updateImportJob(importJob.value.id, {
+          matchingResults: cleanedResults,
+          status: 'matching_complete'
+        })
+        console.log('✅ Successfully saved matching results')
+      } catch (saveError) {
+        console.error('Error saving to Firestore:', saveError)
+        console.log('Cleaned results object:', JSON.stringify(cleanedResults, null, 2))
+        // Don't throw - continue with the process
+      }
     }
 
     // Auto-create draft releases for matched items
     if (results.matched.length > 0) {
+      console.log(`\n📝 Creating draft releases for ${results.matched.length} matched items...`)
       await createDraftReleases(results.matched)
     }
 
   } catch (err) {
-    console.error('Matching error:', err)
+    console.error('❌ Matching error:', err)
     error.value = err.message
   } finally {
     isLoading.value = false
@@ -668,14 +843,17 @@ const matchReleaseWithFiles = async (release) => {
   const upc = release.upc
   const result = {
     release,
-    complete: false,
+    complete: false,  // Ensure this is always a boolean
     hasPartialData: false,
     matchedFiles: {
       coverImage: null,
       additionalImages: [],
       audioTracks: []
-    }
+    },
+    error: null  // Initialize error as null
   }
+
+  console.log(`  📂 Searching for files with UPC: ${upc}`)
 
   // Find cover image
   const coverImage = uploadedFiles.value.images.find(img => 
@@ -684,15 +862,22 @@ const matchReleaseWithFiles = async (release) => {
   if (coverImage) {
     result.matchedFiles.coverImage = coverImage
     result.hasPartialData = true
+    console.log(`    ✅ Found cover image: ${coverImage.name}`)
+  } else {
+    console.log(`    ❌ No cover image found`)
   }
 
   // Find additional images
   const additionalImages = uploadedFiles.value.images.filter(img => 
     img.upc === upc && img.imageType !== 'cover'
   )
-  result.matchedFiles.additionalImages = additionalImages
+  if (additionalImages.length > 0) {
+    result.matchedFiles.additionalImages = additionalImages
+    console.log(`    📷 Found ${additionalImages.length} additional images`)
+  }
 
   // Match audio tracks
+  console.log(`  🎵 Matching ${release.tracks.length} tracks...`)
   for (const track of release.tracks) {
     const audioFile = uploadedFiles.value.audio.find(audio => 
       audio.upc === upc &&
@@ -706,18 +891,22 @@ const matchReleaseWithFiles = async (release) => {
         audioFile
       })
       result.hasPartialData = true
+      console.log(`    ✅ Track ${track.trackNumber}: "${track.title}" - Found ${audioFile.name}`)
     } else {
       result.matchedFiles.audioTracks.push({
         ...track,
         audioFile: null,
         missing: true
       })
+      console.log(`    ❌ Track ${track.trackNumber}: "${track.title}" - Missing audio file`)
     }
   }
 
   // Check if complete
   const hasAllAudio = result.matchedFiles.audioTracks.every(t => !t.missing)
-  result.complete = result.matchedFiles.coverImage && hasAllAudio
+  result.complete = Boolean(result.matchedFiles.coverImage && hasAllAudio)  // Ensure boolean
+
+  console.log(`  📊 Match summary: Cover=${result.matchedFiles.coverImage ? 'Yes' : 'No'}, Audio=${result.matchedFiles.audioTracks.filter(t => !t.missing).length}/${release.tracks.length}, Complete=${result.complete}`)
 
   return result
 }
@@ -725,8 +914,12 @@ const matchReleaseWithFiles = async (release) => {
 const createDraftReleases = async (matchedReleases) => {
   const created = []
   
+  console.log(`📝 Creating ${matchedReleases.length} draft releases...`)
+  
   for (const match of matchedReleases) {
     try {
+      console.log(`  Creating release: "${match.release.title}" (UPC: ${match.release.upc})`)
+      
       const releaseData = {
         basic: {
           title: match.release.title,
@@ -776,8 +969,9 @@ const createDraftReleases = async (matchedReleases) => {
 
       const newRelease = await createRelease(releaseData)
       created.push(newRelease)
+      console.log(`    ✅ Created release with ID: ${newRelease.id}`)
     } catch (err) {
-      console.error(`Failed to create release for ${match.release.upc}:`, err)
+      console.error(`    ❌ Failed to create release for ${match.release.upc}:`, err)
       matchingResults.value.errors.push({
         release: match.release,
         error: err.message
@@ -786,12 +980,14 @@ const createDraftReleases = async (matchedReleases) => {
   }
 
   if (created.length > 0 && importJob.value) {
+    console.log(`💾 Updating import job with ${created.length} created releases`)
     await importService.updateImportJob(importJob.value.id, {
       createdReleases: created.map(r => r.id),
       status: 'completed'
     })
   }
 
+  console.log(`✅ Successfully created ${created.length}/${matchedReleases.length} releases`)
   return created
 }
 
@@ -842,10 +1038,15 @@ const resetImport = async () => {
   uploadProgress.value = {}
   isMetadatalessMode.value = false
   deezerMetadata.value = {}
+  uploadingFiles.value = { audio: false, images: false }
+  currentUploadFile.value = ''
+  metadataFetchStatus.value = ''
 }
 
 // Load existing import state
 const loadImportState = async (job) => {
+  console.log('📂 Loading existing import job:', job.id)
+  
   // Set mode
   isMetadatalessMode.value = job.mode === 'metadata-less'
   
@@ -883,6 +1084,8 @@ const loadImportState = async (job) => {
   } else {
     currentStep.value = 1
   }
+  
+  console.log('✅ Import job loaded, current step:', currentStep.value)
 }
 
 // Download sample CSV
@@ -904,6 +1107,7 @@ const downloadSampleCSV = () => {
 }
 
 onMounted(() => {
+  console.log('🚀 Migration component mounted')
   // Check for any active import jobs on mount
   if (importJob.value) {
     loadImportState(importJob.value)
@@ -1143,7 +1347,7 @@ onMounted(() => {
                 <!-- Audio Upload -->
                 <div class="upload-section">
                   <h3>Audio Files</h3>
-                  <div class="upload-area">
+                  <div class="upload-area" :class="{ 'uploading': uploadingFiles.audio }">
                     <label class="upload-label">
                       <input 
                         type="file" 
@@ -1151,10 +1355,15 @@ onMounted(() => {
                         multiple
                         @change="handleAudioUpload"
                         style="display: none"
+                        :disabled="uploadingFiles.audio"
                       />
-                      <font-awesome-icon icon="music" class="upload-icon" />
-                      <p>Upload audio files (WAV, FLAC, MP3)</p>
-                      <span class="btn btn-primary">Choose Audio Files</span>
+                      <font-awesome-icon 
+                        :icon="uploadingFiles.audio ? 'spinner' : 'music'" 
+                        :spin="uploadingFiles.audio"
+                        class="upload-icon" 
+                      />
+                      <p>{{ uploadingFiles.audio ? 'Uploading...' : 'Upload audio files (WAV, FLAC, MP3)' }}</p>
+                      <span v-if="!uploadingFiles.audio" class="btn btn-primary">Choose Audio Files</span>
                     </label>
                   </div>
                   
@@ -1179,7 +1388,7 @@ onMounted(() => {
                 <!-- Image Upload -->
                 <div class="upload-section">
                   <h3>Cover Images</h3>
-                  <div class="upload-area">
+                  <div class="upload-area" :class="{ 'uploading': uploadingFiles.images }">
                     <label class="upload-label">
                       <input 
                         type="file" 
@@ -1187,10 +1396,15 @@ onMounted(() => {
                         multiple
                         @change="handleImageUpload"
                         style="display: none"
+                        :disabled="uploadingFiles.images"
                       />
-                      <font-awesome-icon icon="image" class="upload-icon" />
-                      <p>Upload cover images (JPG, PNG)</p>
-                      <span class="btn btn-primary">Choose Images</span>
+                      <font-awesome-icon 
+                        :icon="uploadingFiles.images ? 'spinner' : 'image'" 
+                        :spin="uploadingFiles.images"
+                        class="upload-icon" 
+                      />
+                      <p>{{ uploadingFiles.images ? 'Uploading...' : 'Upload cover images (JPG, PNG)' }}</p>
+                      <span v-if="!uploadingFiles.images" class="btn btn-primary">Choose Images</span>
                     </label>
                   </div>
                   
@@ -1213,52 +1427,114 @@ onMounted(() => {
                 </div>
               </div>
 
-              <!-- Upload Progress -->
-              <div v-if="Object.keys(uploadProgress).length > 0" class="upload-progress-section">
-                <h4>Upload Progress</h4>
-                <div 
-                  v-for="(progress, file) in uploadProgress" 
-                  :key="file"
-                  class="progress-item"
-                >
-                  <span>{{ file }}</span>
-                  <div class="progress-bar">
-                    <div class="progress-fill" :style="{ width: `${progress}%` }"></div>
+              <!-- Enhanced Upload Progress -->
+              <div v-if="(uploadingFiles.audio || uploadingFiles.images || Object.keys(uploadProgress).length > 0) && Object.keys(uploadProgress).length > 0" 
+                  class="upload-status-card">
+                <h4>
+                  <font-awesome-icon icon="cloud-upload-alt" class="upload-icon-animated" />
+                  Upload Progress
+                </h4>
+                
+                <!-- Current file being uploaded -->
+                <div v-if="currentUploadFile" class="current-upload">
+                  <span class="current-label">Uploading:</span>
+                  <span class="current-file">{{ currentUploadFile }}</span>
+                </div>
+                
+                <!-- Progress bars for each file -->
+                <div class="upload-progress-detailed">
+                  <div 
+                    v-for="(progress, fileName) in uploadProgress" 
+                    :key="fileName"
+                    class="progress-item-enhanced"
+                  >
+                    <div class="progress-header">
+                      <span class="file-name">{{ fileName }}</span>
+                      <span class="progress-percent">{{ Math.round(progress) }}%</span>
+                    </div>
+                    <div class="progress-bar-wrapper">
+                      <div class="progress-bar">
+                        <div 
+                          class="progress-fill" 
+                          :style="{ width: `${Math.round(progress)}%` }"
+                          :class="{ 'complete': progress === 100 }"
+                        ></div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Metadata Fetch Progress -->
-              <div v-if="fetchingMetadata" class="metadata-fetch-progress">
-                <h4>Fetching Metadata from Deezer</h4>
-                <div class="progress-info">
-                  <font-awesome-icon icon="spinner" spin />
-                  <span v-if="metadataFetchProgress.upc">
-                    Processing UPC {{ metadataFetchProgress.upc }}
-                    ({{ metadataFetchProgress.current }} of {{ metadataFetchProgress.total }})
-                  </span>
-                  <span v-else>Initializing...</span>
+              <!-- Enhanced Metadata Fetch Progress -->
+              <div v-if="fetchingMetadata" class="metadata-fetch-card">
+                <div class="fetch-header">
+                  <font-awesome-icon icon="spinner" spin class="fetch-icon" />
+                  <h4>Fetching Metadata from Deezer</h4>
+                </div>
+                
+                <div class="fetch-status">
+                  <p>{{ metadataFetchStatus }}</p>
+                </div>
+                
+                <div v-if="metadataFetchProgress.upc" class="fetch-details">
+                  <div class="fetch-progress-info">
+                    <span class="upc-label">Current UPC:</span>
+                    <span class="upc-value">{{ metadataFetchProgress.upc }}</span>
+                  </div>
+                  <div class="fetch-counter">
+                    <span>Processing {{ metadataFetchProgress.current }} of {{ metadataFetchProgress.total }}</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div 
+                      class="progress-fill" 
+                      :style="{ width: `${(metadataFetchProgress.current / metadataFetchProgress.total) * 100}%` }"
+                    ></div>
+                  </div>
                 </div>
               </div>
 
-              <!-- Fetched Metadata Display -->
-              <div v-if="Object.keys(deezerMetadata).length > 0" class="fetched-metadata">
-                <h3>Fetched Metadata</h3>
-                <div class="metadata-grid">
-                  <div v-for="(metadata, upc) in deezerMetadata" :key="upc" class="metadata-card">
-                    <div class="metadata-header">
-                      <strong>{{ metadata.title }}</strong>
-                      <span class="upc-badge">{{ upc }}</span>
+              <!-- Enhanced Fetched Metadata Display -->
+              <div v-if="Object.keys(deezerMetadata).length > 0 && !fetchingMetadata" 
+                   class="fetched-metadata-enhanced">
+                <div class="metadata-header">
+                  <font-awesome-icon icon="check-circle" class="success-icon" />
+                  <h3>Metadata Retrieved Successfully</h3>
+                </div>
+                
+                <div class="metadata-summary">
+                  <p>Found {{ Object.keys(deezerMetadata).length }} release(s) from Deezer</p>
+                </div>
+                
+                <div class="metadata-grid-enhanced">
+                  <div v-for="(metadata, upc) in deezerMetadata" :key="upc" class="metadata-card-enhanced">
+                    <div class="card-header">
+                      <img v-if="metadata.coverUrl" :src="metadata.coverUrl" class="album-thumbnail" alt="Album cover" />
+                      <div class="album-info">
+                        <h4>{{ metadata.title }}</h4>
+                        <p class="artist">{{ metadata.artist }}</p>
+                        <p class="details">
+                          <span class="upc">{{ upc }}</span>
+                          <span class="separator">•</span>
+                          <span class="tracks">{{ metadata.tracks.length }} tracks</span>
+                        </p>
+                      </div>
                     </div>
-                    <p>{{ metadata.artist }}</p>
-                    <p class="track-count">{{ metadata.tracks.length }} tracks</p>
+                    <div class="track-list-preview">
+                      <div v-for="(track, idx) in metadata.tracks.slice(0, 3)" :key="idx" class="track-item">
+                        <span class="track-number">{{ track.trackNumber }}.</span>
+                        <span class="track-title">{{ track.title }}</span>
+                      </div>
+                      <div v-if="metadata.tracks.length > 3" class="more-tracks">
+                        +{{ metadata.tracks.length - 3 }} more tracks
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
             <div class="card-footer">
               <div></div>
-              <div v-if="!fetchingMetadata && Object.keys(deezerMetadata).length === 0">
+              <div v-if="!fetchingMetadata && Object.keys(deezerMetadata).length === 0 && !uploadingFiles.audio && !uploadingFiles.images">
                 <p class="footer-hint">Upload files to fetch metadata from Deezer</p>
               </div>
               <button 
@@ -1417,7 +1693,17 @@ onMounted(() => {
             <h2>{{ isMetadatalessMode ? 'Step 2' : 'Step 3' }}: Import Results</h2>
           </div>
           <div class="card-body">
-            <div class="results-summary">
+            <!-- Loading spinner while matching -->
+            <div v-if="isLoading" class="matching-progress">
+              <div class="progress-icon">
+                <font-awesome-icon icon="spinner" spin />
+              </div>
+              <h3>Matching files with releases...</h3>
+              <p>This may take a moment depending on the number of releases.</p>
+            </div>
+
+            <!-- Results summary -->
+            <div v-else class="results-summary">
               <div class="result-card success" v-if="matchingResults.matched.length > 0">
                 <font-awesome-icon icon="check-circle" class="result-icon" />
                 <h3>Successfully Matched</h3>
@@ -1459,7 +1745,7 @@ onMounted(() => {
             </div>
 
             <!-- Detailed Results Table -->
-            <div v-if="matchingResults.matched.length > 0" class="results-table">
+            <div v-if="matchingResults.matched.length > 0 && !isLoading" class="results-table">
               <h3>Created Releases</h3>
               <table class="table">
                 <thead>
@@ -1490,15 +1776,27 @@ onMounted(() => {
             </div>
           </div>
           <div class="card-footer">
-            <button @click="previousStep" class="btn btn-secondary">
+            <button 
+              @click="previousStep" 
+              class="btn btn-secondary"
+              :disabled="isLoading"
+            >
               <font-awesome-icon icon="arrow-left" />
               Back
             </button>
             <div class="footer-actions">
-              <button @click="resetImport" class="btn btn-secondary">
+              <button 
+                @click="resetImport" 
+                class="btn btn-secondary"
+                :disabled="isLoading"
+              >
                 Import More
               </button>
-              <button @click="navigateToCatalog" class="btn btn-primary">
+              <button 
+                @click="navigateToCatalog" 
+                class="btn btn-primary"
+                :disabled="isLoading"
+              >
                 Go to Catalog
                 <font-awesome-icon icon="arrow-right" />
               </button>
@@ -1894,6 +2192,272 @@ onMounted(() => {
   background-color: var(--color-primary-light);
 }
 
+.upload-area.uploading {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-light);
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+/* Enhanced upload status */
+.upload-status-card {
+  background: linear-gradient(135deg, var(--color-primary-light), var(--color-bg-secondary));
+  border: 2px solid var(--color-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  margin: var(--space-xl) 0;
+  animation: fadeIn 0.3s ease-in;
+}
+
+.upload-icon-animated {
+  color: var(--color-primary);
+  margin-right: var(--space-sm);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.1); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.current-upload {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: var(--space-md) 0;
+  padding: var(--space-sm);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.current-label {
+  font-weight: var(--font-semibold);
+  color: var(--color-text-secondary);
+}
+
+.current-file {
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.upload-progress-detailed {
+  margin-top: var(--space-md);
+}
+
+.progress-item-enhanced {
+  margin-bottom: var(--space-md);
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--space-xs);
+  font-size: var(--text-sm);
+}
+
+.file-name {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-percent {
+  color: var(--color-primary);
+  font-weight: var(--font-semibold);
+}
+
+.progress-bar-wrapper {
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  height: 8px;
+}
+
+.progress-fill.complete {
+  background: linear-gradient(90deg, var(--color-success), var(--color-primary));
+}
+
+/* Enhanced metadata fetch card */
+.metadata-fetch-card {
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.1), rgba(66, 133, 244, 0.05));
+  border: 2px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  margin: var(--space-xl) 0;
+  animation: fadeIn 0.3s ease-in;
+}
+
+.fetch-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.fetch-icon {
+  color: var(--color-info);
+  font-size: var(--text-xl);
+}
+
+.fetch-status p {
+  color: var(--color-text);
+  margin: var(--space-sm) 0;
+  font-style: italic;
+}
+
+.fetch-details {
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.fetch-progress-info {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.upc-label {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-medium);
+}
+
+.upc-value {
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+}
+
+.fetch-counter {
+  text-align: center;
+  color: var(--color-text-secondary);
+  margin: var(--space-md) 0;
+  font-size: var(--text-sm);
+}
+
+/* Enhanced fetched metadata display */
+.fetched-metadata-enhanced {
+  background: var(--color-surface);
+  border: 2px solid var(--color-success);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  margin: var(--space-xl) 0;
+  animation: fadeIn 0.3s ease-in;
+}
+
+.metadata-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.success-icon {
+  color: var(--color-success);
+  font-size: var(--text-2xl);
+}
+
+.metadata-summary {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-lg);
+}
+
+.metadata-grid-enhanced {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: var(--space-lg);
+}
+
+.metadata-card-enhanced {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  transition: all var(--transition-base);
+}
+
+.metadata-card-enhanced:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.metadata-card-enhanced .card-header {
+  display: flex;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.album-thumbnail {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+}
+
+.album-info h4 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+}
+
+.album-info .artist {
+  margin: var(--space-xs) 0;
+  color: var(--color-text-secondary);
+}
+
+.album-info .details {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+
+.album-info .separator {
+  margin: 0 var(--space-xs);
+}
+
+.track-list-preview {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.track-item {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+  font-size: var(--text-sm);
+}
+
+.track-number {
+  color: var(--color-text-tertiary);
+  min-width: 20px;
+}
+
+.track-title {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.more-tracks {
+  margin-top: var(--space-xs);
+  font-size: var(--text-sm);
+  color: var(--color-primary);
+  font-style: italic;
+}
+
 /* Uploaded Files List */
 .uploaded-list h4 {
   font-weight: var(--font-medium);
@@ -1950,84 +2514,25 @@ onMounted(() => {
   margin-bottom: var(--space-xs);
 }
 
-/* Metadata Fetch Progress */
-.metadata-fetch-progress {
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-  padding: var(--space-xl);
-  margin-top: var(--space-xl);
+/* Matching Progress */
+.matching-progress {
   text-align: center;
+  padding: var(--space-3xl);
 }
 
-.metadata-fetch-progress h4 {
-  font-weight: var(--font-semibold);
+.matching-progress .progress-icon {
+  font-size: 3rem;
+  color: var(--color-primary);
   margin-bottom: var(--space-lg);
 }
 
-.progress-info {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-md);
-  font-size: var(--text-lg);
-  color: var(--color-primary);
+.matching-progress h3 {
+  color: var(--color-heading);
+  margin-bottom: var(--space-md);
 }
 
-/* Fetched Metadata Display */
-.fetched-metadata {
-  margin-top: var(--space-xl);
-  padding: var(--space-xl);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-}
-
-.fetched-metadata h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-lg);
-}
-
-.metadata-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: var(--space-md);
-}
-
-.metadata-card {
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-}
-
-.metadata-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-sm);
-}
-
-.metadata-header strong {
-  font-weight: var(--font-semibold);
-}
-
-.upc-badge {
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
-  font-family: var(--font-mono);
-}
-
-.metadata-card p {
-  margin: var(--space-xs) 0;
+.matching-progress p {
   color: var(--color-text-secondary);
-}
-
-.track-count {
-  font-size: var(--text-sm);
-  color: var(--color-text-tertiary);
 }
 
 /* Results */
@@ -2215,6 +2720,19 @@ onMounted(() => {
   color: var(--color-text);
 }
 
+/* Dark mode adjustments */
+[data-theme="dark"] .metadata-card-enhanced {
+  background: var(--color-surface);
+}
+
+[data-theme="dark"] .upload-status-card {
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.2), var(--color-surface));
+}
+
+[data-theme="dark"] .error-item {
+  background-color: var(--color-surface);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .migration-header {
@@ -2244,7 +2762,15 @@ onMounted(() => {
     flex-direction: column;
   }
   
-  .metadata-grid {
+  .metadata-grid-enhanced {
+    grid-template-columns: 1fr;
+  }
+  
+  .import-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+  
+  .file-grid {
     grid-template-columns: 1fr;
   }
 }
