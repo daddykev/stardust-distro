@@ -20,15 +20,14 @@ Stardust Distro is a production-ready music distribution platform, built with an
 A complete, production-ready distribution platform that includes:
 
 - **Full Catalog Management** - Unlimited releases, tracks, and assets with smart duplicate detection
-- **Powerful Catalog Migration** - Dual-mode import wizard with CSV support and automatic metadata fetching from Deezer
 - **Multi-Format Generation** - Full support for **DDEX ERN (3.8.2, 4.2, 4.3)** and **Apple Music XML (Spec 5.3.23)**
 - **All Delivery Protocols** - FTP, SFTP, S3, API, and Azure with automatic retry logic
+- **Powerful Catalog Migration** - Dual-mode bulk import wizard with metadata-less mode
 - **Genre Intelligence** - DSP-specific genre mapping with 200+ hierarchical genres
-- **Email Notifications** - Automated delivery status, welcome emails, and weekly summaries
 - **Mobile-First Design** - Full functionality on all devices, including smartphones
 - **Real-time Monitoring** - Comprehensive logging, delivery tracking, and performance metrics
 - **Production Testing Suite** - 17 built-in tests for system health, DDEX compliance, and protocols
-- **Professional Operations** - Auto-save, bulk operations, idempotency protection, and delivery scheduling
+- **Professional Operations** - Auto-save, bulk operations, idempotency, and delivery scheduling
 
 -----
 
@@ -42,7 +41,7 @@ We're excited to announce that **Phase 6 is now complete**, bringing the platfor
 
 #### ✨ Latest Additions
 
-** Catalog Migration System**
+**Catalog Migration System**
 - **Dual-Mode Import Wizard**: Choose between traditional CSV import or our innovative metadata-less mode
 - **Standard Mode**: Upload CSV with metadata → Bulk upload DDEX-named files → Auto-match and create releases
 - **Metadata-less Mode**: Upload audio files → Automatically fetch complete metadata from API → Download missing cover art
@@ -50,7 +49,7 @@ We're excited to announce that **Phase 6 is now complete**, bringing the platfor
 - **Resume Capability**: Import jobs persist in Firestore - close your browser and resume anytime
 - **Visual Progress**: Real-time progress tracking with animated indicators and statistics
 
-** Complete Email Notification System**
+**Complete Email Notification System**
 - Welcome emails for new users with onboarding instructions
 - Delivery status notifications (success/failure/retry)
 - Weekly summary reports with platform statistics
@@ -58,21 +57,21 @@ We're excited to announce that **Phase 6 is now complete**, bringing the platfor
 - Test email functionality for verification
 - Gmail SMTP integration via Firebase Extension
 
-** Advanced Genre Classification**
+**Advanced Genre Classification**
 - Genre Truth System with 200+ hierarchical genres
 - Multi-DSP genre dictionaries (Apple Music, Beatport, Amazon)
 - Visual genre mapping interface with drag-and-drop feel
 - Auto-suggest based on string similarity
 - Import/export genre mappings as JSON
 
-** Core Reliability Features**
+**Core Reliability Features**
 - Idempotency protection prevents duplicate deliveries
 - Content fingerprinting detects duplicate files on upload
 - Audio similarity detection with percentage matching
 - Transaction locks ensure single processing
 - Enhanced error recovery and retry logic
 
-** Multi-Format Support**
+**Multi-Format Support**
 - Apple Music XML generation (Spec 5.3.23)
 - Legacy ERN support (3.8.2, 4.2, 4.3)
 - Enhanced delivery receipts with reconciliation dashboard
