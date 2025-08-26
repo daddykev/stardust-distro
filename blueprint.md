@@ -287,6 +287,8 @@ stardust-distro/
 │   │   ├── App.vue                # Root component with theme management ✅
 │   │   └── main.js                # Entry point with FontAwesome setup ✅
 │   ├── functions/                 # Cloud Functions
+│   │   ├── api/                   # App API
+│   │   │   └── deezer.js          # Deezer Public API functions ✅
 │   │   ├── index.js               # Function exports (v2 implementation) ✅
 │   │   ├── package.json           # Dependencies (v2) ✅
 │   │   ├── package-lock.json      # Locked dependencies ✅

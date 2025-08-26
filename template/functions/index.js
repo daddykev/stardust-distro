@@ -17,10 +17,42 @@ const crypto = require('crypto')
 const { Buffer } = require('buffer')
 const { onDocumentCreated } = require('firebase-functions/v2/firestore')
 
+const cors = require('cors');
+const express = require('express');
+
 // Initialize Firebase Admin
 admin.initializeApp()
 const db = admin.firestore()
 const storage = admin.storage()
+
+// Configure CORS
+const corsOptions = {
+  origin: [
+    'https://stardust-distro.org',
+    'https://stardust-distro.web.app',
+    'https://stardust-distro.firebaseapp.com',
+    'https://*.cloudfunctions.net',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:3000'
+  ],
+  credentials: true,
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
+};
+
+// Create Express app for API routes
+const app = express();
+app.use(cors(corsOptions));
+app.use(express.json());
+
+// Import Deezer API routes
+const deezerRoutes = require('./api/deezer');
+app.use('/deezer', deezerRoutes);
+
+// Export the Express app as a Cloud Function
+exports.api = onRequest(app);
 
 // Set global options for v2 functions
 setGlobalOptions({

@@ -6,10 +6,12 @@ import { useAuth } from '../composables/useAuth'
 import { useCatalog } from '../composables/useCatalog'
 import importService from '../services/import'
 import MigrationStatus from '../components/MigrationStatus.vue'
+import { getFunctions, httpsCallable } from 'firebase/functions'
 
 const router = useRouter()
 const { user } = useAuth()
 const { createRelease } = useCatalog()
+const functions = getFunctions()
 
 // Import state
 const currentStep = ref(1)
@@ -27,13 +29,30 @@ const matchingResults = ref({
   errors: []
 })
 
+// Metadata-less mode
+const isMetadatalessMode = ref(false)
+const deezerMetadata = ref({})
+const fetchingMetadata = ref(false)
+const metadataFetchProgress = ref({})
+
 // UI state
 const isLoading = ref(false)
 const error = ref(null)
 const uploadProgress = ref({})
 const showStatusModal = ref(false)
 
-// Step 1: CSV Import
+// Step configuration based on mode
+const steps = computed(() => {
+  if (isMetadatalessMode.value) {
+    return ['Upload Files', 'Match & Create']
+  }
+  return ['Import Metadata', 'Upload Files', 'Match & Create']
+})
+
+// Adjust current step max based on mode
+const maxSteps = computed(() => steps.value.length)
+
+// Step 1: CSV Import (only in standard mode)
 const csvHeaders = ref([])
 const requiredFields = [
   { key: 'title', label: 'Release Title', required: true },
@@ -53,6 +72,11 @@ const requiredFields = [
 
 // Computed
 const canProceedStep1 = computed(() => {
+  if (isMetadatalessMode.value) {
+    // In metadata-less mode, step 1 is file upload
+    return uploadedFiles.value.audio.length > 0 || uploadedFiles.value.images.length > 0
+  }
+  // Standard mode
   const requiredMapped = requiredFields
     .filter(f => f.required)
     .every(f => fieldMapping.value[f.key])
@@ -60,17 +84,42 @@ const canProceedStep1 = computed(() => {
 })
 
 const canProceedStep2 = computed(() => {
+  if (isMetadatalessMode.value) {
+    // In metadata-less mode, step 2 is match & create
+    return Object.keys(deezerMetadata.value).length > 0
+  }
+  // Standard mode
   return uploadedFiles.value.audio.length > 0 || uploadedFiles.value.images.length > 0
 })
 
 const importStats = computed(() => {
-  const releases = groupIntoReleases(parsedData.value)
+  const releases = isMetadatalessMode.value 
+    ? Object.values(deezerMetadata.value)
+    : groupIntoReleases(parsedData.value)
   return {
     totalReleases: releases.length,
-    totalTracks: parsedData.value.length,
+    totalTracks: isMetadatalessMode.value 
+      ? releases.reduce((sum, r) => sum + (r.tracks?.length || 0), 0)
+      : parsedData.value.length,
     matchedReleases: matchingResults.value.matched.length,
     incompleteReleases: matchingResults.value.incomplete.length,
     errors: matchingResults.value.errors.length
+  }
+})
+
+// Watch for mode changes
+watch(isMetadatalessMode, (newVal) => {
+  // Reset step to 1 when switching modes
+  currentStep.value = 1
+  // Clear CSV data when entering metadata-less mode
+  if (newVal) {
+    csvFile.value = null
+    parsedData.value = []
+    fieldMapping.value = {}
+    csvHeaders.value = []
+  } else {
+    // Clear Deezer metadata when leaving metadata-less mode
+    deezerMetadata.value = {}
   }
 })
 
@@ -84,6 +133,204 @@ watch(() => user.value?.uid, async (uid) => {
     }
   }
 }, { immediate: true })
+
+// Deezer API Methods
+const extractUPCFromFilename = (filename) => {
+  // Extract UPC from DDEX naming: UPC_DiscNumber_TrackNumber.extension
+  const match = filename.match(/^(\d{12,14})(?:_\d{2}_\d{3})?/);
+  return match ? match[1] : null;
+}
+
+const fetchDeezerMetadata = async (upc) => {
+  try {
+    // Use the deployed Cloud Function API
+    const apiUrl = process.env.NODE_ENV === 'development' 
+      ? 'http://localhost:5001/stardust-distro/us-central1/api'
+      : 'https://us-central1-stardust-distro.cloudfunctions.net/api';
+    
+    const response = await fetch(`${apiUrl}/deezer/album/${upc}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error(`Deezer API error for UPC ${upc}:`, errorData);
+      throw new Error(`Failed to fetch from Deezer: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!data.success || !data.album) {
+      console.warn(`Album not found on Deezer for UPC: ${upc}`);
+      return null;
+    }
+    
+    const album = data.album;
+    console.log(`Found album: ${album.title} by ${album.artist.name}`);
+    
+    // The album already includes tracks in the response!
+    const tracks = album.tracks?.data || [];
+    
+    // Fetch ISRCs for tracks if needed (Deezer doesn't always include them in album response)
+    const trackIds = tracks.map(t => t.id);
+    let isrcMap = {};
+    
+    if (trackIds.length > 0) {
+      try {
+        const isrcResponse = await fetch(`${apiUrl}/deezer/tracks/batch-isrc`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ trackIds })
+        });
+        
+        if (isrcResponse.ok) {
+          const isrcData = await isrcResponse.json();
+          if (isrcData.tracks) {
+            isrcData.tracks.forEach(t => {
+              isrcMap[t.id] = t.isrc;
+            });
+          }
+        }
+      } catch (error) {
+        console.warn('Could not fetch ISRCs:', error);
+        // Continue without ISRCs
+      }
+    }
+    
+    // Build release data from Deezer metadata
+    return {
+      upc: upc,
+      title: album.title,
+      artist: album.artist?.name || 'Unknown Artist',
+      label: album.label || '',
+      releaseDate: album.release_date || new Date().toISOString().split('T')[0],
+      genre: album.genres?.data?.[0]?.name || '',
+      coverUrl: album.cover_xl || album.cover_big || album.cover_medium || album.cover,
+      duration: album.duration || 0,
+      tracks: tracks.map((track, index) => ({
+        trackNumber: index + 1, // Deezer doesn't provide track number in this response
+        discNumber: 1, // Default to disc 1
+        title: track.title || `Track ${index + 1}`,
+        artist: track.artist?.name || album.artist?.name || 'Unknown Artist',
+        isrc: isrcMap[track.id] || '',
+        duration: track.duration || 0,
+        preview: track.preview || null
+      }))
+    };
+    
+  } catch (error) {
+    console.error(`Error fetching Deezer metadata for UPC ${upc}:`, error);
+    return null;
+  }
+}
+
+const processMetadatalessUpload = async () => {
+  fetchingMetadata.value = true;
+  error.value = null;
+  deezerMetadata.value = {};
+  metadataFetchProgress.value = {};
+  
+  try {
+    // Extract unique UPCs from uploaded files
+    const upcs = new Set();
+    
+    uploadedFiles.value.audio.forEach(file => {
+      const upc = extractUPCFromFilename(file.name);
+      if (upc) upcs.add(upc);
+    });
+    
+    uploadedFiles.value.images.forEach(file => {
+      const upc = extractUPCFromFilename(file.name);
+      if (upc) upcs.add(upc);
+    });
+    
+    if (upcs.size === 0) {
+      error.value = 'No valid UPCs found in uploaded files. Files must follow DDEX naming convention.';
+      return;
+    }
+    
+    // Fetch metadata for each UPC
+    const upcArray = Array.from(upcs);
+    let successCount = 0;
+    
+    for (let i = 0; i < upcArray.length; i++) {
+      const upc = upcArray[i];
+      metadataFetchProgress.value = {
+        current: i + 1,
+        total: upcArray.length,
+        upc: upc
+      };
+      
+      const metadata = await fetchDeezerMetadata(upc);
+      
+      if (metadata) {
+        deezerMetadata.value[upc] = metadata;
+        successCount++;
+      } else {
+        console.warn(`Could not fetch metadata for UPC: ${upc}`);
+      }
+      
+      // Add a small delay to avoid rate limiting
+      if (i < upcArray.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+    
+    if (successCount === 0) {
+      error.value = 'Could not fetch metadata for any of the uploaded files from Deezer.';
+      return;
+    }
+    
+    // Transform Deezer metadata to match our standard format
+    const releases = Object.values(deezerMetadata.value);
+    parsedData.value = releases.flatMap(release => 
+      release.tracks.map(track => ({
+        upc: release.upc,
+        title: release.title,
+        artist: release.artist,
+        label: release.label,
+        releaseDate: release.releaseDate,
+        genre: release.genre,
+        trackTitle: track.title,
+        trackArtist: track.artist,
+        trackNumber: track.trackNumber,
+        discNumber: track.discNumber,
+        isrc: track.isrc,
+        duration: track.duration
+      }))
+    );
+    
+    // Update import job
+    if (!importJob.value) {
+      importJob.value = await importService.createImportJob(user.value.uid, {
+        mode: 'metadata-less',
+        upcCount: upcs.size,
+        successfulFetches: successCount
+      });
+    }
+    
+    await importService.updateImportJob(importJob.value.id, {
+      deezerMetadata: deezerMetadata.value,
+      parsedReleases: releases,
+      status: 'metadata_fetched'
+    });
+    
+    // Move to next step
+    currentStep.value = 2;
+    
+  } catch (err) {
+    console.error('Error processing metadata-less upload:', err);
+    error.value = err.message;
+  } finally {
+    fetchingMetadata.value = false;
+    metadataFetchProgress.value = {};
+  }
+}
 
 // Methods
 const handleCSVUpload = async (event) => {
@@ -112,7 +359,8 @@ const handleCSVUpload = async (event) => {
       importJob.value = await importService.createImportJob(user.value.uid, {
         fileName: file.name,
         rowCount: result.data.length,
-        headers: result.headers
+        headers: result.headers,
+        mode: 'standard'
       })
     }
   } catch (err) {
@@ -296,7 +544,7 @@ const processFileUpload = async (files, type) => {
     const uploaded = await importService.uploadBatchFiles(
       validatedFiles,
       user.value.uid,
-      importJob.value.id,
+      importJob.value?.id,
       (progress) => {
         uploadProgress.value = progress
       }
@@ -304,11 +552,18 @@ const processFileUpload = async (files, type) => {
 
     uploadedFiles.value[type].push(...uploaded)
 
-    // Update import job
-    await importService.updateImportJob(importJob.value.id, {
-      uploadedFiles: uploadedFiles.value,
-      status: 'files_uploading'
-    })
+    // Update import job if exists
+    if (importJob.value) {
+      await importService.updateImportJob(importJob.value.id, {
+        uploadedFiles: uploadedFiles.value,
+        status: 'files_uploading'
+      })
+    }
+
+    // In metadata-less mode, process after files are uploaded
+    if (isMetadatalessMode.value && currentStep.value === 1) {
+      await processMetadatalessUpload()
+    }
 
   } catch (err) {
     console.error('Upload error:', err)
@@ -361,7 +616,10 @@ const performMatching = async () => {
   error.value = null
 
   try {
-    const releases = groupIntoReleases(parsedData.value)
+    const releases = isMetadatalessMode.value 
+      ? Object.values(deezerMetadata.value)
+      : groupIntoReleases(parsedData.value)
+      
     const results = {
       matched: [],
       incomplete: [],
@@ -386,10 +644,12 @@ const performMatching = async () => {
     matchingResults.value = results
 
     // Update import job
-    await importService.updateImportJob(importJob.value.id, {
-      matchingResults: results,
-      status: 'matching_complete'
-    })
+    if (importJob.value) {
+      await importService.updateImportJob(importJob.value.id, {
+        matchingResults: results,
+        status: 'matching_complete'
+      })
+    }
 
     // Auto-create draft releases for matched items
     if (results.matched.length > 0) {
@@ -502,14 +762,15 @@ const createDraftReleases = async (matchedReleases) => {
           genre: match.release.genre || '',
           language: 'en',
           copyright: `© ${new Date().getFullYear()} ${match.release.label || match.release.artist}`,
-          copyrightYear: new Date().getFullYear()
+          copyrightYear: new Date().getFullYear(),
+          importMode: isMetadatalessMode.value ? 'metadata-less' : 'standard'
         },
         territories: {
           mode: 'worldwide',
           included: [],
           excluded: []
         },
-        importJobId: importJob.value.id,
+        importJobId: importJob.value?.id,
         importedAt: new Date().toISOString()
       }
 
@@ -524,7 +785,7 @@ const createDraftReleases = async (matchedReleases) => {
     }
   }
 
-  if (created.length > 0) {
+  if (created.length > 0 && importJob.value) {
     await importService.updateImportJob(importJob.value.id, {
       createdReleases: created.map(r => r.id),
       status: 'completed'
@@ -542,7 +803,7 @@ const detectReleaseType = (trackCount) => {
 
 // Navigation
 const nextStep = () => {
-  if (currentStep.value < 3) {
+  if (currentStep.value < maxSteps.value) {
     currentStep.value++
   }
 }
@@ -551,6 +812,10 @@ const previousStep = () => {
   if (currentStep.value > 1) {
     currentStep.value--
   }
+}
+
+const toggleMetadatalessMode = () => {
+  isMetadatalessMode.value = !isMetadatalessMode.value
 }
 
 const viewIncomplete = () => {
@@ -575,12 +840,20 @@ const resetImport = async () => {
   uploadedFiles.value = { audio: [], images: [] }
   matchingResults.value = { matched: [], incomplete: [], errors: [] }
   uploadProgress.value = {}
+  isMetadatalessMode.value = false
+  deezerMetadata.value = {}
 }
 
 // Load existing import state
 const loadImportState = async (job) => {
+  // Set mode
+  isMetadatalessMode.value = job.mode === 'metadata-less'
+  
   if (job.mapping) {
     fieldMapping.value = job.mapping
+  }
+  if (job.deezerMetadata) {
+    deezerMetadata.value = job.deezerMetadata
   }
   if (job.parsedReleases) {
     // Reconstruct parsed data from releases
@@ -604,9 +877,9 @@ const loadImportState = async (job) => {
   
   // Determine current step
   if (job.status === 'completed') {
-    currentStep.value = 3
+    currentStep.value = maxSteps.value
   } else if (job.uploadedFiles?.audio?.length > 0 || job.uploadedFiles?.images?.length > 0) {
-    currentStep.value = 2
+    currentStep.value = isMetadatalessMode.value ? 1 : 2
   } else {
     currentStep.value = 1
   }
@@ -645,7 +918,9 @@ onMounted(() => {
       <div class="migration-header">
         <div>
           <h1 class="page-title">Catalog Migration</h1>
-          <p class="page-subtitle">Import your existing catalog in three easy steps</p>
+          <p class="page-subtitle">
+            {{ isMetadatalessMode ? 'Import catalog using Deezer metadata' : 'Import your existing catalog in three easy steps' }}
+          </p>
         </div>
         <div class="header-actions">
           <button 
@@ -657,6 +932,14 @@ onMounted(() => {
             Start Over
           </button>
           <button 
+            @click="toggleMetadatalessMode" 
+            class="btn btn-secondary"
+            :class="{ 'active': isMetadatalessMode }"
+          >
+            <font-awesome-icon :icon="isMetadatalessMode ? 'toggle-on' : 'toggle-off'" />
+            {{ isMetadatalessMode ? 'Standard Mode' : 'Metadata-less' }}
+          </button>
+          <button 
             @click="navigateToCatalog" 
             class="btn btn-secondary"
           >
@@ -666,17 +949,26 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- Mode Indicator -->
+      <div v-if="isMetadatalessMode" class="mode-indicator">
+        <font-awesome-icon icon="info-circle" />
+        <p>
+          <strong>Metadata-less Mode:</strong> Upload DDEX-compliant files and we'll fetch metadata from Deezer automatically.
+          Files must use DDEX naming: <code>UPC_DD_TTT.wav</code> for audio, <code>UPC.jpg</code> for covers.
+        </p>
+      </div>
+
       <!-- Progress -->
       <div class="migration-progress">
         <div class="progress-bar">
           <div 
             class="progress-fill" 
-            :style="{ width: `${(currentStep / 3) * 100}%` }"
+            :style="{ width: `${(currentStep / maxSteps) * 100}%` }"
           ></div>
         </div>
         <div class="progress-steps">
           <div 
-            v-for="(step, index) in ['Import Metadata', 'Upload Files', 'Match & Create']" 
+            v-for="(step, index) in steps" 
             :key="index"
             class="progress-step"
             :class="{ 
@@ -694,7 +986,7 @@ onMounted(() => {
       </div>
 
       <!-- Import Stats -->
-      <div v-if="importJob" class="import-stats">
+      <div v-if="importJob || Object.keys(deezerMetadata).length > 0" class="import-stats">
         <div class="stat-card">
           <div class="stat-value">{{ importStats.totalReleases }}</div>
           <div class="stat-label">Total Releases</div>
@@ -721,101 +1013,269 @@ onMounted(() => {
 
       <!-- Step Content -->
       <div class="migration-content card">
-        <!-- Step 1: CSV Import -->
+        <!-- Step 1: CSV Import (Standard Mode) or File Upload (Metadata-less Mode) -->
         <div v-if="currentStep === 1" class="step-content">
-          <div class="card-header">
-            <h2>Step 1: Import Catalog Metadata</h2>
-          </div>
-          <div class="card-body">
-            <div class="upload-section">
-              <p class="step-description">
-                Upload a CSV file containing your catalog metadata. The file should include release information and track details.
-              </p>
-              
-              <button @click="downloadSampleCSV" class="btn btn-secondary btn-sm mb-lg">
-                <font-awesome-icon icon="download" />
-                Download Sample CSV
-              </button>
+          <!-- Standard Mode: CSV Import -->
+          <template v-if="!isMetadatalessMode">
+            <div class="card-header">
+              <h2>Step 1: Import Catalog Metadata</h2>
+            </div>
+            <div class="card-body">
+              <div class="upload-section">
+                <p class="step-description">
+                  Upload a CSV file containing your catalog metadata. The file should include release information and track details.
+                </p>
+                
+                <button @click="downloadSampleCSV" class="btn btn-secondary btn-sm mb-lg">
+                  <font-awesome-icon icon="download" />
+                  Download Sample CSV
+                </button>
 
-              <div v-if="!csvFile" class="csv-upload-area">
-                <label class="upload-label">
-                  <input 
-                    type="file" 
-                    accept=".csv"
-                    @change="handleCSVUpload"
-                    style="display: none"
-                  />
-                  <font-awesome-icon icon="file-csv" class="upload-icon" />
-                  <p>Drop CSV file here or click to browse</p>
-                  <span class="btn btn-primary">Choose CSV File</span>
-                </label>
-              </div>
-
-              <div v-else class="csv-info">
-                <div class="file-card">
-                  <font-awesome-icon icon="file-csv" class="file-icon" />
-                  <div class="file-details">
-                    <h4>{{ csvFile.name }}</h4>
-                    <p>{{ parsedData.length }} rows parsed</p>
-                  </div>
-                  <button @click="csvFile = null; parsedData = []" class="btn-icon">
-                    <font-awesome-icon icon="times" />
-                  </button>
+                <div v-if="!csvFile" class="csv-upload-area">
+                  <label class="upload-label">
+                    <input 
+                      type="file" 
+                      accept=".csv"
+                      @change="handleCSVUpload"
+                      style="display: none"
+                    />
+                    <font-awesome-icon icon="file-csv" class="upload-icon" />
+                    <p>Drop CSV file here or click to browse</p>
+                    <span class="btn btn-primary">Choose CSV File</span>
+                  </label>
                 </div>
 
-                <!-- Field Mapping -->
-                <div v-if="csvHeaders.length > 0" class="field-mapping">
-                  <h3>Map CSV Fields</h3>
-                  <p class="mapping-description">
-                    Match your CSV columns to the required fields. Required fields are marked with *.
-                  </p>
-                  
-                  <div class="mapping-grid">
-                    <div 
-                      v-for="field in requiredFields" 
-                      :key="field.key"
-                      class="mapping-row"
-                      :class="{ required: field.required }"
-                    >
-                      <label class="mapping-label">
-                        {{ field.label }}
-                        <span v-if="field.required" class="required-mark">*</span>
-                      </label>
-                      <select 
-                        v-model="fieldMapping[field.key]" 
-                        class="form-select"
+                <div v-else class="csv-info">
+                  <div class="file-card">
+                    <font-awesome-icon icon="file-csv" class="file-icon" />
+                    <div class="file-details">
+                      <h4>{{ csvFile.name }}</h4>
+                      <p>{{ parsedData.length }} rows parsed</p>
+                    </div>
+                    <button @click="csvFile = null; parsedData = []" class="btn-icon">
+                      <font-awesome-icon icon="times" />
+                    </button>
+                  </div>
+
+                  <!-- Field Mapping -->
+                  <div v-if="csvHeaders.length > 0" class="field-mapping">
+                    <h3>Map CSV Fields</h3>
+                    <p class="mapping-description">
+                      Match your CSV columns to the required fields. Required fields are marked with *.
+                    </p>
+                    
+                    <div class="mapping-grid">
+                      <div 
+                        v-for="field in requiredFields" 
+                        :key="field.key"
+                        class="mapping-row"
+                        :class="{ required: field.required }"
                       >
-                        <option value="">-- Select Column --</option>
-                        <option 
-                          v-for="header in csvHeaders" 
-                          :key="header"
-                          :value="header"
+                        <label class="mapping-label">
+                          {{ field.label }}
+                          <span v-if="field.required" class="required-mark">*</span>
+                        </label>
+                        <select 
+                          v-model="fieldMapping[field.key]" 
+                          class="form-select"
                         >
-                          {{ header }}
-                        </option>
-                      </select>
+                          <option value="">-- Select Column --</option>
+                          <option 
+                            v-for="header in csvHeaders" 
+                            :key="header"
+                            :value="header"
+                          >
+                            {{ header }}
+                          </option>
+                        </select>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-          <div class="card-footer">
-            <div></div>
-            <button 
-              @click="validateAndProcessCSV" 
-              class="btn btn-primary"
-              :disabled="!canProceedStep1 || isLoading"
-            >
-              <font-awesome-icon v-if="isLoading" icon="spinner" spin />
-              <span v-else>Validate & Continue</span>
-              <font-awesome-icon v-if="!isLoading" icon="arrow-right" />
-            </button>
-          </div>
+            <div class="card-footer">
+              <div></div>
+              <button 
+                @click="validateAndProcessCSV" 
+                class="btn btn-primary"
+                :disabled="!canProceedStep1 || isLoading"
+              >
+                <font-awesome-icon v-if="isLoading" icon="spinner" spin />
+                <span v-else>Validate & Continue</span>
+                <font-awesome-icon v-if="!isLoading" icon="arrow-right" />
+              </button>
+            </div>
+          </template>
+
+          <!-- Metadata-less Mode: File Upload -->
+          <template v-else>
+            <div class="card-header">
+              <h2>Step 1: Upload DDEX-Compliant Files</h2>
+            </div>
+            <div class="card-body">
+              <div class="file-requirements">
+                <h3>File Naming Requirements</h3>
+                <div class="requirement-grid">
+                  <div class="requirement-card">
+                    <font-awesome-icon icon="image" class="requirement-icon" />
+                    <h4>Cover Images</h4>
+                    <code>UPC.jpg</code>
+                    <p>Example: 669158552979.jpg</p>
+                  </div>
+                  <div class="requirement-card">
+                    <font-awesome-icon icon="images" class="requirement-icon" />
+                    <h4>Additional Images</h4>
+                    <code>UPC_XX.jpg</code>
+                    <p>Example: 669158552979_02.jpg</p>
+                  </div>
+                  <div class="requirement-card">
+                    <font-awesome-icon icon="music" class="requirement-icon" />
+                    <h4>Audio Files</h4>
+                    <code>UPC_DD_TTT.wav</code>
+                    <p>Example: 669158552979_01_001.wav</p>
+                    <small>DD = Disc Number (01), TTT = Track Number (001)</small>
+                  </div>
+                </div>
+              </div>
+
+              <div class="upload-sections">
+                <!-- Audio Upload -->
+                <div class="upload-section">
+                  <h3>Audio Files</h3>
+                  <div class="upload-area">
+                    <label class="upload-label">
+                      <input 
+                        type="file" 
+                        accept="audio/*"
+                        multiple
+                        @change="handleAudioUpload"
+                        style="display: none"
+                      />
+                      <font-awesome-icon icon="music" class="upload-icon" />
+                      <p>Upload audio files (WAV, FLAC, MP3)</p>
+                      <span class="btn btn-primary">Choose Audio Files</span>
+                    </label>
+                  </div>
+                  
+                  <div v-if="uploadedFiles.audio.length > 0" class="uploaded-list">
+                    <h4>Uploaded Audio ({{ uploadedFiles.audio.length }})</h4>
+                    <div class="file-grid">
+                      <div 
+                        v-for="file in uploadedFiles.audio.slice(0, 10)" 
+                        :key="file.name"
+                        class="file-item"
+                      >
+                        <font-awesome-icon icon="music" />
+                        <span>{{ file.name }}</span>
+                      </div>
+                      <div v-if="uploadedFiles.audio.length > 10" class="file-item more">
+                        +{{ uploadedFiles.audio.length - 10 }} more
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Image Upload -->
+                <div class="upload-section">
+                  <h3>Cover Images</h3>
+                  <div class="upload-area">
+                    <label class="upload-label">
+                      <input 
+                        type="file" 
+                        accept="image/*"
+                        multiple
+                        @change="handleImageUpload"
+                        style="display: none"
+                      />
+                      <font-awesome-icon icon="image" class="upload-icon" />
+                      <p>Upload cover images (JPG, PNG)</p>
+                      <span class="btn btn-primary">Choose Images</span>
+                    </label>
+                  </div>
+                  
+                  <div v-if="uploadedFiles.images.length > 0" class="uploaded-list">
+                    <h4>Uploaded Images ({{ uploadedFiles.images.length }})</h4>
+                    <div class="file-grid">
+                      <div 
+                        v-for="file in uploadedFiles.images.slice(0, 10)" 
+                        :key="file.name"
+                        class="file-item"
+                      >
+                        <font-awesome-icon icon="image" />
+                        <span>{{ file.name }}</span>
+                      </div>
+                      <div v-if="uploadedFiles.images.length > 10" class="file-item more">
+                        +{{ uploadedFiles.images.length - 10 }} more
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Upload Progress -->
+              <div v-if="Object.keys(uploadProgress).length > 0" class="upload-progress-section">
+                <h4>Upload Progress</h4>
+                <div 
+                  v-for="(progress, file) in uploadProgress" 
+                  :key="file"
+                  class="progress-item"
+                >
+                  <span>{{ file }}</span>
+                  <div class="progress-bar">
+                    <div class="progress-fill" :style="{ width: `${progress}%` }"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Metadata Fetch Progress -->
+              <div v-if="fetchingMetadata" class="metadata-fetch-progress">
+                <h4>Fetching Metadata from Deezer</h4>
+                <div class="progress-info">
+                  <font-awesome-icon icon="spinner" spin />
+                  <span v-if="metadataFetchProgress.upc">
+                    Processing UPC {{ metadataFetchProgress.upc }}
+                    ({{ metadataFetchProgress.current }} of {{ metadataFetchProgress.total }})
+                  </span>
+                  <span v-else>Initializing...</span>
+                </div>
+              </div>
+
+              <!-- Fetched Metadata Display -->
+              <div v-if="Object.keys(deezerMetadata).length > 0" class="fetched-metadata">
+                <h3>Fetched Metadata</h3>
+                <div class="metadata-grid">
+                  <div v-for="(metadata, upc) in deezerMetadata" :key="upc" class="metadata-card">
+                    <div class="metadata-header">
+                      <strong>{{ metadata.title }}</strong>
+                      <span class="upc-badge">{{ upc }}</span>
+                    </div>
+                    <p>{{ metadata.artist }}</p>
+                    <p class="track-count">{{ metadata.tracks.length }} tracks</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="card-footer">
+              <div></div>
+              <div v-if="!fetchingMetadata && Object.keys(deezerMetadata).length === 0">
+                <p class="footer-hint">Upload files to fetch metadata from Deezer</p>
+              </div>
+              <button 
+                v-if="Object.keys(deezerMetadata).length > 0"
+                @click="nextStep" 
+                class="btn btn-primary"
+                :disabled="isLoading"
+              >
+                Continue to Matching
+                <font-awesome-icon icon="arrow-right" />
+              </button>
+            </div>
+          </template>
         </div>
 
-        <!-- Step 2: File Upload -->
-        <div v-if="currentStep === 2" class="step-content">
+        <!-- Step 2: File Upload (Standard Mode) or Match & Create (Metadata-less Mode) -->
+        <div v-if="currentStep === 2 && !isMetadatalessMode" class="step-content">
           <div class="card-header">
             <h2>Step 2: Upload Audio & Image Files</h2>
           </div>
@@ -951,10 +1411,10 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Step 3: Matching Results -->
-        <div v-if="currentStep === 3" class="step-content">
+        <!-- Step 3 (Standard) or Step 2 (Metadata-less): Matching Results -->
+        <div v-if="(currentStep === 3 && !isMetadatalessMode) || (currentStep === 2 && isMetadatalessMode)" class="step-content">
           <div class="card-header">
-            <h2>Step 3: Import Results</h2>
+            <h2>{{ isMetadatalessMode ? 'Step 2' : 'Step 3' }}: Import Results</h2>
           </div>
           <div class="card-body">
             <div class="results-summary">
@@ -1009,6 +1469,7 @@ onMounted(() => {
                     <th>UPC</th>
                     <th>Tracks</th>
                     <th>Status</th>
+                    <th v-if="isMetadatalessMode">Source</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1020,6 +1481,9 @@ onMounted(() => {
                     <td>
                       <span class="badge badge-success">Draft Created</span>
                     </td>
+                    <td v-if="isMetadatalessMode">
+                      <span class="badge badge-info">Deezer</span>
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -1028,7 +1492,7 @@ onMounted(() => {
           <div class="card-footer">
             <button @click="previousStep" class="btn btn-secondary">
               <font-awesome-icon icon="arrow-left" />
-              Back to Upload
+              Back
             </button>
             <div class="footer-actions">
               <button @click="resetImport" class="btn btn-secondary">
@@ -1084,6 +1548,44 @@ onMounted(() => {
 .header-actions {
   display: flex;
   gap: var(--space-md);
+}
+
+/* Mode Indicator */
+.mode-indicator {
+  background-color: var(--color-info);
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.1), rgba(66, 133, 244, 0.05));
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-xl);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+
+.mode-indicator p {
+  flex: 1;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.mode-indicator code {
+  background-color: var(--color-bg-tertiary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* Toggle Button Active State */
+.btn.active {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+.btn.active:hover {
+  background-color: var(--color-primary-hover);
+  color: white;
 }
 
 /* Progress */
@@ -1448,6 +1950,86 @@ onMounted(() => {
   margin-bottom: var(--space-xs);
 }
 
+/* Metadata Fetch Progress */
+.metadata-fetch-progress {
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  margin-top: var(--space-xl);
+  text-align: center;
+}
+
+.metadata-fetch-progress h4 {
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-lg);
+}
+
+.progress-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  font-size: var(--text-lg);
+  color: var(--color-primary);
+}
+
+/* Fetched Metadata Display */
+.fetched-metadata {
+  margin-top: var(--space-xl);
+  padding: var(--space-xl);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+}
+
+.fetched-metadata h3 {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-lg);
+}
+
+.metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: var(--space-md);
+}
+
+.metadata-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.metadata-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-sm);
+}
+
+.metadata-header strong {
+  font-weight: var(--font-semibold);
+}
+
+.upc-badge {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+}
+
+.metadata-card p {
+  margin: var(--space-xs) 0;
+  color: var(--color-text-secondary);
+}
+
+.track-count {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+
 /* Results */
 .results-summary {
   display: grid;
@@ -1578,6 +2160,11 @@ onMounted(() => {
   color: var(--color-success);
 }
 
+.badge-info {
+  background-color: rgba(66, 133, 244, 0.1);
+  color: var(--color-info);
+}
+
 /* Footer */
 .card-footer {
   display: flex;
@@ -1590,6 +2177,12 @@ onMounted(() => {
 .footer-actions {
   display: flex;
   gap: var(--space-md);
+}
+
+.footer-hint {
+  color: var(--color-text-secondary);
+  font-style: italic;
+  margin: 0;
 }
 
 /* Utilities */
@@ -1645,6 +2238,14 @@ onMounted(() => {
   .progress-steps {
     flex-direction: column;
     gap: var(--space-lg);
+  }
+  
+  .mode-indicator {
+    flex-direction: column;
+  }
+  
+  .metadata-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
