@@ -1584,7 +1584,7 @@ onMounted(() => {
                 <div class="info-box p-md bg-info-light rounded-lg mt-lg">
                   <p class="text-sm mb-0">
                     <font-awesome-icon icon="info-circle" class="mr-sm" />
-                    <strong>No cover art?</strong> No problem! We'll automatically fetch high-quality cover artwork from Deezer when available.
+                    <strong>No cover art?</strong> No problem! We'll automatically fetch cover artwork from API when available.
                   </p>
                 </div>
               </div>
