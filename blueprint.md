@@ -1842,17 +1842,15 @@ const results = await delivery.deliver(stardustRelease);
 
 #### User Onboarding & Migration ✅ COMPLETE
 
-  - [x] **Catalog Import System**
+  - [x] **Dual-Mode Catalog Import System**
+      - [x] **Standard Mode**: CSV metadata + audio files + cover art images
+      - [x .**Metadata-less Mode**: Audio files + cover art (optional)
+      
+  - [x] **Standard Import Mode (CSV + Asset Files)**
       - [x] **Three-Step Migration Process**
           - [x] Step 1: CSV metadata import with intelligent field mapping
-          - [x] Step 2: Bulk audio/image upload with DDEX naming validation
+          - [x] Step 2: Bulk audio/image upload with DDEX naming validation  
           - [x] Step 3: Automatic matching and draft release creation
-      - [x] **Migration.vue Interface**
-          - [x] Multi-step wizard with progress tracking
-          - [x] Persistent import jobs via Firestore
-          - [x] Resume capability for interrupted imports
-          - [x] Real-time import statistics dashboard
-          - [x] Sample CSV download functionality
       - [x] **CSV Import Features**
           - [x] Flexible CSV parsing with quote handling
           - [x] Auto-detection of common field names
@@ -1861,79 +1859,197 @@ const results = await delivery.deliver(stardustRelease);
           - [x] Validation of required fields (title, artist, UPC, etc.)
           - [x] UPC/EAN barcode format validation
           - [x] Batch processing of multiple releases
-      - [x] **DDEX-Compliant File Upload**
-          - [x] File naming validation:
-              - Cover images: `UPC.jpg`
-              - Additional images: `UPC_XX.jpg`
-              - Audio files: `UPC_DD_TTT.wav` (Disc_Track)
+          - [x] Sample CSV download functionality
+
+  - [x] **Metadata-less Import Mode (Asset Files Only)**
+      - [x] **Two-Step Process**
+          - [x] Step 1: Upload asset files (audio/images)
+          - [x] Step 2: Automatic metadata fetch and release creation
+      - [x] **Deezer Integration Features**
+          - [x] Automatic UPC extraction from filenames
+          - [x] Deezer API integration for album metadata
+          - [x] Track-level metadata retrieval with ISRCs
+          - [x] High-quality cover art download (XL size)
+          - [x] Intelligent cover art handling:
+              - Skip if user uploaded cover
+              - Offer choice to download from Deezer
+              - Store Deezer artwork in Firebase Storage
+          - [x] Batch metadata fetching with rate limiting
+          - [x] Progress tracking for API calls
+      - [x] **Cover Art Management**
+          - [x] Automatic detection of missing cover art
+          - [x] Deezer artwork preview before download
+          - [x] User choice dialog for Deezer artwork usage
+          - [x] Firebase Storage integration for downloaded art
+          - [x] Source tracking (user vs Deezer)
+          
+  - [x] **DDEX File Validation & Processing**
+      - [x] **File Naming Requirements**
+          - Audio: `UPC_DD_TTT.wav` (Disc_Track)
+          - Cover: `UPC.jpg` (main cover)
+          - Additional: `UPC_XX.jpg` (additional images)
+      - [x] **File Processing Features**
+          - [x] Real-time DDEX naming validation
           - [x] Automatic metadata extraction from filenames
           - [x] Support for WAV, FLAC, MP3 audio formats
           - [x] Support for JPG, PNG image formats
           - [x] Batch upload with progress tracking
+          - [x] Individual file progress indicators
           - [x] File size and format validation
-      - [x] **Intelligent Matching System**
+          - [x] Duplicate file detection
+          
+  - [x] **Migration.vue Interface**
+      - [x] **UI/UX Features**
+          - [x] Mode toggle (Standard/Metadata-less)
+          - [x] Multi-step wizard with progress tracking
+          - [x] Real-time import statistics dashboard
+          - [x] Visual progress indicators
+          - [x] Drag-and-drop file upload zones
+          - [x] File upload progress with animations
+          - [x] Metadata fetch status display
+          - [x] Cover art preview grid
+          - [x] Detailed error reporting
+      - [x] **State Management**
+          - [x] Persistent import jobs via Firestore
+          - [x] Resume capability for interrupted imports
+          - [x] Active job detection and recovery
+          - [x] Job cancellation support
+          - [x] Mode preservation across sessions
+
+  - [x] **Intelligent Matching System**
+      - [x] **Matching Features**
           - [x] Automatic UPC-based file matching
           - [x] Track-to-audio file association
           - [x] Cover image detection and linking
+          - [x] Support for multi-disc releases
           - [x] Incomplete release tracking
           - [x] Missing file identification
           - [x] Partial import support
-      - [x] **Import Service (import.js)**
+      - [x] **Match Results**
+          - [x] Complete matches → Auto-create drafts
+          - [x] Incomplete matches → Track for later
+          - [x] Failed matches → Detailed error reporting
+          - [x] Visual match summary cards
+          - [x] Detailed results table
+
+  - [x] **Import Service (import.js)**
+      - [x] **Core Functionality**
           - [x] CSV parsing with header detection
           - [x] Import job creation and persistence
           - [x] Batch file upload to Firebase Storage
           - [x] Active job detection and recovery
-          - [x] Status tracking (started → metadata_imported → files_uploading → matching_complete → completed)
+          - [x] Status tracking with state machine
           - [x] Job cancellation support
-      - [x] **MigrationStatus Component**
-          - [x] Detailed view of incomplete releases
-          - [x] Missing file identification per release
-          - [x] Track-by-track status display
-          - [x] Import job metadata display
-          - [x] Actionable insights for completion
-      - [x] **Release Creation**
-          - [x] Automatic draft creation for matched releases
-          - [x] Release type detection (Single/EP/Album) based on track count
-          - [x] Metadata preservation from CSV
+          - [x] Firestore-safe object cleaning
+      - [x] **Job States**
+          - `started` → Initial state
+          - `metadata_imported` → CSV processed (standard mode)
+          - `metadata_fetched` → Deezer data retrieved (metadata-less)
+          - `files_uploading` → Files being uploaded
+          - `matching_complete` → Matching finished
+          - `completed` → Releases created
+          - `cancelled` → User cancelled
+
+  - [x] **Deezer API Integration**
+      - [x] **API Features**
+          - [x] Album lookup by UPC
+          - [x] Track listing with metadata
+          - [x] ISRC batch fetching
+          - [x] Cover art URL retrieval
+          - [x] Fallback to search if direct UPC fails
+          - [x] Rate limiting protection
+      - [x] **Cloud Function Endpoints**
+          - `/api/deezer/album/:upc` - Album metadata
+          - `/api/deezer/tracks/batch-isrc` - Batch ISRC fetch
+          - Error handling and fallback strategies
+
+  - [x] **Release Creation**
+      - [x] **Auto-Generation Features**
+          - [x] Release type detection (Single/EP/Album)
+          - [x] Metadata preservation from source
           - [x] Asset linking from uploaded files
           - [x] Territory defaulting to worldwide
           - [x] Copyright year auto-generation
-      - [x] **Error Handling & Validation**
-          - [x] CSV format validation
-          - [x] Required field checking
-          - [x] UPC checksum validation
-          - [x] DDEX naming compliance checking
-          - [x] Duplicate file detection
-          - [x] Detailed error reporting
-          - [x] Partial success handling
-      - [x] **User Experience Features**
-          - [x] Ability to import in stages
-          - [x] Progress persistence across sessions
-          - [x] Visual progress indicators
-          - [x] Import statistics (total/matched/incomplete)
-          - [x] One-click navigation to created drafts
-          - [x] Rollback via job cancellation
-          - [x] Continue incomplete imports later
-      - [x] **Firestore Collections**
-          - [x] `importJobs` collection for job tracking
-          - [x] Job metadata storage (mapping, files, results)
-          - [x] User-scoped job queries
-          - [x] Status-based job filtering
-      - [x] **Routes & Navigation**
-          - [x] `/migration` route added to router
-          - [x] Integration with Catalog view
-          - [x] Protected route with auth requirement
-          - [x] Back navigation to catalog
+          - [x] Import source tracking (standard/metadata-less)
+          - [x] Deezer artwork attribution
+      - [x] **Draft Management**
+          - [x] Bulk draft creation for matched releases
+          - [x] Navigate to catalog after creation
+          - [x] Import job linking for traceability
 
-#### Migration Implementation Details
+  - [x] **MigrationStatus Component**
+      - [x] Detailed view of incomplete releases
+      - [x] Missing file identification per release
+      - [x] Track-by-track status display
+      - [x] Import job metadata display
+      - [x] Actionable insights for completion
 
-The Catalog Import System provides a comprehensive solution for migrating existing music catalogs into Stardust Distro:
+  - [x] **Error Handling & Validation**
+      - [x] CSV format validation
+      - [x] Required field checking
+      - [x] UPC checksum validation
+      - [x] DDEX naming compliance checking
+      - [x] Deezer API error handling
+      - [x] Network failure recovery
+      - [x] Detailed error reporting
+      - [x] Partial success handling
+
+  - [x] **Performance Features**
+      - [x] Batch file processing for efficiency
+      - [x] Chunked uploads for large catalogs
+      - [x] Progress tracking at multiple levels
+      - [x] Optimized Firestore queries
+      - [x] Smart caching of Deezer results
+      - [x] Rate-limited API calls
+
+  - [x] **Firestore Collections**
+      - [x] `importJobs` collection for job tracking
+      - [x] Job metadata storage (mapping, files, results)
+      - [x] User-scoped job queries
+      - [x] Status-based job filtering
+      - [x] Deezer metadata caching
+
+  - [x] **Routes & Navigation**
+      - [x] `/migration` route added to router
+      - [x] Integration with Catalog view
+      - [x] Protected route with auth requirement
+      - [x] Back navigation to catalog
+      - [x] Success navigation to catalog
+
+### Migration Implementation Details
+
+The Catalog Import System provides two powerful modes for migrating existing music catalogs into Stardust Distro:
+
+#### Standard Mode (CSV + Files)
+Traditional import workflow for users with complete metadata:
+1. **Upload CSV** → System parses and auto-detects fields
+2. **Map Fields** → User confirms or adjusts field mappings
+3. **Upload Files** → Batch upload with DDEX validation
+4. **Auto-Match** → System matches files to releases by UPC
+5. **Create Drafts** → Complete releases become draft entries
 
 **CSV Format Support:**
 - Flexible column mapping for various CSV formats
 - Support for common field variations (e.g., "Release Title", "Album Title", "Title")
 - Multi-row track listings with automatic grouping by UPC
 - Handles quoted values and special characters
+
+#### Metadata-less Mode (Files + API)
+Revolutionary workflow for users with only audio files:
+1. **Upload DDEX Files** → System validates naming convention
+2. **Extract UPCs** → Automatic UPC extraction from filenames
+3. **Fetch from Deezer** → Retrieve complete metadata and artwork
+4. **Match & Create** → Auto-match files and create releases
+
+**Deezer API Integration Features:**
+- **Automatic Metadata Enrichment**: Complete album and track metadata from Deezer's database
+- **Smart Cover Art Handling**: 
+  - Detects if user uploaded cover art
+  - Offers to download high-quality artwork from Deezer if missing
+  - Stores Deezer artwork in Firebase with proper attribution
+- **Comprehensive Track Data**: ISRCs, durations, artist credits
+- **Fallback Strategies**: Search by UPC if direct lookup fails
+- **Batch Processing**: Efficient handling of multiple releases
 
 **File Organization:**
 Following DDEX standards, imported files must use specific naming conventions:
@@ -1943,27 +2059,9 @@ Cover: 123456789012.jpg (UPC)
 Additional: 123456789012_02.jpg (UPC_ImageNumber)
 ```
 
-**Import Workflow:**
-1. **Upload CSV** → System parses and auto-detects fields
-2. **Map Fields** → User confirms or adjusts field mappings
-3. **Upload Files** → Batch upload with DDEX validation
-4. **Auto-Match** → System matches files to releases by UPC
-5. **Create Drafts** → Complete releases become draft entries
-6. **Track Incomplete** → Partial releases saved for later completion
+#### Import Workflow Examples
 
-**Recovery & Continuity:**
-- Import jobs persist in Firestore
-- Users can close browser and resume later
-- Incomplete imports can be continued at any time
-- Failed imports can be rolled back
-
-**Performance:**
-- Batch file processing for efficiency
-- Progress tracking for large imports
-- Chunked uploads to handle many files
-- Optimized Firestore queries
-
-**Example Import Flow:**
+**Example 1: Standard CSV Import**
 ```javascript
 // User uploads catalog.csv with 50 releases
 // System detects columns and maps automatically
@@ -1972,6 +2070,37 @@ Additional: 123456789012_02.jpg (UPC_ImageNumber)
 // 48 drafts created instantly in catalog
 // 2 incomplete shown in status modal for manual completion
 ```
+
+**Example 2: Metadata-less Import with Deezer**
+```javascript
+// User uploads 100 DDEX-named audio files (no metadata)
+// System extracts 10 unique UPCs from filenames
+// Deezer API fetches complete metadata for all 10 albums
+// System detects 3 albums missing cover art
+// User chooses to download covers from Deezer
+// 10 complete releases created with full metadata and artwork
+```
+
+#### Recovery & Continuity
+- Import jobs persist in Firestore
+- Users can close browser and resume later
+- Incomplete imports can be continued at any time
+- Failed imports can be rolled back
+- Active jobs auto-load on component mount
+
+#### Performance Optimizations
+- Batch file processing reduces API calls
+- Progress tracking at file, release, and job levels
+- Chunked uploads handle large catalogs efficiently
+- Rate-limited Deezer API calls prevent throttling
+- Smart caching reduces redundant API requests
+
+#### Visual Experience
+- **Real-time Progress**: Multiple progress bars for different operations
+- **Live Statistics**: Import stats update as processing occurs
+- **Visual Feedback**: Animated icons, color-coded status cards
+- **Preview Grids**: Cover art previews before download
+- **Detailed Logging**: Step-by-step process visibility
 
 #### Email Notifications & Communication ✅ COMPLETE
 
