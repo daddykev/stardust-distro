@@ -6,6 +6,8 @@ import { useCatalog } from '../composables/useCatalog'
 import importService from '../services/import'
 import MigrationStatus from '../components/MigrationStatus.vue'
 import { getFunctions, httpsCallable } from 'firebase/functions'
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { storage } from '../firebase'
 
 const router = useRouter()
 const { user } = useAuth()
@@ -34,6 +36,13 @@ const deezerMetadata = ref({})
 const fetchingMetadata = ref(false)
 const metadataFetchProgress = ref({})
 const metadataFetchStatus = ref('')
+
+// New refs for Deezer artwork
+const deezerArtwork = ref({})
+const showArtworkConfirmation = ref(false)
+const artworkConfirmationChoice = ref('use-deezer')
+const downloadingArtwork = ref(false)
+const artworkDownloadStatus = ref('')
 
 // Auto-process metadata ref
 const autoProcessMetadata = ref(false)
@@ -117,6 +126,11 @@ const importStats = computed(() => {
   }
 })
 
+// Computed to check if user uploaded any cover images
+const hasUploadedCovers = computed(() => {
+  return uploadedFiles.value.images.some(img => img.imageType === 'cover')
+})
+
 // Helper functions
 const cleanObjectForFirestore = (obj) => {
   if (obj === null || obj === undefined) {
@@ -155,6 +169,7 @@ watch(isMetadatalessMode, (newVal) => {
   } else {
     // Clear Deezer metadata when leaving metadata-less mode
     deezerMetadata.value = {}
+    deezerArtwork.value = {}
   }
 })
 
@@ -174,6 +189,55 @@ const extractUPCFromFilename = (filename) => {
   // Extract UPC from DDEX naming: UPC_DiscNumber_TrackNumber.extension
   const match = filename.match(/^(\d{12,14})(?:_\d{2}_\d{3})?/);
   return match ? match[1] : null;
+}
+
+/**
+ * Download cover art from Deezer and upload to Firebase Storage
+ */
+const downloadAndStoreDeezerArtwork = async (upc, coverUrl) => {
+  try {
+    console.log(`📥 Downloading Deezer artwork for UPC ${upc}`)
+    console.log(`  URL: ${coverUrl}`)
+    
+    // Fetch the image from Deezer
+    const response = await fetch(coverUrl)
+    if (!response.ok) {
+      throw new Error(`Failed to download artwork: ${response.status}`)
+    }
+    
+    const blob = await response.blob()
+    console.log(`  Downloaded ${blob.size} bytes`)
+    
+    // Create a storage reference with the naming convention
+    const fileName = `${upc}-xl.jpg`
+    const storagePath = `imports/${user.value.uid}/${importJob.value?.id || 'temp'}/deezer-artwork/${fileName}`
+    const artworkRef = storageRef(storage, storagePath)
+    
+    // Upload to Firebase Storage
+    console.log(`  Uploading to Firebase Storage as ${fileName}...`)
+    const snapshot = await uploadBytes(artworkRef, blob, {
+      contentType: 'image/jpeg',
+      customMetadata: {
+        source: 'deezer',
+        upc: upc,
+        originalUrl: coverUrl
+      }
+    })
+    
+    // Get the download URL
+    const downloadURL = await getDownloadURL(snapshot.ref)
+    console.log(`  ✅ Artwork stored successfully`)
+    
+    return {
+      url: downloadURL,
+      path: storagePath,
+      fileName,
+      source: 'deezer'
+    }
+  } catch (error) {
+    console.error(`  ❌ Failed to download/store artwork for UPC ${upc}:`, error)
+    return null
+  }
 }
 
 const fetchDeezerMetadata = async (upc) => {
@@ -211,7 +275,7 @@ const fetchDeezerMetadata = async (upc) => {
     console.log(`      - Tracks: ${album.tracks?.data?.length || 0}`)
     console.log(`      - Release date: ${album.release_date}`)
     console.log(`      - Label: ${album.label || 'Unknown'}`)
-    console.log(`      - Cover: ${album.cover_medium ? 'Available' : 'Not available'}`)
+    console.log(`      - Cover XL: ${album.cover_xl ? 'Available' : 'Not available'}`)
     
     // The album already includes tracks in the response!
     const tracks = album.tracks?.data || [];
@@ -255,7 +319,9 @@ const fetchDeezerMetadata = async (upc) => {
       label: album.label || '',
       releaseDate: album.release_date || new Date().toISOString().split('T')[0],
       genre: album.genres?.data?.[0]?.name || '',
+      // Store the XL cover URL for later download
       coverUrl: album.cover_xl || album.cover_big || album.cover_medium || album.cover,
+      coverUrlOriginal: album.cover_xl, // Keep the original XL URL
       duration: album.duration || 0,
       tracks: tracks.map((track, index) => ({
         trackNumber: index + 1,
@@ -282,6 +348,7 @@ const processMetadatalessUpload = async () => {
   fetchingMetadata.value = true
   error.value = null
   deezerMetadata.value = {}
+  deezerArtwork.value = {}
   metadataFetchProgress.value = {}
   metadataFetchStatus.value = 'Initializing metadata fetch...'
   
@@ -321,6 +388,7 @@ const processMetadatalessUpload = async () => {
     const upcArray = Array.from(upcs)
     let successCount = 0
     let failedUPCs = []
+    const needsArtwork = []
     
     console.log('🌐 Starting Deezer API calls...')
     for (let i = 0; i < upcArray.length; i++) {
@@ -342,6 +410,16 @@ const processMetadatalessUpload = async () => {
         console.log(`     - ${metadata.tracks.length} tracks`)
         console.log(`     - Release date: ${metadata.releaseDate}`)
         console.log(`     - Label: ${metadata.label || 'Unknown'}`)
+        
+        // Check if user uploaded cover for this UPC
+        const hasUserCover = uploadedFiles.value.images.some(img => 
+          img.upc === upc && img.imageType === 'cover'
+        )
+        
+        if (!hasUserCover && metadata.coverUrlOriginal) {
+          console.log(`     - 🎨 Deezer cover available, user didn't upload cover`)
+          needsArtwork.push({ upc, coverUrl: metadata.coverUrlOriginal })
+        }
       } else {
         failedUPCs.push(upc)
         console.warn(`  ⚠️ Could not fetch metadata for UPC: ${upc}`)
@@ -358,6 +436,9 @@ const processMetadatalessUpload = async () => {
     if (failedUPCs.length > 0) {
       console.log(`  ❌ Failed UPCs: ${failedUPCs.join(', ')}`)
     }
+    if (needsArtwork.length > 0) {
+      console.log(`  🎨 Releases needing artwork: ${needsArtwork.length}`)
+    }
     
     if (successCount === 0) {
       error.value = 'Could not fetch metadata for any of the uploaded files from Deezer.'
@@ -367,56 +448,18 @@ const processMetadatalessUpload = async () => {
     
     metadataFetchStatus.value = `Successfully fetched metadata for ${successCount} releases`
     
-    // Transform Deezer metadata to match our standard format
-    console.log('🔄 Transforming Deezer metadata to standard format...')
-    const releases = Object.values(deezerMetadata.value)
-    parsedData.value = releases.flatMap(release => 
-      release.tracks.map(track => ({
-        upc: release.upc,
-        title: release.title,
-        artist: release.artist,
-        label: release.label,
-        releaseDate: release.releaseDate,
-        genre: release.genre,
-        trackTitle: track.title,
-        trackArtist: track.artist,
-        trackNumber: track.trackNumber,
-        discNumber: track.discNumber,
-        isrc: track.isrc,
-        duration: track.duration
-      }))
-    )
-    
-    console.log(`✅ Transformed ${parsedData.value.length} tracks from ${releases.length} releases`)
-    
-    // Update import job
-    if (!importJob.value) {
-      console.log('📝 Creating new import job...')
-      importJob.value = await importService.createImportJob(user.value.uid, {
-        mode: 'metadata-less',
-        upcCount: upcs.size,
-        successfulFetches: successCount,
-        failedUPCs: failedUPCs
-      })
-      console.log(`  Created import job: ${importJob.value.id}`)
+    // If we have releases that need artwork, show confirmation dialog
+    if (needsArtwork.length > 0) {
+      console.log('🎨 Showing artwork confirmation dialog...')
+      showArtworkConfirmation.value = true
+      // Store the artwork URLs for later download
+      deezerArtwork.value = Object.fromEntries(
+        needsArtwork.map(item => [item.upc, item.coverUrl])
+      )
+    } else {
+      // All releases have user-uploaded covers or no covers available
+      await continueToMatching()
     }
-    
-    console.log('💾 Saving metadata to import job...')
-    await importService.updateImportJob(importJob.value.id, {
-      deezerMetadata: deezerMetadata.value,
-      parsedReleases: releases,
-      status: 'metadata_fetched'
-    })
-    
-    // Automatically proceed to matching
-    console.log('➡️ Moving to matching step...')
-    currentStep.value = 2
-    
-    // Auto-trigger matching after a short delay
-    setTimeout(() => {
-      console.log('🔄 Auto-triggering matching process...')
-      performMatching()
-    }, 1000)
     
   } catch (err) {
     console.error('❌ Error processing metadata-less upload:', err)
@@ -425,6 +468,121 @@ const processMetadatalessUpload = async () => {
     fetchingMetadata.value = false
     metadataFetchStatus.value = ''
     metadataFetchProgress.value = {}
+  }
+}
+
+const handleArtworkChoice = async () => {
+  showArtworkConfirmation.value = false
+  
+  if (artworkConfirmationChoice.value === 'use-deezer') {
+    // Download and store Deezer artwork
+    await downloadDeezerArtwork()
+  }
+  
+  // Continue to matching regardless of choice
+  await continueToMatching()
+}
+
+const downloadDeezerArtwork = async () => {
+  downloadingArtwork.value = true
+  artworkDownloadStatus.value = 'Downloading artwork from Deezer...'
+  
+  console.log('🎨 === Downloading Deezer Artwork ===')
+  console.log(`  Processing ${Object.keys(deezerArtwork.value).length} covers`)
+  
+  try {
+    for (const [upc, coverUrl] of Object.entries(deezerArtwork.value)) {
+      artworkDownloadStatus.value = `Downloading artwork for UPC ${upc}...`
+      
+      const artwork = await downloadAndStoreDeezerArtwork(upc, coverUrl)
+      if (artwork) {
+        // Add to uploaded files as if user uploaded it
+        uploadedFiles.value.images.push({
+          name: artwork.fileName,
+          url: artwork.url,
+          path: artwork.path,
+          upc: upc,
+          imageType: 'cover',
+          format: 'JPEG',
+          size: 0, // We don't track size for downloaded images
+          source: 'deezer'
+        })
+        
+        // Update the metadata to use the Firebase Storage URL
+        if (deezerMetadata.value[upc]) {
+          deezerMetadata.value[upc].coverUrl = artwork.url
+        }
+      }
+    }
+    
+    console.log('✅ Artwork download complete')
+    artworkDownloadStatus.value = 'Artwork download complete'
+  } catch (error) {
+    console.error('❌ Error downloading artwork:', error)
+    error.value = `Failed to download some artwork: ${error.message}`
+  } finally {
+    downloadingArtwork.value = false
+    artworkDownloadStatus.value = ''
+  }
+}
+
+const continueToMatching = async () => {
+  console.log('➡️ Continuing to matching step...')
+  
+  // Transform Deezer metadata to match our standard format
+  const releases = Object.values(deezerMetadata.value)
+  parsedData.value = releases.flatMap(release => 
+    release.tracks.map(track => ({
+      upc: release.upc,
+      title: release.title,
+      artist: release.artist,
+      label: release.label,
+      releaseDate: release.releaseDate,
+      genre: release.genre,
+      trackTitle: track.title,
+      trackArtist: track.artist,
+      trackNumber: track.trackNumber,
+      discNumber: track.discNumber,
+      isrc: track.isrc,
+      duration: track.duration
+    }))
+  )
+  
+  console.log(`✅ Transformed ${parsedData.value.length} tracks from ${releases.length} releases`)
+  
+  // Update import job
+  if (!importJob.value) {
+    console.log('📝 Creating new import job...')
+    importJob.value = await importService.createImportJob(user.value.uid, {
+      mode: 'metadata-less',
+      upcCount: Object.keys(deezerMetadata.value).length,
+      hasDeeerArtwork: Object.keys(deezerArtwork.value).length > 0
+    })
+    console.log(`  Created import job: ${importJob.value.id}`)
+  }
+  
+  console.log('💾 Saving metadata to import job...')
+  await importService.updateImportJob(importJob.value.id, {
+    deezerMetadata: deezerMetadata.value,
+    parsedReleases: releases,
+    status: 'metadata_fetched',
+    uploadedFiles: uploadedFiles.value
+  })
+  
+  // Move to matching step
+  currentStep.value = 2
+  
+  // Auto-trigger matching after a short delay
+  setTimeout(() => {
+    console.log('🔄 Auto-triggering matching process...')
+    performMatching()
+  }, 1000)
+}
+
+// Add a manual trigger for metadata processing
+const triggerMetadataProcessing = async () => {
+  if (isMetadatalessMode.value && (uploadedFiles.value.audio.length > 0 || uploadedFiles.value.images.length > 0)) {
+    await processMetadatalessUpload()
   }
 }
 
@@ -712,13 +870,6 @@ const processFileUpload = async (files, type) => {
   }
 }
 
-// Add a manual trigger for metadata processing
-const triggerMetadataProcessing = async () => {
-  if (isMetadatalessMode.value && (uploadedFiles.value.audio.length > 0 || uploadedFiles.value.images.length > 0)) {
-    await processMetadatalessUpload()
-  }
-}
-
 const validateDDEXNaming = (fileName, type) => {
   if (type === 'images') {
     // Expected: UPC.jpg or UPC_XX.jpg
@@ -864,14 +1015,14 @@ const matchReleaseWithFiles = async (release) => {
 
   console.log(`  📂 Searching for files with UPC: ${upc}`)
 
-  // Find cover image
+  // Find cover image (including Deezer-sourced)
   const coverImage = uploadedFiles.value.images.find(img => 
     img.upc === upc && img.imageType === 'cover'
   )
   if (coverImage) {
     result.matchedFiles.coverImage = coverImage
     result.hasPartialData = true
-    console.log(`    ✅ Found cover image: ${coverImage.name}`)
+    console.log(`    ✅ Found cover image: ${coverImage.name}${coverImage.source === 'deezer' ? ' (from Deezer)' : ''}`)
   } else {
     console.log(`    ❌ No cover image found`)
   }
@@ -953,7 +1104,8 @@ const createDraftReleases = async (matchedReleases) => {
         assets: {
           coverImage: match.matchedFiles.coverImage ? {
             url: match.matchedFiles.coverImage.url,
-            name: match.matchedFiles.coverImage.name
+            name: match.matchedFiles.coverImage.name,
+            source: match.matchedFiles.coverImage.source || 'user'
           } : null,
           additionalImages: match.matchedFiles.additionalImages.map(img => ({
             url: img.url,
@@ -965,7 +1117,8 @@ const createDraftReleases = async (matchedReleases) => {
           language: 'en',
           copyright: `© ${new Date().getFullYear()} ${match.release.label || match.release.artist}`,
           copyrightYear: new Date().getFullYear(),
-          importMode: isMetadatalessMode.value ? 'metadata-less' : 'standard'
+          importMode: isMetadatalessMode.value ? 'metadata-less' : 'standard',
+          deezerImport: isMetadatalessMode.value && match.matchedFiles.coverImage?.source === 'deezer'
         },
         territories: {
           mode: 'worldwide',
@@ -979,6 +1132,10 @@ const createDraftReleases = async (matchedReleases) => {
       const newRelease = await createRelease(releaseData)
       created.push(newRelease)
       console.log(`    ✅ Created release with ID: ${newRelease.id}`)
+      
+      if (match.matchedFiles.coverImage?.source === 'deezer') {
+        console.log(`    🎨 Note: Using Deezer-sourced cover art`)
+      }
     } catch (err) {
       console.error(`    ❌ Failed to create release for ${match.release.upc}:`, err)
       matchingResults.value.errors.push({
@@ -1021,6 +1178,9 @@ const previousStep = () => {
 
 const toggleMetadatalessMode = () => {
   isMetadatalessMode.value = !isMetadatalessMode.value
+  // Reset Deezer artwork state when toggling mode
+  deezerArtwork.value = {}
+  showArtworkConfirmation.value = false
 }
 
 const viewIncomplete = () => {
@@ -1047,9 +1207,12 @@ const resetImport = async () => {
   uploadProgress.value = {}
   isMetadatalessMode.value = false
   deezerMetadata.value = {}
+  deezerArtwork.value = {}
   uploadingFiles.value = { audio: false, images: false }
   currentUploadFile.value = ''
   metadataFetchStatus.value = ''
+  showArtworkConfirmation.value = false
+  downloadingArtwork.value = false
 }
 
 // Load existing import state
@@ -1167,8 +1330,8 @@ onMounted(() => {
         <font-awesome-icon icon="info-circle" />
         <div class="flex-1">
           <p class="m-0">
-            <strong>Metadata-less Mode:</strong> Upload DDEX-compliant files and we'll fetch metadata from Deezer automatically.
-            Files must use DDEX naming: <code>UPC_DD_TTT.wav</code> for audio, <code>UPC.jpg</code> for covers.
+            <strong>Metadata-less Mode:</strong> Upload DDEX-compliant audio files and we'll fetch metadata and cover artwork from Deezer automatically.
+            Files must use DDEX naming: <code>UPC_DD_TTT.wav</code> for audio. Cover art will be imported from Deezer if available.
           </p>
         </div>
       </div>
@@ -1224,6 +1387,70 @@ onMounted(() => {
       <div v-if="error" class="error-banner flex items-start gap-sm p-md mb-lg rounded-lg">
         <font-awesome-icon icon="exclamation-triangle" />
         <pre class="m-0">{{ error }}</pre>
+      </div>
+
+      <!-- Artwork Confirmation Dialog -->
+      <div v-if="showArtworkConfirmation" class="artwork-confirmation-modal">
+        <div class="modal-backdrop" @click.self="showArtworkConfirmation = false"></div>
+        <div class="modal-content card p-xl">
+          <h2 class="text-xl font-bold mb-lg">Cover Artwork Available from Deezer</h2>
+          
+          <p class="text-secondary mb-lg">
+            We found {{ Object.keys(deezerArtwork).length }} release(s) without uploaded cover art. 
+            Deezer has cover artwork available for these releases.
+          </p>
+          
+          <div class="artwork-preview-grid grid grid-cols-3 gap-md mb-lg" v-if="Object.keys(deezerMetadata).length <= 6">
+            <div v-for="(metadata, upc) in deezerMetadata" :key="upc" v-if="deezerArtwork[upc]" class="text-center">
+              <img 
+                :src="metadata.coverUrlOriginal || metadata.coverUrl" 
+                :alt="metadata.title"
+                class="artwork-preview rounded-md mb-xs"
+              />
+              <p class="text-xs text-secondary">{{ metadata.title }}</p>
+            </div>
+          </div>
+          
+          <div class="artwork-choice mb-lg">
+            <label class="flex items-center gap-sm mb-md cursor-pointer">
+              <input 
+                type="radio" 
+                value="use-deezer" 
+                v-model="artworkConfirmationChoice"
+              />
+              <span>Use Deezer artwork for releases without covers</span>
+            </label>
+            <label class="flex items-center gap-sm cursor-pointer">
+              <input 
+                type="radio" 
+                value="skip-artwork" 
+                v-model="artworkConfirmationChoice"
+              />
+              <span>Continue without cover art (not recommended)</span>
+            </label>
+          </div>
+          
+          <div class="flex justify-end gap-md">
+            <button @click="showArtworkConfirmation = false" class="btn btn-secondary">
+              Cancel
+            </button>
+            <button @click="handleArtworkChoice" class="btn btn-primary">
+              Continue
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Artwork Download Progress -->
+      <div v-if="downloadingArtwork" class="artwork-download-card card p-xl mb-xl">
+        <div class="flex items-center gap-md mb-lg">
+          <font-awesome-icon icon="spinner" spin class="text-xl text-info" />
+          <h4>Downloading Artwork from Deezer</h4>
+        </div>
+        <p class="text-secondary">{{ artworkDownloadStatus }}</p>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width: 50%"></div>
+        </div>
       </div>
 
       <!-- Step Content -->
@@ -1326,24 +1553,12 @@ onMounted(() => {
           <!-- Metadata-less Mode: File Upload -->
           <template v-else>
             <div class="card-header">
-              <h2>Step 1: Upload DDEX-Compliant Files</h2>
+              <h2>Step 1: Upload DDEX-Compliant Audio Files</h2>
             </div>
             <div class="card-body">
               <div class="file-requirements mb-xl">
                 <h3 class="text-lg font-semibold mb-lg">File Naming Requirements</h3>
                 <div class="grid grid-cols-3 grid-cols-sm-1 gap-lg">
-                  <div class="requirement-card card p-lg text-center">
-                    <font-awesome-icon icon="image" class="requirement-icon" />
-                    <h4 class="font-semibold mb-sm">Cover Images</h4>
-                    <code>UPC.jpg</code>
-                    <p class="text-sm text-secondary">Example: 669158552979.jpg</p>
-                  </div>
-                  <div class="requirement-card card p-lg text-center">
-                    <font-awesome-icon icon="images" class="requirement-icon" />
-                    <h4 class="font-semibold mb-sm">Additional Images</h4>
-                    <code>UPC_XX.jpg</code>
-                    <p class="text-sm text-secondary">Example: 669158552979_02.jpg</p>
-                  </div>
                   <div class="requirement-card card p-lg text-center">
                     <font-awesome-icon icon="music" class="requirement-icon" />
                     <h4 class="font-semibold mb-sm">Audio Files</h4>
@@ -1351,6 +1566,26 @@ onMounted(() => {
                     <p class="text-sm text-secondary">Example: 669158552979_01_001.wav</p>
                     <small class="text-xs text-tertiary block mt-xs">DD = Disc Number (01), TTT = Track Number (001)</small>
                   </div>
+                  <div class="requirement-card card p-lg text-center">
+                    <font-awesome-icon icon="image" class="requirement-icon" />
+                    <h4 class="font-semibold mb-sm">Cover Images (Optional)</h4>
+                    <code>UPC.jpg</code>
+                    <p class="text-sm text-secondary">Example: 669158552979.jpg</p>
+                    <small class="text-xs text-info block mt-xs">If not provided, will be fetched from Deezer</small>
+                  </div>
+                  <div class="requirement-card card p-lg text-center">
+                    <font-awesome-icon icon="images" class="requirement-icon" />
+                    <h4 class="font-semibold mb-sm">Additional Images</h4>
+                    <code>UPC_XX.jpg</code>
+                    <p class="text-sm text-secondary">Example: 669158552979_02.jpg</p>
+                  </div>
+                </div>
+                
+                <div class="info-box p-md bg-info-light rounded-lg mt-lg">
+                  <p class="text-sm mb-0">
+                    <font-awesome-icon icon="info-circle" class="mr-sm" />
+                    <strong>No cover art?</strong> No problem! We'll automatically fetch high-quality cover artwork from Deezer when available.
+                  </p>
                 </div>
               </div>
 
@@ -1398,7 +1633,7 @@ onMounted(() => {
 
                 <!-- Image Upload -->
                 <div class="upload-section">
-                  <h3 class="text-lg font-semibold mb-md">Cover Images</h3>
+                  <h3 class="text-lg font-semibold mb-md">Cover Images (Optional)</h3>
                   <div class="upload-area" :class="{ 'uploading': uploadingFiles.images }">
                     <label class="upload-label">
                       <input 
@@ -1415,7 +1650,7 @@ onMounted(() => {
                         class="upload-icon" 
                       />
                       <p>{{ uploadingFiles.images ? 'Uploading...' : 'Upload cover images (JPG, PNG)' }}</p>
-                      <span v-if="!uploadingFiles.images" class="btn btn-primary">Choose Images</span>
+                      <span v-if="!uploadingFiles.images" class="btn btn-secondary">Choose Images</span>
                     </label>
                   </div>
                   
@@ -1427,8 +1662,8 @@ onMounted(() => {
                         :key="file.name"
                         class="file-item flex items-center gap-xs p-sm bg-secondary rounded-md text-sm"
                       >
-                        <font-awesome-icon icon="image" />
-                        <span>{{ file.name }}</span>
+                        <font-awesome-icon :icon="file.source === 'deezer' ? 'cloud-download-alt' : 'image'" />
+                        <span>{{ file.name }}{{ file.source === 'deezer' ? ' (Deezer)' : '' }}</span>
                       </div>
                       <div v-if="uploadedFiles.images.length > 10" class="file-item more p-sm bg-primary-light text-primary rounded-md text-sm font-medium">
                         +{{ uploadedFiles.images.length - 10 }} more
@@ -1542,6 +1777,10 @@ onMounted(() => {
                           <span>•</span>
                           <span>{{ metadata.tracks.length }} tracks</span>
                         </p>
+                        <div v-if="metadata.coverUrl && !hasUploadedCovers" class="flex items-center gap-xs text-sm text-info mt-xs">
+                          <font-awesome-icon icon="cloud-download-alt" />
+                          <span>Cover art will be imported from Deezer</span>
+                        </div>
                       </div>
                     </div>
                     <div class="track-list-preview border-t pt-md mt-md">
@@ -1648,8 +1887,8 @@ onMounted(() => {
                     <th>Artist</th>
                     <th>UPC</th>
                     <th>Tracks</th>
+                    <th>Cover Art</th>
                     <th>Status</th>
-                    <th v-if="isMetadatalessMode">Source</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1659,10 +1898,17 @@ onMounted(() => {
                     <td>{{ match.release.upc }}</td>
                     <td>{{ match.release.tracks.length }}</td>
                     <td>
-                      <span class="badge badge-success">Draft Created</span>
+                      <span v-if="match.matchedFiles.coverImage?.source === 'deezer'" class="badge badge-info">
+                        <font-awesome-icon icon="cloud-download-alt" />
+                        Deezer
+                      </span>
+                      <span v-else-if="match.matchedFiles.coverImage" class="badge badge-secondary">
+                        User
+                      </span>
+                      <span v-else class="badge">None</span>
                     </td>
-                    <td v-if="isMetadatalessMode">
-                      <span class="badge badge-info">Deezer</span>
+                    <td>
+                      <span class="badge badge-success">Draft Created</span>
                     </td>
                   </tr>
                 </tbody>
@@ -1821,6 +2067,16 @@ onMounted(() => {
   font-size: var(--text-sm);
 }
 
+/* Info Box */
+.info-box {
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.1), rgba(66, 133, 244, 0.05));
+  border: 1px solid var(--color-info);
+}
+
+.bg-info-light {
+  background-color: rgba(66, 133, 244, 0.1);
+}
+
 /* Button Active State */
 .btn-active {
   background-color: var(--color-primary) !important;
@@ -1908,6 +2164,69 @@ onMounted(() => {
   object-fit: cover;
 }
 
+/* Artwork Confirmation Modal */
+.artwork-confirmation-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+  position: relative;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow-y: auto;
+  z-index: 1;
+}
+
+.artwork-preview-grid {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.artwork-preview {
+  width: 100%;
+  max-width: 120px;
+  height: auto;
+}
+
+.artwork-choice label {
+  cursor: pointer;
+  padding: var(--space-sm);
+  border-radius: var(--radius-md);
+  transition: background-color var(--transition-base);
+}
+
+.artwork-choice label:hover {
+  background-color: var(--color-bg-secondary);
+}
+
+.artwork-choice input[type="radio"] {
+  margin-right: var(--space-sm);
+}
+
+/* Artwork Download Card */
+.artwork-download-card {
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.1), rgba(66, 133, 244, 0.05));
+  border: 2px solid var(--color-info);
+  animation: fadeIn 0.3s ease-in;
+}
+
 /* Result Cards */
 .result-card.success {
   background-color: rgba(52, 168, 83, 0.1);
@@ -1969,6 +2288,11 @@ onMounted(() => {
   color: var(--color-info);
 }
 
+.badge-secondary {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+
 /* Button Icon */
 .btn-icon {
   background: none;
@@ -2004,10 +2328,18 @@ onMounted(() => {
   background: linear-gradient(135deg, rgba(66, 133, 244, 0.2), var(--color-surface));
 }
 
+[data-theme="dark"] .artwork-confirmation-modal .modal-backdrop {
+  background-color: rgba(0, 0, 0, 0.8);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .mapping-row {
     grid-template-columns: 1fr;
+  }
+  
+  .artwork-preview-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 </style>
