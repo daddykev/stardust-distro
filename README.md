@@ -1,9 +1,9 @@
 # Stardust Distro
 
-[](https://opensource.org/licenses/MIT)
-[](https://vuejs.org/)
-[](https://firebase.google.com/)
-[](https://github.com/daddykev/stardust-distro)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Vue 3](https://img.shields.io/badge/Vue-3.x-4FC08D.svg)](https://vuejs.org/)
+[![Firebase](https://img.shields.io/badge/Firebase-v9-FFA000.svg)](https://firebase.google.com/)
+[![Status](https://img.shields.io/badge/Status-Alpha-orange.svg)](https://github.com/daddykev/stardust-distro)
 
 > Open-source, npm-installable music distribution platform for the modern music industry.
 
