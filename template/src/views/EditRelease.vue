@@ -5,6 +5,13 @@ import { useCatalog } from '../composables/useCatalog'
 import { useAuth } from '../composables/useAuth'
 import GenreSelector from '../components/GenreSelector.vue'
 import { getGenreByCode } from '../dictionaries/genres'
+import { 
+  ContributorCategories,
+  searchContributorRoles,
+  getRolesByCategory,
+  categorizeRole,
+  CommonRoles
+} from '../dictionaries/contributors'
 
 const router = useRouter()
 const route = useRoute()
@@ -93,6 +100,25 @@ const validationErrors = ref({
 
 // Upload progress tracking
 const uploadProgress = ref({})
+
+// Contributor modal state
+const contributorModal = ref({
+  show: false,
+  trackIndex: null,
+  name: '',
+  role: '',
+  category: ContributorCategories.PERFORMER,
+  roleSearch: '',
+  searchResults: [],
+  error: null
+})
+
+// Category labels for UI
+const contributorCategories = {
+  [ContributorCategories.PERFORMER]: 'Performer',
+  [ContributorCategories.PRODUCER_ENGINEER]: 'Producer/Engineer',
+  [ContributorCategories.COMPOSER_LYRICIST]: 'Composer/Lyricist'
+}
 
 // Computed properties
 const hasChanges = computed(() => {
@@ -217,6 +243,13 @@ onMounted(async () => {
         metadata: { ...releaseData.value.metadata, ...(currentRelease.value.metadata || {}) },
         territories: { ...releaseData.value.territories, ...(currentRelease.value.territories || {}) }
       }
+      
+      // Ensure all tracks have contributors array
+      releaseData.value.tracks.forEach(track => {
+        if (!track.contributors) {
+          track.contributors = []
+        }
+      })
       
       // Store original data for comparison
       originalData.value = JSON.parse(JSON.stringify(releaseData.value))
@@ -356,7 +389,8 @@ const handleAddTrack = () => {
     artist: releaseData.value.basic.displayArtist,
     duration: 0,
     isrc: '',
-    audio: null
+    audio: null,
+    contributors: [] // Add empty contributors array
   }
   
   releaseData.value.tracks.push(newTrack)
@@ -377,6 +411,119 @@ const handleRemoveTrack = (index) => {
     })
     modifiedSections.value.add('tracks')
   }
+}
+
+// Contributor management
+const showContributorModal = (trackIndex) => {
+  contributorModal.value = {
+    show: true,
+    trackIndex,
+    name: '',
+    role: '',
+    category: ContributorCategories.PERFORMER,
+    roleSearch: '',
+    searchResults: [],
+    error: null
+  }
+}
+
+const closeContributorModal = () => {
+  contributorModal.value.show = false
+}
+
+const searchRoles = () => {
+  const query = contributorModal.value.roleSearch
+  if (query.length < 2) {
+    contributorModal.value.searchResults = []
+    return
+  }
+  
+  contributorModal.value.searchResults = searchContributorRoles(
+    query,
+    contributorModal.value.category
+  )
+}
+
+const selectRole = (role) => {
+  contributorModal.value.role = role
+  contributorModal.value.roleSearch = ''
+  contributorModal.value.searchResults = []
+}
+
+const getCommonRoles = (category) => {
+  switch (category) {
+    case ContributorCategories.PERFORMER:
+      return ['Vocals', 'Guitar', 'Bass Guitar', 'Drums', 'Keyboard', 'Piano']
+    case ContributorCategories.PRODUCER_ENGINEER:
+      return ['Producer', 'Mix Engineer', 'Mastering Engineer', 'Recording Engineer']
+    case ContributorCategories.COMPOSER_LYRICIST:
+      return ['Composer', 'Lyricist', 'Songwriter', 'Arranger']
+    default:
+      return []
+  }
+}
+
+const addContributor = () => {
+  const { trackIndex, name, role } = contributorModal.value
+  
+  if (!name || !role) {
+    contributorModal.value.error = 'Please enter both name and role'
+    return
+  }
+  
+  const track = releaseData.value.tracks[trackIndex]
+  if (!track.contributors) {
+    track.contributors = []
+  }
+  
+  // Check for duplicates
+  const exists = track.contributors.some(c => 
+    c.name === name && c.role === role
+  )
+  
+  if (exists) {
+    contributorModal.value.error = 'This contributor has already been added'
+    return
+  }
+  
+  track.contributors.push({
+    name: name.trim(),
+    role: role,
+    category: categorizeRole(role)
+  })
+  
+  modifiedSections.value.add('tracks')
+  closeContributorModal()
+}
+
+const removeContributor = (trackIndex, contributorIndex) => {
+  const track = releaseData.value.tracks[trackIndex]
+  if (track.contributors) {
+    track.contributors.splice(contributorIndex, 1)
+    modifiedSections.value.add('tracks')
+  }
+}
+
+const getCategoryClass = (role) => {
+  const category = categorizeRole(role)
+  switch (category) {
+    case ContributorCategories.PERFORMER:
+      return 'performer'
+    case ContributorCategories.PRODUCER_ENGINEER:
+      return 'producer'
+    case ContributorCategories.COMPOSER_LYRICIST:
+      return 'composer'
+    default:
+      return 'unknown'
+  }
+}
+
+const formatCategoryName = (category) => {
+  return contributorCategories[category] || 'Unknown'
+}
+
+const clearContributorError = () => {
+  contributorModal.value.error = null
 }
 
 // File upload handlers
@@ -746,6 +893,44 @@ const handleSubgenreUpdate = (value) => {
                     />
                   </div>
                   
+                  <!-- Contributors Section -->
+                  <div class="track-contributors">
+                    <div class="contributors-header">
+                      <span class="contributors-label">Contributors</span>
+                      <button 
+                        @click="showContributorModal(index)" 
+                        class="btn btn-ghost btn-sm"
+                        type="button"
+                      >
+                        <font-awesome-icon icon="plus" />
+                        Add Contributor
+                      </button>
+                    </div>
+                    
+                    <div v-if="track.contributors && track.contributors.length > 0" class="contributors-list">
+                      <div 
+                        v-for="(contributor, cIndex) in track.contributors" 
+                        :key="`${track.id}-contributor-${cIndex}`"
+                        class="contributor-tag"
+                        :class="`contributor-${getCategoryClass(contributor.role)}`"
+                      >
+                        <span class="contributor-name">{{ contributor.name }}</span>
+                        <span class="contributor-role">{{ contributor.role }}</span>
+                        <button 
+                          @click="removeContributor(index, cIndex)" 
+                          class="contributor-remove"
+                          type="button"
+                        >
+                          <font-awesome-icon icon="times" />
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div v-else class="no-contributors">
+                      No contributors added yet
+                    </div>
+                  </div>
+                  
                   <div class="track-audio">
                     <label class="btn btn-secondary btn-sm">
                       <font-awesome-icon icon="upload" />
@@ -963,6 +1148,114 @@ const handleSubgenreUpdate = (value) => {
               Territory selection will be available in the next update
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Contributor Modal -->
+    <div v-if="contributorModal.show" class="modal-overlay" @click="closeContributorModal">
+      <div class="modal-content contributor-modal" @click.stop>
+        <div class="modal-header">
+          <h2>Add Contributor to Track {{ contributorModal.trackIndex + 1 }}</h2>
+          <button @click="closeContributorModal" class="btn-icon">
+            <font-awesome-icon icon="times" />
+          </button>
+        </div>
+        
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label required">Contributor Name</label>
+            <input 
+              v-model="contributorModal.name"
+              type="text" 
+              class="form-input"
+              placeholder="e.g., John Smith"
+              @input="clearContributorError"
+            />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label required">Role Category</label>
+            <div class="category-tabs">
+              <button 
+                v-for="(label, key) in contributorCategories"
+                :key="key"
+                @click="contributorModal.category = key"
+                :class="{ active: contributorModal.category === key }"
+                class="category-tab"
+                type="button"
+              >
+                {{ label }}
+              </button>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label required">Role</label>
+            <div class="role-search">
+              <input 
+                v-model="contributorModal.roleSearch"
+                type="text" 
+                class="form-input"
+                placeholder="Search for a role..."
+                @input="searchRoles"
+              />
+            </div>
+            
+            <div class="common-roles" v-if="!contributorModal.roleSearch">
+              <span class="common-roles-label">Common roles:</span>
+              <button 
+                v-for="role in getCommonRoles(contributorModal.category)"
+                :key="role"
+                @click="selectRole(role)"
+                class="role-chip"
+                :class="{ selected: contributorModal.role === role }"
+                type="button"
+              >
+                {{ role }}
+              </button>
+            </div>
+            
+            <div v-if="contributorModal.searchResults.length > 0" class="role-results">
+              <button 
+                v-for="result in contributorModal.searchResults"
+                :key="result.role || result"
+                @click="selectRole(result.role || result)"
+                class="role-option"
+                :class="{ selected: contributorModal.role === (result.role || result) }"
+                type="button"
+              >
+                <span class="role-name">{{ result.role || result }}</span>
+                <span v-if="result.category" class="role-category">
+                  {{ formatCategoryName(result.category) }}
+                </span>
+              </button>
+            </div>
+            
+            <div v-if="contributorModal.role" class="selected-role">
+              <font-awesome-icon icon="check-circle" />
+              Selected: <strong>{{ contributorModal.role }}</strong>
+            </div>
+          </div>
+          
+          <div v-if="contributorModal.error" class="form-error">
+            <font-awesome-icon icon="exclamation-triangle" />
+            {{ contributorModal.error }}
+          </div>
+        </div>
+        
+        <div class="modal-footer">
+          <button @click="closeContributorModal" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button 
+            @click="addContributor"
+            class="btn btn-primary"
+            :disabled="!contributorModal.name || !contributorModal.role"
+          >
+            <font-awesome-icon icon="plus" />
+            Add Contributor
+          </button>
         </div>
       </div>
     </div>
@@ -1294,6 +1587,272 @@ const handleSubgenreUpdate = (value) => {
   color: var(--color-border);
 }
 
+/* Contributor Styles */
+.track-contributors {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.contributors-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-sm);
+}
+
+.contributors-label {
+  font-weight: var(--font-medium);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.contributors-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+}
+
+.contributor-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+}
+
+.contributor-tag.contributor-performer {
+  background-color: rgba(66, 133, 244, 0.1);
+  border-color: rgba(66, 133, 244, 0.3);
+}
+
+.contributor-tag.contributor-producer {
+  background-color: rgba(52, 168, 83, 0.1);
+  border-color: rgba(52, 168, 83, 0.3);
+}
+
+.contributor-tag.contributor-composer {
+  background-color: rgba(251, 188, 4, 0.1);
+  border-color: rgba(251, 188, 4, 0.3);
+}
+
+.contributor-name {
+  font-weight: var(--font-medium);
+  color: var(--color-text);
+}
+
+.contributor-role {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.contributor-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.contributor-remove:hover {
+  color: var(--color-error);
+}
+
+.no-contributors {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  font-style: italic;
+  padding: var(--space-sm) 0;
+}
+
+/* Contributor Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+}
+
+.modal-content {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.contributor-modal {
+  width: 650px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+}
+
+.modal-body {
+  padding: var(--space-lg);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Category Tabs */
+.category-tabs {
+  display: flex;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.category-tab {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-weight: var(--font-medium);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.category-tab:hover {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+.category-tab.active {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+/* Role Selection */
+.role-search {
+  margin-bottom: var(--space-md);
+}
+
+.common-roles {
+  margin-bottom: var(--space-md);
+}
+
+.common-roles-label {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-sm);
+}
+
+.role-chip {
+  display: inline-block;
+  padding: var(--space-xs) var(--space-sm);
+  margin: var(--space-xs);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.role-chip:hover {
+  background-color: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+
+.role-chip.selected {
+  background-color: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.role-results {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-md);
+}
+
+.role-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition-base);
+}
+
+.role-option:hover {
+  background-color: var(--color-bg-secondary);
+}
+
+.role-option.selected {
+  background-color: var(--color-primary-light);
+}
+
+.role-name {
+  font-weight: var(--font-medium);
+  color: var(--color-text);
+}
+
+.role-category {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.selected-role {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background-color: rgba(52, 168, 83, 0.1);
+  border: 1px solid rgba(52, 168, 83, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--color-success);
+  font-size: var(--text-sm);
+}
+
 /* Assets Section */
 .asset-section {
   margin-bottom: var(--space-lg);
@@ -1601,6 +2160,19 @@ const handleSubgenreUpdate = (value) => {
   
   .floating-save-btn.mobile-only {
     display: flex;
+  }
+
+  .modal-content {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .contributor-modal {
+    width: 95%;
+  }
+
+  .category-tabs {
+    flex-direction: column;
   }
 }
 
