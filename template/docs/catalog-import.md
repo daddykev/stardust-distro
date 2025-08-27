@@ -1,91 +1,163 @@
 # Catalog Import & Migration Guide 📦
 
-Complete guide for importing your existing catalog and migrating from other platforms to Stardust Distro.
+Complete guide for importing your existing catalog into Stardust Distro using our comprehensive dual-mode import system.
 
 ## Table of Contents
-1. [Quick Import](#quick-import)
-2. [Migration from Other Platforms](#migration-from-other-platforms)
-3. [CSV Format Specification](#csv-format-specification)
-4. [File Organization](#file-organization)
-5. [Import Process](#import-process)
-6. [Advanced Features](#advanced-features)
-7. [Troubleshooting](#troubleshooting)
+1. [Import Modes Overview](#import-modes-overview)
+2. [Standard Mode (CSV + Files)](#standard-mode-csv--files)
+3. [Metadata-less Mode (Files Only)](#metadata-less-mode-files-only)
+4. [CSV Format Specification](#csv-format-specification)
+5. [File Naming Requirements](#file-naming-requirements)
+6. [Import Process Details](#import-process-details)
+7. [Import Job Management](#import-job-management)
+8. [Matching System](#matching-system)
+9. [Advanced Features](#advanced-features)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Quick Import
+## Import Modes Overview
 
-### Prerequisites
-- CSV file with your catalog data (UTF-8 encoded)
-- Audio files in WAV, FLAC, or MP3 format
-- Cover images (minimum 3000x3000px)
-- Files named according to DDEX standards
+Stardust Distro offers two powerful import modes accessible via the Migration interface:
 
-### Three-Step Process
+| Mode | Steps | Requirements | Use Case |
+|------|-------|--------------|----------|
+| **Standard Mode** | 3 steps | CSV + Audio + Images | When you have complete metadata in spreadsheet format |
+| **Metadata-less Mode** | 2 steps | DDEX-named audio files only | When you only have audio files but they follow DDEX naming |
 
-1. **Upload CSV** → System parses catalog data
-2. **Upload Files** → Automatic matching by UPC
-3. **Review & Create** → Verify and import releases
+### Mode Toggle
+Switch between modes using the "Metadata-less" button in the Migration header. The interface dynamically adjusts steps and requirements based on the selected mode.
 
 ---
 
-## Migration from Other Platforms
+## Standard Mode (CSV + Files)
 
-### Export Your Current Catalog
+### Three-Step Workflow
 
-Most distribution platforms allow you to export your catalog data. Common export formats include:
-- CSV (Comma-Separated Values)
-- TSV (Tab-Separated Values)
-- XML (Extensible Markup Language)
-- JSON (JavaScript Object Notation)
+#### Step 1: Import Catalog Metadata
+Upload and map your CSV file containing release and track information.
 
-### Preparing Your Export
+#### Step 2: Upload Files  
+Batch upload audio files and cover images with DDEX-compliant naming.
 
-1. **Request or download catalog export** from your current platform
-2. **Download all assets** (audio files and artwork)
-3. **Convert to CSV format** if necessary
-4. **Map columns** to Stardust Distro format
+#### Step 3: Match & Create
+System automatically matches files to metadata and creates draft releases.
 
-### Generic Column Mapping
+### CSV Import Features
 
-| Common Field Names | Our Column | Notes |
-|-------------------|------------|--------|
-| Album/Release/Title | title | Required |
-| Artist/Performer | artist | Required |
-| UPC/EAN/Barcode | upc | Required, 12-14 digits |
-| ISRC/Track Code | isrc | Per track |
-| Release Date/Street Date | releaseDate | YYYY-MM-DD format |
-| Track Name/Song Title | trackTitle | Required per track |
-| Track #/Position | trackNumber | Required per track |
-| Disc #/Volume | discNumber | Default: 1 |
-| Label/Record Label | label | Optional |
-| Catalog #/Cat Number | catalogNumber | Optional |
+#### Automatic Field Detection
+The system intelligently detects common column name variations:
+- Title: `title`, `release_title`, `album_title`, `name`
+- Artist: `artist`, `display_artist`, `album_artist`, `performer`
+- UPC: `upc`, `barcode`, `ean`, `gtin`
+- Track Title: `track_title`, `song_title`, `track_name`
+- Track Number: `track_number`, `track_no`, `track_#`, `sequence`
 
-### Migration Strategy
+#### Field Mapping Interface
+- Visual mapping grid showing CSV headers and target fields
+- Required fields marked with asterisk (*)
+- Auto-populated suggestions based on column names
+- Dropdown selectors for each field mapping
+- Validation before proceeding
 
-#### Phase 1: Export & Prepare
-1. Export catalog from current platform
-2. Download all assets (audio + artwork)
-3. Organize files by release
-4. Create backup of everything
+#### CSV Validation
+- Required field checking
+- UPC format validation (12-14 digits)
+- Date format validation (YYYY-MM-DD)
+- Row count and parsing confirmation
+- Error reporting with specific row numbers
 
-#### Phase 2: Transform Data
-1. Convert export to our CSV format
-2. Rename files to DDEX standard
-3. Verify UPCs and ISRCs
-4. Fix any data inconsistencies
+### File Upload System
 
-#### Phase 3: Import to Stardust
-1. Import back catalog (oldest first)
-2. Verify each batch of 50 releases
-3. Complete metadata for drafts
-4. Schedule re-delivery to DSPs
+#### Audio Upload Area
+- Drag-and-drop zone or click to browse
+- Multiple file selection supported
+- Accepts WAV, FLAC, MP3 formats
+- Real-time DDEX naming validation
+- Individual file upload progress bars
+- Shows uploaded count and file names
 
-#### Phase 4: Transition
-1. Continue using old platform for new releases
-2. Gradually transition workflows
-3. Update DSP configurations
-4. Notify partners of change
+#### Image Upload Area  
+- Separate zone for cover and additional images
+- Supports JPG, PNG formats
+- Validates image dimensions
+- Shows thumbnail previews after upload
+- Tracks cover vs additional images
+
+---
+
+## Metadata-less Mode (Files Only)
+
+### Revolutionary Two-Step Process
+
+#### Step 1: Upload DDEX-Compliant Files
+Upload audio files (and optionally images) that follow DDEX naming convention.
+
+#### Step 2: Automatic Metadata & Match
+System extracts UPCs, fetches metadata from Deezer, and creates complete releases.
+
+### Deezer Integration Details
+
+#### Metadata Fetching Process
+1. **UPC Extraction**
+   - Parses filenames for UPC patterns
+   - Groups files by unique UPC
+   - Shows count of unique releases found
+
+2. **API Query Sequence**
+   - Queries Deezer API by UPC
+   - Shows real-time progress: "Fetching metadata for UPC {upc}..."
+   - Implements 500ms rate limiting between calls
+   - Handles API failures gracefully
+
+3. **Data Retrieved**
+   - Album: Title, artist, label, release date, genre
+   - Tracks: Title, artist, ISRC, duration, track number
+   - Cover art: Multiple resolutions available
+   - Additional: Track count, album duration
+
+#### Cover Art Management
+
+##### Intelligent Detection
+- Checks if user uploaded cover for each UPC
+- Identifies releases needing artwork
+- Counts total artwork requirements
+
+##### User Confirmation Dialog
+When Deezer artwork is available:
+- Modal shows preview grid of available covers
+- Lists number of releases needing artwork
+- Radio button choices:
+  - "Use Deezer artwork for releases without covers"
+  - "Continue without cover art (not recommended)"
+- Artwork quality indicator (XL = 1000x1000px)
+
+##### Download Process
+- Downloads from Deezer CDN
+- Stores in Firebase Storage: `imports/{userId}/{importJobId}/deezer-artwork/{UPC}-xl.jpg`
+- Adds source metadata tag
+- Shows download progress
+- Integrates with matching system
+
+### Visual Progress Indicators
+
+#### Metadata Fetch Card
+- Spinner icon with "Fetching Metadata from Deezer" header
+- Current status text
+- Progress details showing:
+  - Current UPC being processed
+  - X of Y releases processed
+  - Progress bar
+
+#### Fetched Metadata Display
+After successful fetch:
+- Success icon with count of retrieved releases
+- Card for each release showing:
+  - Album cover thumbnail (if available)
+  - Title and artist
+  - UPC and track count
+  - Track list preview (first 3 tracks)
+  - Cover art source indicator
 
 ---
 
@@ -93,537 +165,480 @@ Most distribution platforms allow you to export your catalog data. Common export
 
 ### Required Columns
 
-```csv
-title,artist,upc,releaseDate,trackTitle,trackNumber,discNumber
-"Album Name","Artist Name","123456789012","2024-01-01","Song Title",1,1
-```
+| Column | Field Type | Format | Example | Notes |
+|--------|------------|--------|---------|-------|
+| title | Release | Text | "Summer Album" | Album/Release title |
+| artist | Release | Text | "Beach Band" | Primary artist |
+| upc | Release | 12-14 digits | "123456789012" | No spaces or dashes |
+| releaseDate | Release | YYYY-MM-DD | "2024-06-01" | ISO date format |
+| trackTitle | Track | Text | "Sunset Dreams" | Song title |
+| trackNumber | Track | Integer | 1 | Track sequence |
+| trackArtist | Track | Text | "Beach Band" | Optional, defaults to release artist |
+| isrc | Track | 12 chars | "USRC12400001" | Optional |
+| discNumber | Track | Integer | 1 | Optional, defaults to 1 |
+| duration | Track | Seconds | 215 | Optional |
+| label | Release | Text | "Indie Records" | Optional |
+| catalogNumber | Release | Text | "CAT001" | Optional |
+| genre | Release | Text | "Pop" | Optional |
 
-### Complete Column Reference
-
-| Column | Required | Format | Example | Notes |
-|--------|----------|--------|---------|-------|
-| **Release Fields** | | | | |
-| title | ✅ Yes | Text | "My Album" | Release title |
-| artist | ✅ Yes | Text | "Artist Name" | Display artist |
-| upc | ✅ Yes | 12-14 digits | "123456789012" | No spaces/dashes |
-| releaseDate | ✅ Yes | YYYY-MM-DD | "2024-01-01" | ISO format |
-| label | No | Text | "My Label" | Record label |
-| catalogNumber | No | Text | "CAT001" | Catalog ID |
-| genre | No | Text | "Rock" | Primary genre |
-| subgenre | No | Text | "Alternative Rock" | Secondary |
-| **Track Fields** | | | | |
-| trackTitle | ✅ Yes | Text | "Song Name" | Track title |
-| trackNumber | ✅ Yes | Integer | 1 | Track position |
-| discNumber | No | Integer | 1 | Default: 1 |
-| trackArtist | No | Text | "Feat. Artist" | If different |
-| isrc | No | 12 chars | "USRC17607839" | Track ISRC |
-| duration | No | Seconds | 180 | Length in seconds |
-| explicit | No | Boolean | "true"/"false" | Explicit content |
-| **Credits** | | | | |
-| composer | No | Text | "John Doe" | Songwriter |
-| lyricist | No | Text | "Jane Doe" | Lyric writer |
-| producer | No | Text | "Producer Name" | Producer |
-| mixer | No | Text | "Mixer Name" | Mixing engineer |
-| **Additional** | | | | |
-| copyright | No | Text | "© 2024 Label" | Copyright line |
-| copyrightYear | No | Year | 2024 | Copyright year |
-| originalReleaseDate | No | YYYY-MM-DD | "2020-01-01" | First release |
-| language | No | ISO 639-1 | "en" | Primary language |
-| notes | No | Text | "Special edition" | Internal notes |
-
-### Multi-Disc Format
-
-For releases with multiple discs:
+### Multi-Row Format
+Each track is a separate row with release information repeated:
 
 ```csv
-title,artist,upc,releaseDate,trackTitle,trackNumber,discNumber
-"Double Album","Artist","123456789012","2024-01-01","Song 1",1,1
-"Double Album","Artist","123456789012","2024-01-01","Song 2",2,1
-"Double Album","Artist","123456789012","2024-01-01","Song 3",1,2
-"Double Album","Artist","123456789012","2024-01-01","Song 4",2,2
+title,artist,upc,releaseDate,trackTitle,trackNumber
+"Album","Artist","123456789012","2024-01-01","Track 1",1
+"Album","Artist","123456789012","2024-01-01","Track 2",2
 ```
 
-### Compilation/Various Artists
-
-For compilations:
-
-```csv
-title,artist,upc,releaseDate,trackTitle,trackArtist,trackNumber
-"Compilation","Various Artists","123456789012","2024-01-01","Song 1","Artist A",1
-"Compilation","Various Artists","123456789012","2024-01-01","Song 2","Artist B",2
-```
+### Sample CSV Download
+Click "Download Sample CSV" button in Step 1 to get a properly formatted template.
 
 ---
 
-## File Organization
+## File Naming Requirements
 
-### DDEX-Compliant Naming
+### DDEX-Compliant Naming Convention
+
+All files must follow DDEX standard naming to enable automatic matching:
 
 #### Audio Files
 ```
-Pattern: {UPC}_{DiscNumber}_{TrackNumber}.{extension}
-Example: 123456789012_01_001.wav
+Format: {UPC}_{DiscNumber}_{TrackNumber}.{extension}
+Pattern: \d{12,14}_\d{2}_\d{3}\.(wav|flac|mp3)
+Example: 669158552979_01_001.wav
 ```
+
+Components:
+- **UPC**: 12-14 digit barcode
+- **DiscNumber**: Two digits (01, 02, etc.)
+- **TrackNumber**: Three digits (001, 002, etc.)
+- **Extension**: wav, flac, or mp3
 
 #### Cover Images
 ```
-Pattern: {UPC}_cover.{extension}
-Example: 123456789012_cover.jpg
+Format: {UPC}.{extension}
+Pattern: \d{12,14}\.(jpg|jpeg|png)
+Example: 669158552979.jpg
 ```
 
 #### Additional Images
 ```
-Pattern: {UPC}_image_{number}.{extension}
-Example: 123456789012_image_01.jpg
+Format: {UPC}_{ImageNumber}.{extension}
+Pattern: \d{12,14}_\d{2}\.(jpg|jpeg|png)
+Example: 669158552979_02.jpg
 ```
 
-### Folder Structure
+### Validation Messages
 
-Recommended organization:
-```
-import_files/
-├── audio/
-│   ├── 123456789012_01_001.wav
-│   ├── 123456789012_01_002.wav
-│   └── 123456789012_01_003.wav
-├── images/
-│   ├── 123456789012_cover.jpg
-│   └── 123456789012_image_01.jpg
-└── catalog.csv
-```
+The system provides real-time validation feedback:
+- ✅ Valid: "669158552979_01_001.wav - Valid (UPC: 669158552979)"
+- ❌ Invalid: "Track 1.wav - Invalid: Audio files must be named: UPC_DiscNumber_TrackNumber.wav"
 
 ---
 
-## Import Process
+## Import Process Details
 
-### Step 1: Navigate to Import
+### Navigation & Setup
 
-1. Go to **Catalog** view
-2. Click **"Import Catalog"** button
-3. Migration wizard opens
+1. **Access Migration**
+   - Go to Catalog view
+   - Click "Import Catalog" button
+   - Migration wizard opens
 
-### Step 2: Upload CSV
+2. **Mode Selection**
+   - Default: Standard Mode (3 steps)
+   - Click "Metadata-less" to switch (2 steps)
+   - Steps dynamically update
 
-1. **Select your CSV file**
-   - Drag and drop or click to browse
-   - Maximum 10MB file size
-   - UTF-8 encoding required
+3. **Import Job Creation**
+   - System creates import job on first action
+   - Job ID generated and stored
+   - Progress tracked in Firestore
 
-2. **Review detected columns**
-   - System auto-detects column mappings
-   - Adjust mappings if needed
-   - Verify required fields are mapped
+### Standard Mode Detailed Steps
 
-3. **Validate and proceed**
-   - System validates UPC checksums
-   - Checks for required fields
-   - Shows preview of releases to import
+#### Step 1: Import Metadata
 
-### Step 3: Upload Files
+**CSV Upload**
+- Drag-and-drop or click to browse
+- File size shown after selection
+- Parsing begins immediately
+- Row count displayed
 
-1. **Select all audio files**
-   - Multi-select with Ctrl/Cmd+Click
-   - Or drag entire folder
-   - Supported: WAV, FLAC, MP3
+**Field Mapping**
+- Headers extracted and displayed
+- Auto-mapping attempts for common names
+- Dropdown selectors for manual mapping
+- Required fields validation
+- "Validate & Continue" button enabled when ready
 
-2. **Select all image files**
-   - Cover images required
-   - Additional images optional
-   - Supported: JPG, PNG
+#### Step 2: Upload Files
 
-3. **Upload progress**
-   - Files upload in parallel
-   - Progress shown per file
-   - Can pause/resume upload
+**Upload Interface**
+- Two distinct upload zones (Audio | Images)
+- Drag-and-drop or multi-select
+- File validation on selection
+- Individual progress bars per file
+- Running count of uploaded files
 
-### Step 4: Automatic Matching
+**Progress Tracking**
+- Overall progress bar
+- Individual file progress
+- Current file indicator
+- Upload speed optimization
+- Error handling per file
 
-System automatically:
-1. **Matches files to releases by UPC**
-2. **Associates tracks by disc/track numbers**
-3. **Links cover images**
-4. **Creates draft releases**
+#### Step 3: Match & Create
 
-Results shown:
-- ✅ Complete releases (all files matched)
-- ⚠️ Incomplete releases (missing files)
-- ❌ Failed matches (naming issues)
+**Matching Process**
+- "Perform Matching" triggers automatically
+- Processes releases sequentially
+- Real-time status updates
+- Groups tracks by UPC and disc
 
-### Step 5: Review & Complete
+**Results Display**
+- Statistics cards:
+  - Total Releases
+  - Total Tracks  
+  - Matched Releases
+  - Incomplete Releases
+- Detailed results table
+- Color-coded status indicators
 
-1. **Review matched releases**
-   - Verify track order
-   - Check cover art
-   - Confirm metadata
+### Metadata-less Mode Detailed Steps
 
-2. **Fix incomplete releases**
-   - Upload missing files
-   - Correct file names
-   - Manual association
+#### Step 1: Upload Files
 
-3. **Bulk create releases**
-   - Select releases to import
-   - Click "Create Releases"
-   - Monitor progress
+**File Requirements Display**
+- Three info cards showing naming patterns
+- Audio files requirement (mandatory)
+- Cover images (optional)
+- Additional images (optional)
+
+**Upload Process**
+- Same upload interface as Standard Mode
+- DDEX validation stricter
+- No CSV field mapping needed
+- "Process Metadata" button appears after upload
+
+#### Step 2: Match & Create
+
+**Processing Stages**
+1. Extract UPCs from filenames
+2. Fetch metadata from Deezer (with progress)
+3. Handle cover art decisions
+4. Match files to metadata
+5. Create draft releases
+
+**Auto-triggering**
+- Matching begins automatically after metadata fetch
+- No manual trigger needed
+- Shows spinner during processing
+
+---
+
+## Import Job Management
+
+### Job Persistence
+
+#### Automatic Saving
+- Job created on first action
+- State saved after each step
+- Files tracked in `uploadedFiles`
+- Metadata stored in `parsedReleases`
+- Matching results preserved
+
+#### Resume Capability
+- Detects active job on component mount
+- Loads previous state automatically
+- Maintains mode selection
+- Restores upload progress
+- Continues from last step
+
+### Job States
+
+| Status | Description | Next Action |
+|--------|-------------|-------------|
+| started | Job created | Continue with import |
+| metadata_imported | CSV processed | Upload files |
+| metadata_fetched | Deezer data retrieved | Process matching |
+| files_uploading | Files being uploaded | Wait or continue |
+| matching_complete | Matching finished | Review results |
+| completed | Releases created | View in catalog |
+| cancelled | User cancelled | Start new import |
+
+### Job Operations
+
+**Cancel Import**
+- "Start Over" button in header
+- Cancels current job
+- Cleans up temporary files
+- Resets all state
+
+**View Status**
+- Real-time statistics dashboard
+- Shows current step progress
+- Error messages displayed
+- Incomplete items detailed
+
+---
+
+## Matching System
+
+### Matching Algorithm
+
+The system matches files to releases using:
+
+1. **UPC Extraction**
+   - From filename for audio/images
+   - From CSV for metadata
+
+2. **File Association**
+   - Audio: Match by UPC + Disc + Track
+   - Cover: Match by UPC (main image)
+   - Additional: Match by UPC + number
+
+3. **Completeness Check**
+   - All tracks have audio files
+   - Cover image present
+   - Required metadata complete
+
+### Match Results Categories
+
+#### ✅ Complete Releases
+- All audio files matched
+- Cover image present
+- Full metadata available
+- → Creates draft releases automatically
+
+#### ⚠️ Incomplete Releases  
+- Some files matched
+- Missing audio or images identified
+- Partial metadata
+- → Shows details in modal
+- → Can complete manually later
+
+#### ❌ Failed Matches
+- No files matched
+- Invalid naming
+- Missing in Deezer (metadata-less mode)
+- → Shows error details
+- → Requires manual intervention
+
+### MigrationStatus Component
+
+Shows detailed view of incomplete releases:
+- Release title and UPC
+- Missing tracks listed
+- Missing images identified
+- Options to fix issues
+- Direct edit links
 
 ---
 
 ## Advanced Features
 
-### Field Mapping
+### Import Statistics Dashboard
 
-#### Custom Column Names
+Real-time metrics displayed during import:
+- **Total Releases**: Count from CSV or unique UPCs
+- **Total Tracks**: Sum of all tracks
+- **Matched Releases**: Successfully matched count
+- **Incomplete Releases**: Partial matches count
+- **Errors**: Failed items count
 
-System recognizes common variations:
-- Title variations: `title`, `release_title`, `album_title`, `name`
-- Artist variations: `artist`, `display_artist`, `album_artist`, `performer`
-- UPC variations: `upc`, `barcode`, `ean`, `gtin`
-- Track variations: `track_title`, `song_title`, `track_name`, `song`
+### Automatic Processing
 
-#### Manual Mapping
+#### Release Type Detection
+```javascript
+trackCount === 1 → "Single"
+trackCount <= 6 → "EP"
+trackCount > 6 → "Album"
+```
 
-For non-standard columns:
-1. Click "Manual Mapping" mode
-2. Drag CSV columns to target fields
-3. Save mapping as template
-4. Reuse for future imports
+#### Data Cleaning
+- Trims whitespace
+- Normalizes UPC format
+- Validates dates
+- Escapes special characters
 
-### Bulk Processing Options
-
-#### Import Settings
-
-Configure before import:
-- **Skip duplicates**: Ignore existing UPCs
-- **Update existing**: Overwrite catalog entries
-- **Draft only**: Don't auto-publish
-- **Validate ISRCs**: Check ISRC format
-- **Auto-detect type**: Single/EP/Album detection
-- **Generate missing ISRCs**: Create ISRCs for tracks without
-
-#### Batch Size
-
-For large catalogs:
-- Process in batches of 100 releases
-- Prevents timeout issues
-- Shows batch progress
-- Auto-saves progress
-
-### Data Transformation
-
-#### Automatic Corrections
-
-System auto-fixes:
-- Removes whitespace from UPCs
-- Capitalizes ISRCs
-- Formats dates (YYYY-MM-DD)
-- Trims extra spaces
-- Normalizes apostrophes and quotes
-- Converts duration formats
-
-#### Genre Mapping
-
-During import:
-- Maps CSV genres to system genres
-- Uses intelligent matching
-- Falls back to "Other" if unknown
-- Can configure custom mappings
-
-### Incremental Import
-
-For ongoing migrations:
-
-1. **Initial Import**
-   - Import back catalog
-   - Note last successful UPC
-
-2. **Weekly Updates**
-   - Export new releases only
-   - Append to existing catalog
-   - Use "Skip duplicates" option
-
-3. **Final Migration**
-   - Complete remaining releases
-   - Verify all imported
-   - Deactivate old platform
-
----
-
-## Import Management
-
-### Monitoring Import Progress
-
-**Import Status Dashboard shows:**
-- Total releases in CSV
-- Files uploaded
-- Releases matched
-- Drafts created
-- Errors encountered
-- Estimated time remaining
-
-### Handling Incomplete Releases
-
-For releases missing files:
-1. **View missing items**
-   - Click "View Details" on incomplete release
-   - See which tracks/images are missing
-
-2. **Complete manually**
-   - Upload missing files individually
-   - Edit release to add missing data
-   - Change status to "Ready"
-
-3. **Re-run matching**
-   - After uploading more files
-   - Click "Re-match Files"
-   - System attempts matching again
-
-### Resume Interrupted Imports
-
-If import is interrupted:
-1. Return to Catalog → Import
-2. System detects active import
-3. Choose "Resume" or "Start New"
-4. Continue from last checkpoint
-
----
-
-## File Validation
-
-### Audio File Checks
-
-Before import, files are validated for:
-- **Format**: WAV, FLAC, or MP3
-- **Naming**: DDEX compliance
-- **Size**: Under 200MB per file
-- **Integrity**: Not corrupted
-- **Duration**: Between 30s and 30min
-- **Sample Rate**: 44.1kHz or higher
-- **Bit Depth**: 16-bit or higher
-
-### Image Requirements
-
-Cover images must be:
-- **Minimum**: 3000x3000 pixels
-- **Format**: JPG or PNG
-- **Aspect**: Square (1:1)
-- **Size**: Under 10MB
-- **Color**: RGB (not CMYK)
-- **Resolution**: 72 DPI or higher
-
-### Common Validation Errors
-
-**"Invalid UPC in filename"**
-- Check UPC is 12-14 digits
-- Remove spaces/dashes
-- Verify against CSV
-
-**"Track number format incorrect"**
-- Use 3 digits: 001, 002, etc.
-- Include disc number: 01
-- Format: UPC_DD_TTT
-
-**"Image dimensions too small"**
-- Resize to 3000x3000 minimum
-- Maintain square aspect ratio
-- Use high-quality source
-
----
-
-## Best Practices
-
-### Pre-Import Checklist
-
-Before starting import:
-- ✅ CSV validated in spreadsheet app
-- ✅ All UPCs verified (12-14 digits)
-- ✅ Files named correctly (DDEX)
-- ✅ Cover images ready (3000x3000)
-- ✅ Audio files normalized
-- ✅ Backup created of all data
-- ✅ Test with 5 releases first
-
-### Optimizing Import Speed
-
-**For fastest imports:**
-1. Use FLAC instead of WAV (smaller files)
-2. Compress images to ~1-2MB
-3. Upload in batches of 50-100
-4. Use wired internet connection
-5. Import during off-peak hours
-6. Close other browser tabs
-7. Disable browser extensions temporarily
+#### Smart Defaults
+- Copyright year: Current year
+- Territory: Worldwide
+- Language: English
+- Status: Draft
 
 ### Error Recovery
 
-**If import fails:**
-1. Note the last successful UPC
-2. Export error log
-3. Fix issues in CSV/files
-4. Re-run import from failure point
-5. System skips already imported
-6. Contact support if persistent
+#### Partial Success Handling
+- Continues processing despite individual failures
+- Logs errors for each item
+- Creates releases for successful matches
+- Reports failures separately
+
+#### Network Resilience
+- Retries failed API calls
+- Handles timeout gracefully
+- Saves progress frequently
+- Can resume after connection loss
+
+### File Upload Features
+
+#### Batch Processing
+- Select hundreds of files at once
+- Parallel upload streams
+- Optimized for large catalogs
+- Progress per file
+
+#### Validation Layers
+1. File type checking
+2. Naming convention validation  
+3. Size limits enforcement
+4. Duplicate detection
+
+#### Upload Progress
+- Individual file progress bars
+- Overall batch progress
+- Current file indicator
+- Time remaining estimate
+
+### Firestore Integration
+
+#### Collections Used
+- `importJobs`: Job tracking and state
+- `releases`: Created draft releases
+- `users`: User preferences
+
+#### Security Rules
+- User can only access own import jobs
+- Files isolated by user ID
+- Cleanup on job cancellation
 
 ---
 
 ## Troubleshooting
 
-### CSV Issues
+### Common Issues & Solutions
+
+#### CSV Import Problems
 
 **"CSV parsing failed"**
-- Save as UTF-8 encoding
-- Use comma delimiter (not semicolon)
-- Escape special characters with quotes
-- Remove blank rows at end
-- Check for BOM characters
-- Ensure line endings are consistent
+- Ensure UTF-8 encoding
+- Check for comma delimiter
+- Remove empty rows
+- Verify headers present
 
-**"Required column missing"**
-- Ensure headers match exactly
-- Check for typos in column names
-- Use template CSV as guide
-- Remove extra spaces in headers
-- Verify case sensitivity
+**"Required column missing: [field]"**
+- Check column exists in CSV
+- Verify header spelling
+- Map field manually if needed
 
-### File Matching Problems
+**"Invalid UPC format"**
+- Must be 12-14 digits
+- Remove spaces/dashes
+- Check for typos
 
-**"Files not matching to releases"**
-- Verify UPC in filename matches CSV exactly
-- Check disc/track numbering format
-- Ensure file extensions are correct
-- Remove special characters from filenames
-- Check for leading zeros in numbers
+#### File Upload Issues
 
-**"Duplicate files detected"**
-- System found same content hash
-- Choose to skip or replace
-- Clean up source folders
-- Check for duplicate UPCs in CSV
+**"Invalid file names"**
+- Follow DDEX pattern exactly
+- Use correct digit counts (2 for disc, 3 for track)
+- Check file extensions
 
-### Performance Issues
-
-**"Upload very slow"**
-- Reduce concurrent uploads to 3
-- Check internet speed (need 10+ Mbps)
-- Try different browser (Chrome recommended)
+**"Upload failed"**
+- Check internet connection
+- Verify file size < 200MB
+- Try smaller batches
 - Clear browser cache
-- Disable browser extensions
-- Check available disk space
+
+#### Metadata-less Mode Issues
+
+**"No valid UPCs found in uploaded files"**
+- Files must follow DDEX naming
+- Check UPC is 12-14 digits
+- Verify underscore placement
+
+**"Could not fetch metadata from Deezer"**
+- Release may not be in Deezer
+- Check UPC is correct
+- Internet connection required
+- Try Standard Mode instead
+
+**"Artwork download failed"**
+- Temporary CDN issue
+- Retry download
+- Upload manually if persistent
+
+#### Matching Problems
+
+**"No matching files found"**
+- Verify DDEX naming
+- Check UPCs match between CSV and files
+- Ensure files uploaded successfully
+
+**"Incomplete release"**
+- View details to see missing items
+- Upload missing files
+- Check track numbering
+
+### Performance Optimization
+
+#### For Large Imports
+- Process in batches of 50-100 releases
+- Use wired internet connection
+- Close unnecessary browser tabs
+- Use Chrome for best performance
+- Import during off-peak hours
+
+#### Upload Speed Tips
+- Use FLAC over WAV (smaller size)
+- Compress images to <10MB
+- Upload audio and images separately
+- Monitor progress bars
+
+### Error Messages Guide
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "File too large" | File > 200MB | Compress or split file |
+| "Invalid format" | Wrong file type | Use WAV/FLAC/MP3 for audio |
+| "Duplicate UPC" | UPC already exists | Skip or update existing |
+| "Network timeout" | Slow connection | Retry or check internet |
+| "Session expired" | Logged out | Log in and resume |
 
 ---
 
-## Import Templates
+## Best Practices
 
-### Download Sample Files
+### Before Starting Import
 
-Available templates:
-- [Basic CSV Template](./templates/basic-import.csv) - Minimal required fields
-- [Full Metadata CSV](./templates/full-import.csv) - All supported fields
-- [Multi-Disc Template](./templates/multi-disc.csv) - Multi-disc release example
-- [Compilation Template](./templates/compilation.csv) - Various artists example
+#### Preparation Checklist
+- [ ] Backup your original files
+- [ ] Verify UPCs are correct
+- [ ] Rename files to DDEX format
+- [ ] Test with 5 releases first
+- [ ] Check available storage space
+- [ ] Ensure stable internet (for metadata-less)
 
-### Creating Custom Templates
+### During Import
 
-1. Export a sample from your current catalog
-2. Map columns to our format
-3. Save as template for future use
-4. Share with team members
+#### Recommended Workflow
+1. Start with small test batch
+2. Verify results before full import
+3. Monitor progress actively
+4. Don't close browser during upload
+5. Review draft releases before publishing
 
----
+### After Import
 
-## Post-Import Tasks
-
-### Review Imported Releases
-
-After import:
-1. **Check draft releases**
-   - Navigate to Catalog
-   - Filter by status: Draft
-   - Review for accuracy
-
-2. **Complete metadata**
-   - Add missing genres
-   - Set copyright info
-   - Configure territories
-   - Add production credits
-
-3. **Validate releases**
-   - Run DDEX validation
-   - Fix any errors
-   - Change status to Ready
-
-### Bulk Operations
-
-**For imported releases:**
-- Select multiple releases
-- Apply common metadata
-- Set release dates
-- Update status together
-- Generate ISRCs if missing
-
-### Quality Assurance
-
-**Verify import quality:**
-- Spot-check random releases
-- Play audio samples
-- Review cover art quality
-- Check track sequences
-- Verify metadata accuracy
-- Test with delivery preview
-
----
-
-## Migration Timeline
-
-### Recommended Schedule
-
-**Week 1: Preparation**
-- Day 1-2: Export from current platform
-- Day 3-4: Organize and rename files
-- Day 5-7: Prepare CSV and test import
-
-**Week 2: Import**
-- Day 1-3: Import back catalog
-- Day 4-5: Fix incomplete releases
-- Day 6-7: Quality assurance
-
-**Week 3: Transition**
-- Day 1-2: Configure delivery targets
-- Day 3-4: Test deliveries
-- Day 5-7: Train team on new platform
-
-**Week 4: Go Live**
-- Switch to Stardust Distro for new releases
-- Monitor deliveries
-- Gather feedback
-- Optimize workflow
-
----
-
-## Support Resources
-
-### Import Assistance
-
-- **Documentation**: Complete guides in `/docs` folder
-- **Templates**: Sample CSV files in `/templates`
-- **Community Forum**: Share tips and get help
-- **Video Tutorials**: Step-by-step walkthroughs
-
-### Frequently Asked Questions
-
-**Q: How long does import take?**
-A: Typically 1-2 minutes per release including file upload.
-
-**Q: Can I import without ISRCs?**
-A: Yes, you can generate ISRCs after import or add them later.
-
-**Q: What if my files aren't DDEX named?**
-A: Use our file renaming tool or rename manually before import.
-
-**Q: Can I update releases after import?**
-A: Yes, all imported releases can be edited.
-
-**Q: Is there a limit to import size?**
-A: No hard limit, but we recommend batches of 500 releases.
+#### Post-Import Tasks
+1. Review all draft releases
+2. Complete any incomplete items
+3. Add missing metadata
+4. Verify audio quality
+5. Check image dimensions
+6. Update status to "Ready"
+7. Schedule deliveries to DSPs
 
 ---
 
