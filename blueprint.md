@@ -236,7 +236,9 @@ stardust-distro/
 │   │   │   └── testTargets.js     # Test DSP targets ✅
 │   │   ├── utils/                 # Utils
 │   │   │   ├── releaseClassifier.js  # Classify release by DDEX standards ✅
-│   │   │   └── urlUtils.js        # Escapes URLs for safe XML ✅
+│   │   │   ├── santizer.js        # Frontend Sanitizer Utility ✅
+│   │   │   ├── urlUtils.js        # Escapes URLs for safe XML ✅
+│   │   │   └── validation.js      # Frontend Validation Schemas ✅
 │   │   ├── dictionaries/          # Centralized data dictionaries
 │   │   │   ├── contributors/      # Contributor roles
 │   │   │   │   ├── composer-lyricist.js  # Composer-lyricist roles ✅
