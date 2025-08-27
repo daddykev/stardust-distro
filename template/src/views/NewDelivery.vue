@@ -634,31 +634,31 @@ onMounted(() => {
             <span>Back to Deliveries</span>
           </router-link>
           <h1>New Delivery</h1>
-          <p class="subtitle">Create and schedule a new release delivery to DSPs</p>
+          <p class="text-lg text-secondary">Create and schedule a new release delivery to DSPs</p>
         </div>
       </div>
 
       <!-- Success/Error Messages -->
-      <div v-if="successMessage" class="alert success-message">
+      <div v-if="successMessage" class="alert alert-success flex items-center gap-sm p-md rounded-lg mb-lg">
         <font-awesome-icon icon="check-circle" />
         {{ successMessage }}
       </div>
       
-      <div v-if="error" class="alert error-message">
+      <div v-if="error" class="alert alert-error flex items-center gap-sm p-md rounded-lg mb-lg">
         <font-awesome-icon icon="exclamation-triangle" />
         {{ error }}
       </div>
 
       <!-- Wizard Progress -->
-      <div class="wizard-progress">
+      <div class="wizard-progress mb-xl">
         <div class="progress-bar">
           <div class="progress-fill" :style="{ width: progressPercentage + '%' }"></div>
         </div>
-        <div class="progress-steps">
+        <div class="progress-steps flex justify-between items-start">
           <div 
             v-for="step in 4" 
             :key="step"
-            class="progress-step"
+            class="progress-step flex flex-col items-center"
             :class="{ 
               active: step === currentStep, 
               completed: step < currentStep 
@@ -669,15 +669,15 @@ onMounted(() => {
               <font-awesome-icon v-if="step < currentStep" icon="check" />
               <span v-else>{{ step }}</span>
             </div>
-            <span class="step-title">{{ stepTitles[step - 1] }}</span>
+            <span class="step-title text-sm">{{ stepTitles[step - 1] }}</span>
           </div>
         </div>
       </div>
       
       <!-- Wizard Content -->
-      <div class="wizard-content card">
+      <div class="wizard-content card mb-xl">
         <div class="card-header">
-          <h2 class="step-heading">Step {{ currentStep }}: {{ currentStepTitle }}</h2>
+          <h2 class="text-xl font-semibold">Step {{ currentStep }}: {{ currentStepTitle }}</h2>
         </div>
         <div class="card-body">
           <!-- Loading State -->
@@ -688,7 +688,7 @@ onMounted(() => {
           
           <!-- Step 1: Select Release -->
           <div v-else-if="currentStep === 1" class="wizard-step">
-            <p class="step-description">Choose the release you want to deliver to DSPs</p>
+            <p class="text-secondary mb-lg">Choose the release you want to deliver to DSPs</p>
             
             <div v-if="readyReleases.length === 0" class="empty-state">
               <font-awesome-icon icon="music" />
@@ -698,7 +698,7 @@ onMounted(() => {
               </router-link>
             </div>
             
-            <div v-else class="releases-grid">
+            <div v-else class="grid grid-cols-1 grid-cols-md-2 gap-lg">
               <label 
                 v-for="release in readyReleases" 
                 :key="release.id"
@@ -713,7 +713,7 @@ onMounted(() => {
                   class="release-radio"
                 />
                 
-                <div class="release-content">
+                <div class="flex gap-md">
                   <div class="release-cover">
                     <img 
                       v-if="release.assets?.coverImage?.url" 
@@ -725,12 +725,12 @@ onMounted(() => {
                     </div>
                   </div>
                   
-                  <div class="release-info">
-                    <h3>{{ release.basic?.title }}</h3>
-                    <p>{{ release.basic?.displayArtist }}</p>
+                  <div class="flex flex-col gap-sm">
+                    <h3 class="text-lg font-semibold">{{ release.basic?.title }}</h3>
+                    <p class="text-secondary">{{ release.basic?.displayArtist }}</p>
                     
                     <!-- Genre Display with Badge -->
-                    <div v-if="release.metadata?.genreCode || release.metadata?.genre" class="genre-info">
+                    <div v-if="release.metadata?.genreCode || release.metadata?.genre" class="flex gap-sm flex-wrap">
                       <span class="genre-badge">
                         <font-awesome-icon icon="music" />
                         {{ release.metadata?.genreName || release.metadata?.genre || 'No Genre' }}
@@ -740,7 +740,7 @@ onMounted(() => {
                       </span>
                     </div>
                     
-                    <div class="release-meta">
+                    <div class="flex gap-md items-center text-sm text-tertiary">
                       <span class="badge" :class="release.status === 'ready' ? 'badge-success' : 'badge-info'">
                         {{ release.status }}
                       </span>
@@ -755,9 +755,9 @@ onMounted(() => {
           
           <!-- Step 2: Choose Delivery Targets -->
           <div v-else-if="currentStep === 2" class="wizard-step">
-            <div class="step-header">
-              <p class="step-description">Select one or more delivery targets</p>
-              <div class="step-actions">
+            <div class="flex justify-between items-center mb-lg">
+              <p class="text-secondary">Select one or more delivery targets</p>
+              <div class="flex gap-sm">
                 <button @click="selectAllTargets" class="btn btn-sm btn-secondary">
                   Select All
                 </button>
@@ -775,7 +775,7 @@ onMounted(() => {
               </router-link>
             </div>
             
-            <div v-else class="targets-grid">
+            <div v-else class="grid grid-cols-1 grid-cols-md-2 grid-cols-md-3 gap-lg">
               <label 
                 v-for="target in activeTargets" 
                 :key="target.id"
@@ -790,9 +790,9 @@ onMounted(() => {
                   class="target-checkbox"
                 />
                 
-                <div class="target-content">
-                  <div class="target-header">
-                    <h3>{{ target.name }}</h3>
+                <div class="flex flex-col gap-md">
+                  <div class="flex justify-between items-center">
+                    <h3 class="text-lg font-semibold">{{ target.name }}</h3>
                     <span class="badge" :class="target.testMode ? 'badge-warning' : 'badge-success'">
                       {{ target.testMode ? 'Test' : 'Production' }}
                     </span>
@@ -807,39 +807,39 @@ onMounted(() => {
                         Strict
                       </span>
                     </div>
-                    <div v-if="target.genreMapping.mappingName" class="mapping-name">
+                    <div v-if="target.genreMapping.mappingName" class="text-xs text-secondary mt-xs">
                       {{ target.genreMapping.mappingName }}
                     </div>
                     <div v-if="selectedRelease && selectedRelease.metadata?.genreCode" class="genre-preview">
-                      <span class="original-genre">
+                      <span class="text-secondary">
                         {{ selectedRelease.metadata.genreName || selectedRelease.metadata.genre }}
                       </span>
-                      <font-awesome-icon icon="arrow-right" class="mapping-arrow" />
-                      <span class="mapped-genre">
+                      <font-awesome-icon icon="arrow-right" class="text-primary text-xs" />
+                      <span class="text-primary font-medium">
                         {{ getMappedGenrePreview(selectedRelease.metadata.genreCode, target) }}
                       </span>
                     </div>
                   </div>
                   
-                  <div class="target-details">
-                    <div class="detail-row">
-                      <span class="detail-label">Type:</span>
+                  <div class="target-details text-sm">
+                    <div class="flex justify-between">
+                      <span class="text-secondary">Type:</span>
                       <span>{{ target.type }}</span>
                     </div>
-                    <div class="detail-row">
-                      <span class="detail-label">Protocol:</span>
+                    <div class="flex justify-between">
+                      <span class="text-secondary">Protocol:</span>
                       <span>{{ target.protocol?.toUpperCase() }}</span>
                     </div>
-                    <div class="detail-row">
-                      <span class="detail-label">ERN Version:</span>
+                    <div class="flex justify-between">
+                      <span class="text-secondary">ERN Version:</span>
                       <span>{{ target.ernVersion || '4.3' }}</span>
                     </div>
-                    <div v-if="target.partyName" class="detail-row">
-                      <span class="detail-label">Party:</span>
+                    <div v-if="target.partyName" class="flex justify-between">
+                      <span class="text-secondary">Party:</span>
                       <span>{{ target.partyName }}</span>
                     </div>
-                    <div v-if="deliveryHistory[target.id]?.hasBeenDelivered" class="detail-row">
-                      <span class="detail-label">Status:</span>
+                    <div v-if="deliveryHistory[target.id]?.hasBeenDelivered" class="flex justify-between">
+                      <span class="text-secondary">Status:</span>
                       <span class="badge badge-info">Previously Delivered</span>
                     </div>
                   </div>
@@ -850,70 +850,72 @@ onMounted(() => {
           
           <!-- Step 3: Generate ERN -->
           <div v-else-if="currentStep === 3" class="wizard-step">
-            <p class="step-description">Configure and generate ERN messages for each target</p>
+            <p class="text-secondary mb-lg">Configure and generate ERN messages for each target</p>
             
             <!-- Message Type Configuration -->
-            <div class="message-config-section">
-              <h3>Message Configuration</h3>
-              <div class="message-config-grid">
-                <div v-for="targetId in deliveryData.selectedTargets" :key="targetId" class="message-config-card">
-                  <div class="config-header">
-                    <h4>{{ getTargetName(targetId) }}</h4>
-                    <span v-if="deliveryHistory[targetId]?.hasBeenDelivered" class="badge badge-info">
-                      Previously Delivered
-                    </span>
-                  </div>
-                  
-                  <!-- Genre Mapping Display -->
-                  <div v-if="getTarget(targetId)?.genreMapping?.enabled" class="genre-mapping-display">
-                    <div class="mapping-info-card">
-                      <div class="mapping-title">
-                        <font-awesome-icon icon="music" />
-                        Genre Mapping Active
-                      </div>
-                      <div class="mapping-details">
-                        <div class="mapping-row">
-                          <span class="label">Original:</span>
-                          <span class="value">{{ selectedRelease?.metadata?.genreName || 'Unknown' }}</span>
+            <div class="message-config-section mb-xl p-lg bg-secondary rounded-lg">
+              <h3 class="text-lg font-semibold mb-lg">Message Configuration</h3>
+              <div class="grid grid-cols-1 grid-cols-md-2 grid-cols-md-3 gap-lg">
+                <div v-for="targetId in deliveryData.selectedTargets" :key="targetId" class="card">
+                  <div class="card-body">
+                    <div class="flex justify-between items-center mb-md">
+                      <h4 class="font-semibold">{{ getTargetName(targetId) }}</h4>
+                      <span v-if="deliveryHistory[targetId]?.hasBeenDelivered" class="badge badge-info">
+                        Previously Delivered
+                      </span>
+                    </div>
+                    
+                    <!-- Genre Mapping Display -->
+                    <div v-if="getTarget(targetId)?.genreMapping?.enabled" class="genre-mapping-display">
+                      <div class="mapping-info-card">
+                        <div class="mapping-title">
+                          <font-awesome-icon icon="music" />
+                          Genre Mapping Active
                         </div>
-                        <div class="mapping-row">
-                          <span class="label">Mapped to:</span>
-                          <span class="value mapped">
-                            {{ getMappedGenrePreview(selectedRelease?.metadata?.genreCode, getTarget(targetId)) }}
-                          </span>
-                        </div>
-                        <div v-if="getTarget(targetId)?.genreMapping?.strictMode" class="mapping-warning">
-                          <font-awesome-icon icon="exclamation-triangle" />
-                          Strict mode enabled - delivery will fail if genre cannot be mapped
+                        <div class="mapping-details text-sm">
+                          <div class="mapping-row">
+                            <span class="text-secondary">Original:</span>
+                            <span>{{ selectedRelease?.metadata?.genreName || 'Unknown' }}</span>
+                          </div>
+                          <div class="mapping-row">
+                            <span class="text-secondary">Mapped to:</span>
+                            <span class="text-primary font-medium">
+                              {{ getMappedGenrePreview(selectedRelease?.metadata?.genreCode, getTarget(targetId)) }}
+                            </span>
+                          </div>
+                          <div v-if="getTarget(targetId)?.genreMapping?.strictMode" class="mapping-warning">
+                            <font-awesome-icon icon="exclamation-triangle" />
+                            Strict mode enabled - delivery will fail if genre cannot be mapped
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                  
-                  <div class="form-group">
-                    <label>Message Type</label>
-                    <select v-model="messageTypes[targetId]" class="form-select">
-                      <option value="Initial">Initial Delivery</option>
-                      <option value="Update">Update Existing</option>
-                      <option value="Takedown">Takedown</option>
-                    </select>
-                  </div>
-                  
-                  <div v-if="messageTypes[targetId] === 'Takedown'" class="form-group">
-                    <label>Takedown Date</label>
-                    <input 
-                      v-model="takedownDates[targetId]"
-                      type="date"
-                      class="form-input"
-                      :min="new Date().toISOString().split('T')[0]"
-                    />
+                    
+                    <div class="form-group">
+                      <label class="form-label">Message Type</label>
+                      <select v-model="messageTypes[targetId]" class="form-select">
+                        <option value="Initial">Initial Delivery</option>
+                        <option value="Update">Update Existing</option>
+                        <option value="Takedown">Takedown</option>
+                      </select>
+                    </div>
+                    
+                    <div v-if="messageTypes[targetId] === 'Takedown'" class="form-group">
+                      <label class="form-label">Takedown Date</label>
+                      <input 
+                        v-model="takedownDates[targetId]"
+                        type="date"
+                        class="form-input"
+                        :min="new Date().toISOString().split('T')[0]"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
             
             <!-- Generate ERN Button -->
-            <div class="ern-actions">
+            <div class="text-center mb-xl">
               <button 
                 @click="generateERNs"
                 class="btn btn-primary btn-lg"
@@ -927,80 +929,84 @@ onMounted(() => {
             
             <!-- Generated ERNs Display -->
             <div v-if="Object.keys(generatedERNs).length > 0" class="generated-erns">
-              <h3>Generated ERN Messages</h3>
-              <div class="ern-cards">
-                <div v-for="(ern, targetId) in generatedERNs" :key="targetId" class="ern-card">
-                  <div class="ern-header">
-                    <h4>{{ getTargetName(targetId) }}</h4>
-                    <span class="badge badge-success">
-                      <font-awesome-icon icon="check-circle" />
-                      Generated
-                    </span>
-                  </div>
-                  
-                  <!-- Show Genre Mapping Result -->
-                  <div v-if="ern.genreMapping" class="genre-mapping-result">
-                    <div class="result-badge">
-                      <font-awesome-icon icon="music" />
-                      Genre Mapped: {{ ern.genreMapping.original }} → {{ ern.genreMapping.mapped }}
+              <h3 class="text-lg font-semibold mb-md">Generated ERN Messages</h3>
+              <div class="grid grid-cols-1 grid-cols-md-2 gap-lg">
+                <div v-for="(ern, targetId) in generatedERNs" :key="targetId" class="card">
+                  <div class="card-body">
+                    <div class="flex justify-between items-center mb-md">
+                      <h4 class="font-semibold">{{ getTargetName(targetId) }}</h4>
+                      <span class="badge badge-success">
+                        <font-awesome-icon icon="check-circle" />
+                        Generated
+                      </span>
                     </div>
-                  </div>
-                  
-                  <div class="ern-details">
-                    <div class="detail-row">
-                      <span>Message ID:</span>
-                      <code>{{ ern.messageId }}</code>
+                    
+                    <!-- Show Genre Mapping Result -->
+                    <div v-if="ern.genreMapping" class="genre-mapping-result">
+                      <div class="result-badge">
+                        <font-awesome-icon icon="music" />
+                        Genre Mapped: {{ ern.genreMapping.original }} → {{ ern.genreMapping.mapped }}
+                      </div>
                     </div>
-                    <div class="detail-row">
-                      <span>Version:</span>
-                      <span>ERN {{ ern.version || '4.3' }}</span>
+                    
+                    <div class="ern-details text-sm">
+                      <div class="flex justify-between">
+                        <span>Message ID:</span>
+                        <code class="text-xs">{{ ern.messageId }}</code>
+                      </div>
+                      <div class="flex justify-between">
+                        <span>Version:</span>
+                        <span>ERN {{ ern.version || '4.3' }}</span>
+                      </div>
+                      <div class="flex justify-between">
+                        <span>Type:</span>
+                        <span>{{ ern.messageSubType || messageTypes[targetId] }}</span>
+                      </div>
+                      <div class="flex justify-between">
+                        <span>Profile:</span>
+                        <span>{{ ern.profile }}</span>
+                      </div>
                     </div>
-                    <div class="detail-row">
-                      <span>Type:</span>
-                      <span>{{ ern.messageSubType || messageTypes[targetId] }}</span>
+                    
+                    <div class="flex gap-sm mt-md pt-md border-t">
+                      <button @click="previewERNForTarget(targetId)" class="btn btn-sm btn-secondary">
+                        <font-awesome-icon icon="eye" />
+                        Preview
+                      </button>
+                      <button @click="validateERN(targetId)" class="btn btn-sm btn-secondary">
+                        <font-awesome-icon icon="check-circle" />
+                        Validate
+                      </button>
+                      <button @click="downloadERN(targetId)" class="btn btn-sm btn-primary">
+                        <font-awesome-icon icon="download" />
+                        Download
+                      </button>
                     </div>
-                    <div class="detail-row">
-                      <span>Profile:</span>
-                      <span>{{ ern.profile }}</span>
-                    </div>
-                  </div>
-                  
-                  <div class="ern-actions">
-                    <button @click="previewERNForTarget(targetId)" class="btn btn-sm btn-secondary">
-                      <font-awesome-icon icon="eye" />
-                      Preview
-                    </button>
-                    <button @click="validateERN(targetId)" class="btn btn-sm btn-secondary">
-                      <font-awesome-icon icon="check-circle" />
-                      Validate
-                    </button>
-                    <button @click="downloadERN(targetId)" class="btn btn-sm btn-primary">
-                      <font-awesome-icon icon="download" />
-                      Download
-                    </button>
                   </div>
                 </div>
               </div>
             </div>
             
             <!-- ERN Errors Display -->
-            <div v-if="Object.keys(ernErrors).length > 0" class="ern-errors">
-              <h3>Generation Errors</h3>
-              <div v-for="(error, targetId) in ernErrors" :key="targetId" class="error-card">
-                <div class="error-header">
-                  <h4>{{ getTargetName(targetId) }}</h4>
-                  <span class="badge badge-error">Failed</span>
-                </div>
-                <div class="error-message">
-                  <font-awesome-icon icon="exclamation-triangle" />
-                  {{ error }}
-                </div>
-                <div v-if="error.includes('genre') && error.includes('strict')" class="error-hint">
-                  <strong>Hint:</strong> This target has strict genre mapping enabled. 
-                  Either disable strict mode or ensure the genre can be mapped.
-                  <router-link :to="`/genre-maps?dsp=${getTarget(targetId)?.type?.toLowerCase()}`" class="link">
-                    Manage Genre Mappings
-                  </router-link>
+            <div v-if="Object.keys(ernErrors).length > 0" class="ern-errors mt-xl">
+              <h3 class="text-lg font-semibold mb-md">Generation Errors</h3>
+              <div v-for="(error, targetId) in ernErrors" :key="targetId" class="error-card card mb-md">
+                <div class="card-body">
+                  <div class="flex justify-between items-center mb-md">
+                    <h4 class="font-semibold">{{ getTargetName(targetId) }}</h4>
+                    <span class="badge badge-error">Failed</span>
+                  </div>
+                  <div class="error-message">
+                    <font-awesome-icon icon="exclamation-triangle" />
+                    {{ error }}
+                  </div>
+                  <div v-if="error.includes('genre') && error.includes('strict')" class="error-hint">
+                    <strong>Hint:</strong> This target has strict genre mapping enabled. 
+                    Either disable strict mode or ensure the genre can be mapped.
+                    <router-link :to="`/genre-maps?dsp=${getTarget(targetId)?.type?.toLowerCase()}`" class="text-primary">
+                      Manage Genre Mappings
+                    </router-link>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1008,138 +1014,145 @@ onMounted(() => {
           
           <!-- Step 4: Schedule & Confirm -->
           <div v-else-if="currentStep === 4" class="wizard-step">
-            <p class="step-description">Review and schedule your delivery</p>
+            <p class="text-secondary mb-lg">Review and schedule your delivery</p>
             
             <!-- Delivery Summary -->
-            <div class="delivery-summary">
-              <h3>Delivery Summary</h3>
+            <div class="delivery-summary bg-secondary rounded-lg p-lg mb-xl">
+              <h3 class="text-lg font-semibold mb-md">Delivery Summary</h3>
               
-              <div class="summary-section">
-                <h4>Release</h4>
-                <div class="summary-card">
-                  <div class="summary-content">
-                    <div class="summary-cover">
-                      <img 
-                        v-if="selectedRelease?.assets?.coverImage?.url" 
-                        :src="selectedRelease.assets.coverImage.url" 
-                        :alt="selectedRelease.basic?.title"
-                      />
-                      <div v-else class="cover-placeholder">
-                        <font-awesome-icon icon="music" />
+              <div class="mb-lg">
+                <h4 class="font-semibold mb-md">Release</h4>
+                <div class="card">
+                  <div class="card-body">
+                    <div class="flex gap-md">
+                      <div class="summary-cover">
+                        <img 
+                          v-if="selectedRelease?.assets?.coverImage?.url" 
+                          :src="selectedRelease.assets.coverImage.url" 
+                          :alt="selectedRelease.basic?.title"
+                        />
+                        <div v-else class="cover-placeholder">
+                          <font-awesome-icon icon="music" />
+                        </div>
+                      </div>
+                      <div class="flex flex-col gap-xs">
+                        <h5 class="text-lg font-semibold">{{ selectedRelease?.basic?.title }}</h5>
+                        <p class="text-secondary">{{ selectedRelease?.basic?.displayArtist }}</p>
+                        <div class="flex gap-md items-center text-sm text-tertiary">
+                          <span>{{ selectedRelease?.tracks?.length || 0 }} tracks</span>
+                          <span>UPC: {{ selectedRelease?.basic?.barcode || 'N/A' }}</span>
+                          <span v-if="selectedRelease?.metadata?.genreName" class="genre-badge">
+                            <font-awesome-icon icon="music" />
+                            {{ selectedRelease.metadata.genreName }}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                    <div class="summary-info">
-                      <h5>{{ selectedRelease?.basic?.title }}</h5>
-                      <p>{{ selectedRelease?.basic?.displayArtist }}</p>
-                      <div class="summary-meta">
-                        <span>{{ selectedRelease?.tracks?.length || 0 }} tracks</span>
-                        <span>UPC: {{ selectedRelease?.basic?.barcode || 'N/A' }}</span>
-                        <span v-if="selectedRelease?.metadata?.genreName" class="genre-badge">
-                          <font-awesome-icon icon="music" />
-                          {{ selectedRelease.metadata.genreName }}
+                  </div>
+                </div>
+              </div>
+              
+              <div class="mb-lg">
+                <h4 class="font-semibold mb-md">Targets ({{ deliveryData.selectedTargets.length }})</h4>
+                <div class="grid grid-cols-1 grid-cols-md-2 gap-md">
+                  <div v-for="targetId in deliveryData.selectedTargets" :key="targetId" class="card">
+                    <div class="card-body">
+                      <div class="flex justify-between items-center mb-sm">
+                        <h5 class="font-semibold">{{ getTargetName(targetId) }}</h5>
+                        <span v-if="generatedERNs[targetId]" class="badge badge-success">
+                          <font-awesome-icon icon="check-circle" />
+                          ERN Ready
                         </span>
                       </div>
+                      
+                      <!-- Genre Mapping Summary -->
+                      <div v-if="getTarget(targetId)?.genreMapping?.enabled" class="genre-mapping-summary">
+                        <div class="mapping-summary-badge">
+                          <font-awesome-icon icon="music" />
+                          <span>Genre will be mapped</span>
+                        </div>
+                        <div v-if="generatedERNs[targetId]?.genreMapping" class="mapping-result-summary">
+                          {{ generatedERNs[targetId].genreMapping.original }} → 
+                          {{ generatedERNs[targetId].genreMapping.mapped }}
+                        </div>
+                      </div>
+                      
+                      <div class="flex gap-md text-sm text-secondary">
+                        <span>{{ getTarget(targetId)?.protocol?.toUpperCase() }}</span>
+                        <span>{{ messageTypes[targetId] || 'Initial' }}</span>
+                        <span v-if="getTarget(targetId)?.testMode" class="badge badge-warning">Test Mode</span>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
               
-              <div class="summary-section">
-                <h4>Targets ({{ deliveryData.selectedTargets.length }})</h4>
-                <div class="targets-summary">
-                  <div v-for="targetId in deliveryData.selectedTargets" :key="targetId" class="target-summary-card">
-                    <div class="target-summary-header">
-                      <h5>{{ getTargetName(targetId) }}</h5>
-                      <span v-if="generatedERNs[targetId]" class="badge badge-success">
-                        <font-awesome-icon icon="check-circle" />
-                        ERN Ready
-                      </span>
+              <div>
+                <h4 class="font-semibold mb-md">Delivery Options</h4>
+                <div class="card">
+                  <div class="card-body">
+                    <div class="grid grid-cols-1 grid-cols-md-2 gap-md">
+                      <div class="form-group">
+                        <label class="form-label">Delivery Priority</label>
+                        <select v-model="deliveryData.priority" class="form-select">
+                          <option value="low">Low Priority</option>
+                          <option value="normal">Normal Priority</option>
+                          <option value="high">High Priority</option>
+                          <option value="urgent">Urgent</option>
+                        </select>
+                      </div>
+                      
+                      <div class="form-group">
+                        <label class="form-label">Schedule Delivery</label>
+                        <div class="schedule-options">
+                          <label class="radio-option">
+                            <input 
+                              type="radio" 
+                              value="immediate" 
+                              v-model="deliveryData.scheduleType"
+                            />
+                            <span>Deliver Immediately</span>
+                          </label>
+                          <label class="radio-option">
+                            <input 
+                              type="radio" 
+                              value="scheduled" 
+                              v-model="deliveryData.scheduleType"
+                            />
+                            <span>Schedule for Later</span>
+                          </label>
+                        </div>
+                        
+                        <div v-if="deliveryData.scheduleType === 'scheduled'" class="mt-sm">
+                          <input 
+                            v-model="scheduledDateTime"
+                            type="datetime-local"
+                            class="form-input"
+                            :min="new Date().toISOString().slice(0, 16)"
+                          />
+                        </div>
+                      </div>
                     </div>
                     
-                    <!-- Genre Mapping Summary -->
-                    <div v-if="getTarget(targetId)?.genreMapping?.enabled" class="genre-mapping-summary">
-                      <div class="mapping-summary-badge">
-                        <font-awesome-icon icon="music" />
-                        <span>Genre will be mapped</span>
-                      </div>
-                      <div v-if="generatedERNs[targetId]?.genreMapping" class="mapping-result-summary">
-                        {{ generatedERNs[targetId].genreMapping.original }} → 
-                        {{ generatedERNs[targetId].genreMapping.mapped }}
-                      </div>
-                    </div>
-                    
-                    <div class="target-summary-details">
-                      <span>{{ getTarget(targetId)?.protocol?.toUpperCase() }}</span>
-                      <span>{{ messageTypes[targetId] || 'Initial' }}</span>
-                      <span v-if="getTarget(targetId)?.testMode" class="badge badge-warning">Test Mode</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <div class="summary-section">
-                <h4>Delivery Options</h4>
-                <div class="delivery-options">
-                  <div class="form-group">
-                    <label>Delivery Priority</label>
-                    <select v-model="deliveryData.priority" class="form-select">
-                      <option value="low">Low Priority</option>
-                      <option value="normal">Normal Priority</option>
-                      <option value="high">High Priority</option>
-                      <option value="urgent">Urgent</option>
-                    </select>
-                  </div>
-                  
-                  <div class="form-group">
-                    <label>Schedule Delivery</label>
-                    <div class="schedule-options">
-                      <label class="radio-option">
+                    <div class="form-group">
+                      <label class="checkbox-option">
                         <input 
-                          type="radio" 
-                          value="immediate" 
-                          v-model="deliveryData.scheduleType"
+                          type="checkbox"
+                          v-model="deliveryData.testMode"
                         />
-                        <span>Deliver Immediately</span>
-                      </label>
-                      <label class="radio-option">
-                        <input 
-                          type="radio" 
-                          value="scheduled" 
-                          v-model="deliveryData.scheduleType"
-                        />
-                        <span>Schedule for Later</span>
+                        <span>Run in Test Mode (no actual delivery)</span>
                       </label>
                     </div>
                     
-                    <div v-if="deliveryData.scheduleType === 'scheduled'" class="schedule-datetime">
-                      <input 
-                        v-model="scheduledDateTime"
-                        type="datetime-local"
-                        class="form-input"
-                        :min="new Date().toISOString().slice(0, 16)"
-                      />
+                    <div class="form-group">
+                      <label class="form-label">Delivery Notes (Optional)</label>
+                      <textarea 
+                        v-model="deliveryData.notes"
+                        class="form-textarea"
+                        rows="3"
+                        placeholder="Add any notes about this delivery..."
+                      ></textarea>
                     </div>
-                  </div>
-                  
-                  <div class="form-group">
-                    <label>
-                      <input 
-                        type="checkbox"
-                        v-model="deliveryData.testMode"
-                        class="form-checkbox"
-                      />
-                      Run in Test Mode (no actual delivery)
-                    </label>
-                  </div>
-                  
-                  <div class="form-group">
-                    <label>Delivery Notes (Optional)</label>
-                    <textarea 
-                      v-model="deliveryData.notes"
-                      class="form-input"
-                      rows="3"
-                      placeholder="Add any notes about this delivery..."
-                    ></textarea>
                   </div>
                 </div>
               </div>
@@ -1186,7 +1199,7 @@ onMounted(() => {
     <div v-if="showERNPreview" class="modal-overlay" @click="showERNPreview = false">
       <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h2>ERN Preview - {{ previewTargetName }}</h2>
+          <h2 class="text-xl font-semibold">ERN Preview - {{ previewTargetName }}</h2>
           <button @click="showERNPreview = false" class="modal-close">
             <font-awesome-icon icon="times" />
           </button>
@@ -1209,14 +1222,213 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* Genre Mapping Styles */
-.genre-info {
-  display: flex;
-  gap: var(--space-sm);
-  margin-top: var(--space-sm);
-  flex-wrap: wrap;
+/* Component-specific styles only for unique elements */
+.new-delivery {
+  padding: var(--space-xl) 0;
+  min-height: calc(100vh - 64px);
 }
 
+/* Page Header */
+.page-header {
+  margin-bottom: var(--space-xl);
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: var(--font-medium);
+  margin-bottom: var(--space-sm);
+}
+
+.back-link:hover {
+  text-decoration: underline;
+}
+
+/* Alerts */
+.alert-success {
+  background-color: rgba(52, 168, 83, 0.1);
+  color: var(--color-success);
+}
+
+.alert-error {
+  background-color: rgba(234, 67, 53, 0.1);
+  color: var(--color-error);
+}
+
+/* Progress Bar */
+.progress-bar {
+  height: 4px;
+  background-color: var(--color-border);
+  border-radius: var(--radius-full);
+  margin-bottom: var(--space-xl);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: var(--color-primary);
+  border-radius: var(--radius-full);
+  transition: width var(--transition-base);
+}
+
+.progress-step {
+  flex: 1;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.step-number {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface);
+  border: 2px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: var(--font-semibold);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-xs);
+  transition: all var(--transition-base);
+}
+
+.progress-step:hover .step-number {
+  transform: scale(1.1);
+}
+
+.progress-step.active .step-number {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+  box-shadow: 0 0 0 4px rgba(26, 115, 232, 0.1);
+}
+
+.progress-step.completed .step-number {
+  background-color: var(--color-success);
+  border-color: var(--color-success);
+  color: white;
+}
+
+.step-title {
+  color: var(--color-text-secondary);
+  text-align: center;
+  max-width: 120px;
+  line-height: 1.3;
+}
+
+.progress-step.active .step-title {
+  color: var(--color-primary);
+  font-weight: var(--font-medium);
+}
+
+.progress-step.completed .step-title {
+  color: var(--color-text);
+}
+
+/* Wizard */
+.wizard-step {
+  min-height: 400px;
+}
+
+/* Release/Target Cards */
+.release-card,
+.target-card {
+  display: block;
+  cursor: pointer;
+  background-color: var(--color-surface);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  transition: all var(--transition-base);
+}
+
+.release-card:hover,
+.target-card:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.release-card.selected,
+.target-card.selected {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-light);
+}
+
+.release-radio,
+.target-checkbox {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.release-cover,
+.summary-cover {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  flex-shrink: 0;
+  background-color: var(--color-bg-secondary);
+}
+
+.release-cover img,
+.summary-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+  font-size: 2rem;
+}
+
+.target-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+}
+
+.badge-info {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.badge-success {
+  background-color: rgba(52, 168, 83, 0.1);
+  color: var(--color-success);
+}
+
+.badge-warning {
+  background-color: rgba(251, 188, 4, 0.1);
+  color: var(--color-warning);
+}
+
+.badge-error {
+  background-color: rgba(234, 67, 53, 0.1);
+  color: var(--color-error);
+}
+
+/* Genre specific */
 .genre-badge {
   display: inline-flex;
   align-items: center;
@@ -1263,12 +1475,6 @@ onMounted(() => {
   margin-left: var(--space-xs);
 }
 
-.mapping-name {
-  font-size: var(--text-xs);
-  color: var(--color-text-secondary);
-  margin-top: var(--space-xs);
-}
-
 .genre-preview {
   display: flex;
   align-items: center;
@@ -1280,27 +1486,13 @@ onMounted(() => {
   font-size: var(--text-sm);
 }
 
-.original-genre {
-  color: var(--color-text-secondary);
-}
-
-.mapping-arrow {
-  color: var(--color-primary);
-  font-size: var(--text-xs);
-}
-
-.mapped-genre {
-  color: var(--color-primary);
-  font-weight: var(--font-medium);
-}
-
 .genre-mapping-display {
   margin-top: var(--space-md);
 }
 
 .mapping-info-card {
   padding: var(--space-md);
-  background-color: var(--color-info-light);
+  background-color: rgba(66, 133, 244, 0.1);
   border: 1px solid var(--color-info);
   border-radius: var(--radius-md);
 }
@@ -1310,12 +1502,8 @@ onMounted(() => {
   align-items: center;
   gap: var(--space-xs);
   font-weight: var(--font-medium);
-  color: var(--color-info-dark);
+  color: var(--color-info);
   margin-bottom: var(--space-sm);
-}
-
-.mapping-details {
-  font-size: var(--text-sm);
 }
 
 .mapping-row {
@@ -1324,28 +1512,14 @@ onMounted(() => {
   padding: var(--space-xs) 0;
 }
 
-.mapping-row .label {
-  color: var(--color-text-secondary);
-  min-width: 80px;
-}
-
-.mapping-row .value {
-  color: var(--color-text);
-}
-
-.mapping-row .value.mapped {
-  color: var(--color-primary);
-  font-weight: var(--font-medium);
-}
-
 .mapping-warning {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
   margin-top: var(--space-sm);
   padding: var(--space-xs);
-  background-color: var(--color-warning-light);
-  color: var(--color-warning-dark);
+  background-color: rgba(251, 188, 4, 0.1);
+  color: var(--color-warning);
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
 }
@@ -1353,7 +1527,7 @@ onMounted(() => {
 .genre-mapping-result {
   margin-top: var(--space-sm);
   padding: var(--space-sm);
-  background-color: var(--color-success-light);
+  background-color: rgba(52, 168, 83, 0.1);
   border-radius: var(--radius-md);
 }
 
@@ -1361,7 +1535,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
-  color: var(--color-success-dark);
+  color: var(--color-success);
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
 }
@@ -1388,524 +1562,20 @@ onMounted(() => {
   padding-left: var(--space-lg);
 }
 
-.error-hint {
-  margin-top: var(--space-sm);
-  padding: var(--space-sm);
-  background-color: var(--color-info-light);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-}
-
-.error-hint .link {
-  color: var(--color-primary);
-  text-decoration: underline;
-  margin-left: var(--space-xs);
-}
-
-.new-delivery {
-  padding: var(--space-xl) 0;
-  min-height: calc(100vh - 64px);
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-xl);
-}
-
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  color: var(--color-primary);
-  text-decoration: none;
-  font-weight: var(--font-medium);
-}
-
-.back-link:hover {
-  text-decoration: underline;
-}
-
-.header-actions {
-  display: flex;
-  gap: var(--space-sm);
-}
-
-.page-header {
-  margin-bottom: var(--space-xl);
-}
-
-.page-title {
-  font-size: var(--text-3xl);
-  font-weight: var(--font-bold);
-  color: var(--color-heading);
-  margin-bottom: var(--space-xs);
-}
-
-.page-subtitle {
-  font-size: var(--text-lg);
-  color: var(--color-text-secondary);
-}
-
-/* Messages */
-.message {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-md);
-  border-radius: var(--radius-lg);
-  margin-bottom: var(--space-lg);
-}
-
-.success-message {
-  background-color: rgba(52, 168, 83, 0.1);
-  color: var(--color-success);
-}
-
-.error-message {
-  background-color: rgba(234, 67, 53, 0.1);
-  color: var(--color-error);
-}
-
-/* Progress Bar */
-.wizard-progress {
-  margin-bottom: var(--space-xl);
-}
-
-.progress-bar {
-  height: 4px;
-  background-color: var(--color-border);
-  border-radius: var(--radius-full);
-  margin-bottom: var(--space-xl);
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background-color: var(--color-primary);
-  border-radius: var(--radius-full);
-  transition: width var(--transition-base);
-}
-
-.progress-steps {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.progress-step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex: 1;
-  cursor: pointer;
-  transition: all var(--transition-base);
-}
-
-.step-number {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-full);
-  background-color: var(--color-surface);
-  border: 2px solid var(--color-border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: var(--font-semibold);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-xs);
-  transition: all var(--transition-base);
-}
-
-.progress-step:hover .step-number {
-  transform: scale(1.1);
-}
-
-.progress-step.active .step-number {
-  background-color: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
-  box-shadow: 0 0 0 4px rgba(26, 115, 232, 0.1);
-}
-
-.progress-step.completed .step-number {
-  background-color: var(--color-success);
-  border-color: var(--color-success);
-  color: white;
-}
-
-.step-title {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  text-align: center;
-  max-width: 120px;
-  line-height: 1.3;
-}
-
-.progress-step.active .step-title {
-  color: var(--color-primary);
-  font-weight: var(--font-medium);
-}
-
-.progress-step.completed .step-title {
-  color: var(--color-text);
-}
-
-/* Wizard Content */
-.wizard-content {
-  margin-bottom: var(--space-xl);
-}
-
-.step-heading {
-  font-size: var(--text-xl);
-  font-weight: var(--font-semibold);
-  color: var(--color-heading);
-}
-
-.wizard-step {
-  min-height: 400px;
-}
-
-.step-description {
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-lg);
-}
-
-.step-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-lg);
-}
-
-.step-actions {
-  display: flex;
-  gap: var(--space-sm);
-}
-
-/* Step 1: Release Selection */
-.releases-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: var(--space-lg);
-}
-
-.release-card {
-  display: block;
-  cursor: pointer;
-  background-color: var(--color-surface);
-  border: 2px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-md);
-  transition: all var(--transition-base);
-}
-
-.release-card:hover {
-  border-color: var(--color-primary);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.release-card.selected {
-  border-color: var(--color-primary);
-  background-color: var(--color-primary-light);
-}
-
-.release-radio {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.release-content {
-  display: flex;
-  gap: var(--space-md);
-}
-
-.release-cover {
-  width: 80px;
-  height: 80px;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  flex-shrink: 0;
-  background-color: var(--color-bg-secondary);
-}
-
-.release-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.cover-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-tertiary);
-  font-size: 2rem;
-}
-
-.release-info {
-  flex: 1;
-}
-
-.release-info h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-xs);
-}
-
-.release-info p {
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-sm);
-}
-
-.release-meta {
-  display: flex;
-  gap: var(--space-md);
-  font-size: var(--text-sm);
-  color: var(--color-text-tertiary);
-}
-
-/* Step 2: Target Selection */
-.targets-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: var(--space-lg);
-}
-
-.target-card {
-  display: block;
-  cursor: pointer;
-  background-color: var(--color-surface);
-  border: 2px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  transition: all var(--transition-base);
-}
-
-.target-card:hover {
-  border-color: var(--color-primary);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.target-card.selected {
-  border-color: var(--color-primary);
-  background-color: var(--color-primary-light);
-}
-
-.target-checkbox {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.target-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-}
-
-.target-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.target-header h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-}
-
-.target-details,
-.detail-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
-.detail-row {
-  flex-direction: row;
-  justify-content: space-between;
-  font-size: var(--text-sm);
-}
-
-.detail-label {
-  color: var(--color-text-secondary);
-}
-
-.target-models {
-  padding-top: var(--space-sm);
-  border-top: 1px solid var(--color-border);
-}
-
-.models-label {
-  display: block;
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-xs);
-}
-
-.models-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs);
-}
-
-.model-badge {
-  padding: 2px 8px;
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-}
-
-.selection-summary {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-md);
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
-  border-radius: var(--radius-md);
-  margin-top: var(--space-lg);
-}
-
-/* Message Type Section */
-.message-type-section {
-  margin-bottom: var(--space-xl);
-  padding: var(--space-lg);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-}
-
-.message-type-section h3 {
-  margin-bottom: var(--space-lg);
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-}
-
-.message-type-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: var(--space-lg);
-}
-
-.message-type-card {
-  background-color: var(--color-surface);
-  padding: var(--space-md);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-}
-
-.target-name {
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-md);
-  color: var(--color-heading);
-}
-
-.message-type-selector {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.radio-option {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-base);
-}
-
-.radio-option:hover {
-  background-color: var(--color-bg-secondary);
-  border-color: var(--color-primary);
-}
-
-.radio-option input[type="radio"]:checked + span {
-  font-weight: var(--font-semibold);
-  color: var(--color-primary);
-}
-
-.radio-option input[type="radio"]:disabled {
-  cursor: not-allowed;
-}
-
-.radio-option input[type="radio"]:disabled + span {
-  color: var(--color-text-tertiary);
-}
-
-.option-hint {
-  margin-left: auto;
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.takedown-config {
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--color-border);
-}
-
-/* Step 3: ERN Generation */
-.generating-status {
-  text-align: center;
-  padding: var(--space-3xl);
-  color: var(--color-text-secondary);
-}
-
-.ern-results {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
-}
-
-.ern-result-card {
-  background-color: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-}
-
-.ern-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-md);
-}
-
-.ern-header h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-}
-
+/* ERN Details */
 .ern-details {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
+  margin-bottom: var(--space-md);
 }
 
-.mono-text {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
+/* Error Cards */
+.error-card {
+  border-color: var(--color-error) !important;
 }
 
-.ern-actions {
-  display: flex;
-  gap: var(--space-sm);
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--color-border);
-}
-
-.ern-error {
+.error-message {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
@@ -1915,173 +1585,28 @@ onMounted(() => {
   border-radius: var(--radius-md);
 }
 
-/* Step 4: Schedule */
-.form-section {
-  margin-bottom: var(--space-xl);
+.error-hint {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+  background-color: rgba(66, 133, 244, 0.1);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
 }
 
-.form-section h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-md);
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-md);
-}
-
-.form-group {
+/* Schedule Options */
+.schedule-options {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
 }
 
-.form-label {
-  font-weight: var(--font-medium);
-  color: var(--color-text);
-}
-
-.form-textarea {
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: var(--text-base);
-  background-color: var(--color-surface);
-  color: var(--color-text);
-  resize: vertical;
-  transition: all var(--transition-base);
-}
-
-.form-textarea:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-light);
-}
-
+.radio-option,
 .checkbox-option {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-md);
-  padding: var(--space-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  transition: all var(--transition-base);
-}
-
-.checkbox-option:hover {
-  background-color: var(--color-bg-secondary);
-  border-color: var(--color-primary);
-}
-
-.option-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
-.option-title {
-  font-weight: var(--font-medium);
-}
-
-.option-description {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.delivery-summary {
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  margin-bottom: var(--space-xl);
-}
-
-.delivery-summary h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-md);
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-md);
-}
-
-.summary-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
-.summary-label {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.queue-section {
-  text-align: center;
-  padding: var(--space-xl);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-}
-
-.btn-lg {
-  padding: var(--space-md) var(--space-2xl);
-  font-size: var(--text-lg);
-}
-
-.btn-success {
-  background-color: var(--color-success);
-  color: white;
-}
-
-.btn-success:hover:not(:disabled) {
-  background-color: var(--color-success);
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-}
-
-.queue-info {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  margin-top: var(--space-lg);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-
-/* Badge */
-.badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  font-weight: var(--font-semibold);
-  text-transform: uppercase;
-}
-
-.badge-info {
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
-}
-
-.badge-success {
-  background-color: rgba(52, 168, 83, 0.1);
-  color: var(--color-success);
-}
-
-.badge-warning {
-  background-color: rgba(251, 188, 4, 0.1);
-  color: var(--color-warning);
-}
-
-.badge-error {
-  background-color: rgba(234, 67, 53, 0.1);
-  color: var(--color-error);
+  cursor: pointer;
 }
 
 /* Loading */
@@ -2125,12 +1650,13 @@ onMounted(() => {
   margin-bottom: var(--space-lg);
 }
 
-/* Footer */
-.wizard-footer {
+/* Navigation */
+.wizard-navigation {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-top: var(--space-lg);
+  padding-top: var(--space-xl);
+  margin-top: var(--space-xl);
   border-top: 1px solid var(--color-border);
 }
 
@@ -2149,18 +1675,14 @@ onMounted(() => {
   padding: var(--space-lg);
 }
 
-.modal {
+.modal-content {
   background-color: var(--color-surface);
   border-radius: var(--radius-lg);
-  max-width: 500px;
-  width: 100%;
-  box-shadow: var(--shadow-lg);
-}
-
-.modal-large {
   max-width: 900px;
+  width: 100%;
   max-height: 90vh;
   overflow-y: auto;
+  box-shadow: var(--shadow-lg);
 }
 
 .modal-header {
@@ -2171,19 +1693,35 @@ onMounted(() => {
   border-bottom: 1px solid var(--color-border);
 }
 
-.modal-header h3 {
-  font-size: var(--text-xl);
-  font-weight: var(--font-semibold);
-  color: var(--color-heading);
+.modal-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
 }
 
-.modal-actions {
-  display: flex;
-  gap: var(--space-sm);
+.modal-close:hover {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text);
 }
 
 .modal-body {
   padding: var(--space-lg);
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-top: 1px solid var(--color-border);
 }
 
 .ern-preview {
@@ -2198,61 +1736,8 @@ onMounted(() => {
   word-wrap: break-word;
 }
 
-.btn-icon {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  border-radius: var(--radius-md);
-  transition: all var(--transition-base);
-}
-
-.btn-icon:hover {
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text);
-}
-
-.release-genre {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  margin: var(--space-xs) 0;
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.genre-icon {
-  font-size: var(--text-xs);
-  opacity: 0.7;
-}
-
 /* Responsive */
 @media (max-width: 768px) {
-  .releases-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .targets-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .message-type-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .form-row {
-    grid-template-columns: 1fr;
-  }
-  
-  .summary-grid {
-    grid-template-columns: 1fr;
-  }
-  
   .progress-steps {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
