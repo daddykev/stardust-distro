@@ -2,122 +2,189 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow users to read and write their own user profile
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function hasRole(role) {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+    
+    // Users - strict personal data protection
     match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) && 
+        (!('role' in request.resource.data) || 
+         request.resource.data.role == resource.data.role);
+      allow delete: if false; // Soft delete only
     }
     
-    // Allow anyone to read invite codes (needed for validation during signup)
-    // Only admins can create or delete invite codes
+    // Invite codes - public read, admin write
     match /inviteCodes/{codeId} {
-      allow read: if true; // Public read for validation
-      allow create, delete: if request.auth != null && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-      allow update: if false; // No updates needed for simple codes
+      allow read: if true;
+      allow write: if isAdmin();
     }
     
-    // Allow authenticated users to read all releases (for now)
-    // In production, this would be scoped to organization/tenant
+    // Releases - tenant isolation with ownership
     match /releases/{releaseId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read: if isAuthenticated() && 
+        (resource.data.createdBy == request.auth.uid || 
+         resource.data.tenantId == request.auth.uid);
+      allow create: if isAuthenticated() && 
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.tenantId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.createdBy == request.auth.uid &&
+        request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if isAuthenticated() && 
+        resource.data.createdBy == request.auth.uid;
     }
     
-    // Allow authenticated users to manage delivery targets
+    // Delivery targets - strict tenant isolation
     match /deliveryTargets/{targetId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.tenantId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid &&
+        request.resource.data.tenantId == resource.data.tenantId;
+      allow delete: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
     }
     
-    // Allow authenticated users to manage genre mappings
+    // Genre mappings - user-scoped
     match /genreMappings/{mappingId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.tenantId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid &&
+        request.resource.data.tenantId == resource.data.tenantId;
+      allow delete: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
     }
     
-    // Allow authenticated users to view deliveries
+    // Deliveries - read-only for users, write via Functions only
     match /deliveries/{deliveryId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read: if isAuthenticated() && 
+        (resource.data.tenantId == request.auth.uid ||
+         resource.data.createdBy == request.auth.uid);
+      allow create: if isAuthenticated() && 
+        request.resource.data.tenantId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
+      allow delete: if false; // Never delete delivery history
     }
 
-    // Locks collection for idempotency
+    // Locks - managed by Functions
     match /locks/{lockId} {
-      // Allow Cloud Functions to manage locks
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
-      allow delete: if request.auth != null && 
-        resource.data.expiresAt < request.time;
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && 
+        request.auth.uid == request.resource.data.tenantId;
+      allow delete: if isAuthenticated() && 
+        (resource.data.expiresAt < request.time ||
+         resource.data.tenantId == request.auth.uid);
     }
 
-    // Fingerprints collection
+    // Fingerprints - user-scoped with validation
     match /fingerprints/{fingerprintId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && 
-        request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && 
-        request.auth.uid == request.resource.data.userId;
+      allow read: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.sha256 != null;
+      allow update: if false; // Immutable
+      allow delete: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
     }
 
-    // Audio fingerprints collection
+    // Audio fingerprints - user-scoped
     match /audioFingerprints/{fingerprintId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && 
-        request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && 
-        request.auth.uid == request.resource.data.userId;
+      allow read: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid;
+      allow update: if false; // Immutable
+      allow delete: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
     }
 
-    // Test Results - Store testing logs and health scores
+    // Test results - admin only write
     match /testResults/{resultId} {
-      // Anyone authenticated can read test results (for monitoring)
-      allow read: if request.auth != null;
-      // Only admins or the test runner can write test results
-      allow write: if request.auth != null && 
-        (request.auth.uid == request.resource.data.runBy ||
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
     
-    // Latest Test Status - Single document for quick health check
+    // System health - public read, admin write
     match /systemHealth/{document} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
-    // Receipts collection
+    // Receipts - tenant-scoped
     match /receipts/{receiptId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.tenantId == request.auth.uid;
+      allow update: if false; // Immutable
+      allow delete: if false;
     }
 
-    // Migration rules
+    // Import jobs - user-scoped
     match /importJobs/{jobId} {
-      allow read, write: if request.auth != null && 
-        request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null;
+      allow read: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // Delivery history - audit trail
+    match /deliveryHistory/{historyId} {
+      allow read: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.tenantId == request.auth.uid;
+      allow update: if false; // Immutable audit trail
+      allow delete: if false;
+    }
+    
+    // Email queue - Functions only
+    match /mail/{mailId} {
+      allow read: if false;
+      allow write: if false; // Only Cloud Functions
+    }
+    
+    // Notifications - user-scoped
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId;
+      allow create, delete: if false; // Functions only
     }
 
     // Default deny all
     match /{document=**} {
       allow read, write: if false;
-    }
-
-    // Delivery History - tracks what messages have been sent to which targets
-    match /deliveryHistory/{document=**} {
-      // Allow authenticated users to read - queries will be filtered client-side
-      allow read: if request.auth != null;
-      
-      // Only allow creating documents with the user's tenantId
-      allow create: if request.auth != null && 
-        request.auth.uid == request.resource.data.tenantId;
-        
-      // Only allow updating your own documents
-      allow update: if request.auth != null && 
-        request.auth.uid == resource.data.tenantId;
-        
-      allow delete: if false; // Prevent deletion of history
     }
   }
 }

@@ -22,6 +22,8 @@ const { requireAuth, requireTenantAccess, checkRateLimit } = require('./middlewa
 const { validateWith, sanitizeInputs, validateFileUpload } = require('./middleware/validation')
 const { cleanForFirestore } = require('./utils/validation')
 
+const { encryptSensitiveData, decryptSensitiveData } = require('./encryption')
+
 const cors = require('cors');
 const express = require('express');
 
@@ -58,6 +60,10 @@ app.use('/deezer', deezerRoutes);
 
 // Export the Express app as a Cloud Function
 exports.api = onRequest(app);
+
+// Encryption functions
+exports.encryptSensitiveData = encryptSensitiveData
+exports.decryptSensitiveData = decryptSensitiveData
 
 // Set global options for v2 functions
 setGlobalOptions({
