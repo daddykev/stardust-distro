@@ -187,7 +187,8 @@ watch(() => user.value?.uid, async (uid) => {
 // Deezer API Methods
 const extractUPCFromFilename = (filename) => {
   // Extract UPC from DDEX naming: UPC_DiscNumber_TrackNumber.extension
-  const match = filename.match(/^(\d{12,14})(?:_\d{2}_\d{3})?/);
+  // Updated to handle both 2 and 3 digit track numbers
+  const match = filename.match(/^(\d{12,14})(?:_\d{2}_\d{2,3})?/);
   return match ? match[1] : null;
 }
 
@@ -889,7 +890,8 @@ const validateDDEXNaming = (fileName, type) => {
 
   if (type === 'audio') {
     // Expected: UPC_DiscNumber_TrackNumber.wav
-    const match = fileName.match(/^(\d{12,14})_(\d{2})_(\d{3})\.(?:wav|flac|mp3)$/i)
+    // Now accepts both 2-digit (TT) and 3-digit (TTT) track numbers
+    const match = fileName.match(/^(\d{12,14})_(\d{2})_(\d{2,3})\.(?:wav|flac|mp3)$/i)
     if (match) {
       return {
         valid: true,
@@ -900,7 +902,7 @@ const validateDDEXNaming = (fileName, type) => {
     }
     return {
       valid: false,
-      error: 'Audio files must be named: UPC_DiscNumber_TrackNumber.wav (e.g., 123456789012_01_001.wav)'
+      error: 'Audio files must be named: UPC_DD_TT.wav or UPC_DD_TTT.wav (e.g., 123456789012_01_01.wav or 123456789012_01_001.wav)'
     }
   }
 
@@ -1331,7 +1333,7 @@ onMounted(() => {
         <div class="flex-1">
           <p class="m-0">
             <strong>Metadata-less Mode:</strong> Upload DDEX-compliant audio files and we'll fetch metadata and cover artwork from Deezer automatically.
-            Files must use DDEX naming: <code>UPC_DD_TTT.wav</code> for audio. Cover art will be imported from Deezer if available.
+            Files must use DDEX naming: <code>UPC_DD_TT.wav</code> or <code>UPC_DD_TTT.wav</code> for audio. Cover art will be imported from Deezer if available.
           </p>
         </div>
       </div>
@@ -1562,9 +1564,13 @@ onMounted(() => {
                   <div class="requirement-card card p-lg text-center">
                     <font-awesome-icon icon="music" class="requirement-icon" />
                     <h4 class="font-semibold mb-sm">Audio Files</h4>
+                    <code>UPC_DD_TT.wav</code>
+                    <span class="text-xs text-secondary">or</span>
                     <code>UPC_DD_TTT.wav</code>
-                    <p class="text-sm text-secondary">Example: 669158552979_01_001.wav</p>
-                    <small class="text-xs text-tertiary block mt-xs">DD = Disc Number (01), TTT = Track Number (001)</small>
+                    <p class="text-sm text-secondary">Examples:</p>
+                    <small class="text-xs block">669158552979_01_01.wav</small>
+                    <small class="text-xs block">669158552979_01_001.wav</small>
+                    <small class="text-xs text-tertiary block mt-xs">DD = Disc (01), TT/TTT = Track (01 or 001)</small>
                   </div>
                   <div class="requirement-card card p-lg text-center">
                     <font-awesome-icon icon="image" class="requirement-icon" />
@@ -1584,7 +1590,7 @@ onMounted(() => {
                 <div class="info-box p-md bg-info-light rounded-lg mt-lg">
                   <p class="text-sm mb-0">
                     <font-awesome-icon icon="info-circle" class="mr-sm" />
-                    <strong>No cover art?</strong> No problem! We'll automatically fetch cover artwork from API when available.
+                    <strong>Flexible Track Numbering:</strong> We support both 2-digit (<code>01</code>) and 3-digit (<code>001</code>) track numbers for your convenience.
                   </p>
                 </div>
               </div>
@@ -2124,9 +2130,14 @@ onMounted(() => {
   padding: var(--space-sm);
   background-color: var(--color-bg-tertiary);
   border-radius: var(--radius-md);
-  margin: var(--space-sm) 0;
+  margin: var(--space-xs) 0;
   font-family: var(--font-mono);
   color: var(--color-primary);
+  font-size: var(--text-sm);
+}
+
+.requirement-card .text-xs.text-secondary {
+  margin: var(--space-xs) 0;
 }
 
 /* Process Card */
