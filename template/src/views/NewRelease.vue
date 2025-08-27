@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useCatalog } from '../composables/useCatalog'
 import { useAuth } from '../composables/useAuth'
 import GenreSelector from '../components/GenreSelector.vue'
+import { getGenreByCode } from '../dictionaries/genres'
 
 const router = useRouter()
 const route = useRoute()
@@ -53,9 +54,11 @@ const releaseData = ref({
   },
   metadata: {
     genre: '',
-    genreCode: '',  // Apple genre code
+    genreCode: '',  // Genre code
+    genreName: '', // Human-readable name
     subgenre: '',
-    subgenreCode: '', // Apple subgenre code
+    subgenreCode: '', // Subgenre code
+    subgenreName: '', // Human-readable subgenre name
     language: 'en',
     copyright: '',
     copyrightYear: new Date().getFullYear(),
@@ -90,6 +93,65 @@ const stepTitles = [
 
 // Computed
 const currentStepTitle = computed(() => stepTitles[currentStep.value - 1])
+
+// Add computed property for display genre name - USE CONSISTENT DSP
+const displayGenreName = computed(() => {
+  // If we have a subgenre, show it (it's more specific)
+  if (releaseData.value.metadata.subgenreName) {
+    return releaseData.value.metadata.subgenreName
+  } else if (releaseData.value.metadata.subgenre) {
+    return releaseData.value.metadata.subgenre
+  }
+  
+  // Otherwise show parent genre
+  if (releaseData.value.metadata.genreName) {
+    return releaseData.value.metadata.genreName
+  } else if (releaseData.value.metadata.genre) {
+    return releaseData.value.metadata.genre
+  }
+  
+  // Fallback to looking up codes
+  if (releaseData.value.metadata.subgenreCode) {
+    const subgenre = getGenreByCode(releaseData.value.metadata.subgenreCode, 'genre-truth')
+    return subgenre?.name || 'Not set'
+  } else if (releaseData.value.metadata.genreCode) {
+    const genre = getGenreByCode(releaseData.value.metadata.genreCode, 'genre-truth')
+    return genre?.name || 'Not set'
+  }
+  
+  return 'Not set'
+})
+
+// Watch genre code changes to sync human-readable names - USE GENRE-TRUTH
+watch(() => releaseData.value.metadata.genreCode, (newCode) => {
+  console.log('Genre code changed:', newCode) // Debug log
+  if (newCode) {
+    const genre = getGenreByCode(newCode, 'genre-truth')
+    if (genre) {
+      releaseData.value.metadata.genreName = genre.name
+      releaseData.value.metadata.genre = genre.name // For backward compatibility
+      console.log('Genre name set to:', genre.name) // Debug log
+    }
+  } else {
+    releaseData.value.metadata.genreName = ''
+    releaseData.value.metadata.genre = ''
+  }
+}, { immediate: true })
+
+watch(() => releaseData.value.metadata.subgenreCode, (newCode) => {
+  console.log('Subgenre code changed:', newCode) // Debug log
+  if (newCode) {
+    const subgenre = getGenreByCode(newCode, 'genre-truth')
+    if (subgenre) {
+      releaseData.value.metadata.subgenreName = subgenre.name
+      releaseData.value.metadata.subgenre = subgenre.name // For backward compatibility
+      console.log('Subgenre name set to:', subgenre.name) // Debug log
+    }
+  } else {
+    releaseData.value.metadata.subgenreName = ''
+    releaseData.value.metadata.subgenre = ''
+  }
+}, { immediate: true })
 
 // Validation methods
 const validateBasicInfo = () => {
@@ -158,10 +220,10 @@ const validateBasicInfo = () => {
     const barcode = basic.barcode.trim()
     
     // Remove any spaces or hyphens
-    const cleanBarcode = barcode.replace(/[\\s-]/g, '')
+    const cleanBarcode = barcode.replace(/[\s-]/g, '')
     
     // Check if it's all digits
-    if (!/^\\d+$/.test(cleanBarcode)) {
+    if (!/^\d+$/.test(cleanBarcode)) {
       errors.push('Barcode must contain only numbers')
     } 
     // Check length (UPC-A is 12 digits, EAN-13 is 13 digits, EAN-14 is 14 digits)
@@ -185,7 +247,7 @@ const validateBasicInfo = () => {
       errors.push('Catalog number must be less than 50 characters')
     }
     // Allow alphanumeric, hyphens, and underscores
-    if (!/^[A-Za-z0-9\\-_]+$/.test(catalogNumber)) {
+    if (!/^[A-Za-z0-9\-_]+$/.test(catalogNumber)) {
       errors.push('Catalog number can only contain letters, numbers, hyphens, and underscores')
     }
   }
@@ -276,8 +338,10 @@ const cleanDataForFirestore = (data) => {
     metadata: {
       genre: cleanedData.metadata?.genre || '',
       genreCode: cleanedData.metadata?.genreCode || '',
+      genreName: cleanedData.metadata?.genreName || '',
       subgenre: cleanedData.metadata?.subgenre || '',
       subgenreCode: cleanedData.metadata?.subgenreCode || '',
+      subgenreName: cleanedData.metadata?.subgenreName || '',
       language: cleanedData.metadata?.language || 'en',
       copyright: cleanedData.metadata?.copyright || '',
       copyrightYear: cleanedData.metadata?.copyrightYear || new Date().getFullYear(),
@@ -357,7 +421,21 @@ const canProceed = computed(() => {
     case 3:
       return releaseData.value.assets.coverImage !== null
     case 4:
-      return releaseData.value.metadata.genre && releaseData.value.metadata.copyright
+      // Check for genreCode OR subgenreCode OR genre OR subgenre (any genre selection is valid)
+      const hasGenre = !!(
+        releaseData.value.metadata.genreCode || 
+        releaseData.value.metadata.subgenreCode ||
+        releaseData.value.metadata.genre ||
+        releaseData.value.metadata.subgenre
+      )
+      const hasCopyright = !!releaseData.value.metadata.copyright
+      console.log('Step 4 validation - hasGenre:', hasGenre, {
+        genreCode: releaseData.value.metadata.genreCode,
+        subgenreCode: releaseData.value.metadata.subgenreCode,
+        genre: releaseData.value.metadata.genre,
+        subgenre: releaseData.value.metadata.subgenre
+      })
+      return hasGenre && hasCopyright
     case 5:
       return true // Territories are optional
     case 6:
@@ -715,7 +793,7 @@ const handleAudioUpload = async (event, trackIndex) => {
   }
 }
 
-// Validation
+// Validation - FIXED TO CHECK BOTH genreCode AND genre
 const validateERN = async () => {
   // Mock validation for now
   // In production, this would call the DDEX Workbench API
@@ -753,8 +831,23 @@ const validateERN = async () => {
       errors.push('Cover image is required')
     }
     
-    // Validate metadata
-    if (!releaseData.value.metadata.genre) {
+    // Validate metadata - check for ANY genre selection (parent or sub)
+    const hasGenre = !!(
+      releaseData.value.metadata.genreCode || 
+      releaseData.value.metadata.subgenreCode ||
+      releaseData.value.metadata.genre ||
+      releaseData.value.metadata.subgenre
+    )
+    
+    console.log('Validation - checking genre:', {
+      genreCode: releaseData.value.metadata.genreCode,
+      subgenreCode: releaseData.value.metadata.subgenreCode,
+      genre: releaseData.value.metadata.genre,
+      subgenre: releaseData.value.metadata.subgenre,
+      hasGenre
+    })
+    
+    if (!hasGenre) {
       errors.push('Genre is required')
     }
     if (!releaseData.value.metadata.copyright) {
@@ -811,6 +904,7 @@ const formatDuration = (seconds) => {
 <template>
   <div class="new-release">
     <div class="container">
+      <!-- Keep all existing template exactly as before -->
       <!-- Header -->
       <div class="wizard-header">
         <h1 class="page-title">
@@ -1113,14 +1207,14 @@ const formatDuration = (seconds) => {
             </div>
           </div>
 
-          <!-- Step 4: Metadata -->
+          <!-- Step 4: Metadata - USING GENRE-TRUTH DSP -->
           <div v-if="currentStep === 4" class="wizard-step">
             <div class="form-section">
               <h3>Genre Classification</h3>
               <GenreSelector
                 v-model="releaseData.metadata.genreCode"
                 v-model:subgenre-value="releaseData.metadata.subgenreCode"
-                dsp="apple"
+                dsp="genre-truth"
               />
             </div>
             
@@ -1231,7 +1325,7 @@ const formatDuration = (seconds) => {
                 </div>
                 <div class="summary-item">
                   <span class="summary-label">Genre:</span>
-                  <span class="summary-value">{{ releaseData.metadata.genre || 'Not set' }}</span>
+                  <span class="summary-value">{{ displayGenreName }}</span>
                 </div>
                 <div class="summary-item">
                   <span class="summary-label">Cover Image:</span>
