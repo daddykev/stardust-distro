@@ -12,6 +12,25 @@ import {
   categorizeRole,
   CommonRoles
 } from '../dictionaries/contributors'
+import {
+  MoodCategories,
+  MusicalKeys,
+  TimeSignatures,
+  VocalRegisters,
+  VocalCharacteristics,
+  InstrumentCategories,
+  TempoDescriptions,
+  PlaylistSuitability,
+  Seasonality,
+  ContentAdvisories,
+  RecordingTechniques,
+  AudioCharacteristics,
+  defaultMeadData,
+  getAllMoods,
+  getAllInstruments,
+  getMoodsByCategory,
+  getInstrumentsByCategory
+} from '../dictionaries/mead'
 
 const router = useRouter()
 const route = useRoute()
@@ -38,6 +57,7 @@ const expandedSections = ref({
   tracks: false,
   assets: false,
   metadata: false,
+  mead: false,
   territories: false
 })
 
@@ -73,6 +93,8 @@ const releaseData = ref({
     copyrightYear: new Date().getFullYear(),
     productionYear: new Date().getFullYear()
   },
+  // Enhanced MEAD section with complete structure
+  mead: { ...defaultMeadData },
   territories: {
     mode: 'worldwide',
     included: [],
@@ -95,6 +117,7 @@ const validationErrors = ref({
   tracks: [],
   assets: [],
   metadata: [],
+  mead: [],
   territories: []
 })
 
@@ -182,6 +205,16 @@ const sectionStatus = computed(() => {
       summary: displayGenreName.value,
       errors: validationErrors.value.metadata.length
     },
+    mead: {
+      complete: !!(
+        releaseData.value.mead.moods.length > 0 || 
+        releaseData.value.mead.tempo || 
+        releaseData.value.mead.instrumentation.length > 0 ||
+        releaseData.value.mead.playlistSuitability.length > 0
+      ),
+      summary: getMeadSummary(),
+      errors: validationErrors.value.mead?.length || 0
+    },
     territories: {
       complete: true, // Territories are optional
       summary: releaseData.value.territories.mode === 'worldwide' ? 'Worldwide' : 'Selected territories',
@@ -189,6 +222,25 @@ const sectionStatus = computed(() => {
     }
   }
 })
+
+// MEAD summary helper
+const getMeadSummary = () => {
+  const parts = []
+  if (releaseData.value.mead.moods.length > 0) {
+    parts.push(`${releaseData.value.mead.moods.length} mood${releaseData.value.mead.moods.length === 1 ? '' : 's'}`)
+  }
+  if (releaseData.value.mead.tempo) {
+    parts.push(`${releaseData.value.mead.tempo} BPM`)
+  }
+  if (releaseData.value.mead.instrumentation.length > 0) {
+    parts.push(`${releaseData.value.mead.instrumentation.length} instrument${releaseData.value.mead.instrumentation.length === 1 ? '' : 's'}`)
+  }
+  if (releaseData.value.mead.playlistSuitability.length > 0) {
+    parts.push(`${releaseData.value.mead.playlistSuitability.length} playlist${releaseData.value.mead.playlistSuitability.length === 1 ? '' : 's'}`)
+  }
+  
+  return parts.length > 0 ? parts.join(' • ') : 'Rich metadata for DSP curation and discovery'
+}
 
 // Watch for changes to enable auto-save
 watch(releaseData, (newValue) => {
@@ -241,6 +293,7 @@ onMounted(async () => {
         tracks: currentRelease.value.tracks || [],
         assets: { ...releaseData.value.assets, ...(currentRelease.value.assets || {}) },
         metadata: { ...releaseData.value.metadata, ...(currentRelease.value.metadata || {}) },
+        mead: { ...defaultMeadData, ...(currentRelease.value.mead || {}) },
         territories: { ...releaseData.value.territories, ...(currentRelease.value.territories || {}) }
       }
       
@@ -410,6 +463,87 @@ const handleRemoveTrack = (index) => {
       track.sequenceNumber = i + 1
     })
     modifiedSections.value.add('tracks')
+  }
+}
+
+// MEAD Methods
+const addMood = (mood) => {
+  if (!releaseData.value.mead.moods.includes(mood)) {
+    releaseData.value.mead.moods.push(mood)
+    modifiedSections.value.add('mead')
+  }
+}
+
+const removeMood = (mood) => {
+  const index = releaseData.value.mead.moods.indexOf(mood)
+  if (index > -1) {
+    releaseData.value.mead.moods.splice(index, 1)
+    modifiedSections.value.add('mead')
+  }
+}
+
+const addInstrument = (instrument) => {
+  if (!releaseData.value.mead.instrumentation.includes(instrument)) {
+    releaseData.value.mead.instrumentation.push(instrument)
+    modifiedSections.value.add('mead')
+  }
+}
+
+const removeInstrument = (instrument) => {
+  const index = releaseData.value.mead.instrumentation.indexOf(instrument)
+  if (index > -1) {
+    releaseData.value.mead.instrumentation.splice(index, 1)
+    modifiedSections.value.add('mead')
+  }
+}
+
+const togglePlaylistSuitability = (playlist) => {
+  const index = releaseData.value.mead.playlistSuitability.indexOf(playlist)
+  if (index > -1) {
+    releaseData.value.mead.playlistSuitability.splice(index, 1)
+  } else {
+    releaseData.value.mead.playlistSuitability.push(playlist)
+  }
+  modifiedSections.value.add('mead')
+}
+
+const toggleVocalCharacteristic = (characteristic) => {
+  const index = releaseData.value.mead.vocalCharacteristics.indexOf(characteristic)
+  if (index > -1) {
+    releaseData.value.mead.vocalCharacteristics.splice(index, 1)
+  } else {
+    releaseData.value.mead.vocalCharacteristics.push(characteristic)
+  }
+  modifiedSections.value.add('mead')
+}
+
+const setFocusTrack = (trackId) => {
+  releaseData.value.mead.focusTrack = trackId
+  modifiedSections.value.add('mead')
+}
+
+// Track-level MEAD methods
+const setTrackMead = (trackIndex, meadData) => {
+  const track = releaseData.value.tracks[trackIndex]
+  if (!releaseData.value.mead.trackMead[track.id]) {
+    releaseData.value.mead.trackMead[track.id] = {}
+  }
+  Object.assign(releaseData.value.mead.trackMead[track.id], meadData)
+  modifiedSections.value.add('mead')
+}
+
+const getTrackMead = (trackId) => {
+  return releaseData.value.mead.trackMead[trackId] || {}
+}
+
+const toggleTrackMood = (trackIndex, mood) => {
+  const track = releaseData.value.tracks[trackIndex]
+  const trackMoods = getTrackMead(track.id).moods || []
+  
+  if (trackMoods.includes(mood)) {
+    setTrackMead(trackIndex, { moods: trackMoods.filter(m => m !== mood) })
+  } else {
+    setTrackMead(trackIndex, { moods: [...trackMoods, mood] })
   }
 }
 
@@ -1097,6 +1231,378 @@ const handleSubgenreUpdate = (value) => {
           </div>
         </div>
 
+        <!-- MEAD Section -->
+        <div class="collapsible-section" :class="{ expanded: expandedSections.mead, modified: modifiedSections.has('mead') }">
+          <div class="section-header" @click="toggleSection('mead')">
+            <div class="section-icon">
+              <font-awesome-icon :icon="expandedSections.mead ? 'chevron-down' : 'chevron-right'" />
+            </div>
+            <div class="section-info">
+              <h2 class="section-title">
+                MEAD - Media Enrichment
+                <span v-if="sectionStatus.mead.complete" class="status-badge complete">
+                  <font-awesome-icon icon="check" />
+                </span>
+                <span class="mead-badge">Enhances Discovery</span>
+              </h2>
+              <p class="section-summary">{{ sectionStatus.mead.summary }}</p>
+            </div>
+          </div>
+          
+          <div v-if="expandedSections.mead" class="section-content">
+            <!-- MEAD Information Panel -->
+            <div class="mead-info-panel">
+              <div class="mead-benefits">
+                <h4><font-awesome-icon icon="chart-line" /> Boost Your Music's Performance</h4>
+                <p>MEAD (Media Enrichment and Description) metadata can increase streams by up to 10% and reduce skip rates by 7.5% on major DSPs.</p>
+                <div class="benefit-tags">
+                  <span class="benefit-tag"><font-awesome-icon icon="search" /> Better Discovery</span>
+                  <span class="benefit-tag"><font-awesome-icon icon="list-music" /> Playlist Curation</span>
+                  <span class="benefit-tag"><font-awesome-icon icon="microphone" /> Voice Search</span>
+                  <span class="benefit-tag"><font-awesome-icon icon="robot" /> AI Recommendations</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Mood & Theme Classification -->
+            <div class="form-section">
+              <h3><font-awesome-icon icon="heart" /> Mood & Theme</h3>
+              <p class="section-description">Help DSPs categorize your music for mood-based playlists and recommendations.</p>
+              
+              <div class="mood-selector">
+                <div class="mood-categories">
+                  <div v-for="(category, categoryKey) in MoodCategories" :key="categoryKey" class="mood-category">
+                    <h4>{{ category.name }}</h4>
+                    <p class="category-description">{{ category.description }}</p>
+                    <div class="mood-chips">
+                      <button 
+                        v-for="mood in category.moods" 
+                        :key="mood"
+                        @click="releaseData.mead.moods.includes(mood) ? removeMood(mood) : addMood(mood)"
+                        :class="{ active: releaseData.mead.moods.includes(mood) }"
+                        class="mood-chip"
+                        type="button"
+                      >
+                        {{ mood }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                <div v-if="releaseData.mead.moods.length > 0" class="selected-moods">
+                  <h4>Selected Moods:</h4>
+                  <div class="selected-mood-tags">
+                    <span v-for="mood in releaseData.mead.moods" :key="mood" class="selected-mood-tag">
+                      {{ mood }}
+                      <button @click="removeMood(mood)" class="remove-mood" type="button">
+                        <font-awesome-icon icon="times" />
+                      </button>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Content Advisory</label>
+                <label class="checkbox-option">
+                  <input 
+                    v-model="releaseData.mead.isExplicit" 
+                    type="checkbox"
+                    @change="modifiedSections.add('mead')"
+                  />
+                  <span class="checkbox-content">Contains explicit content</span>
+                </label>
+                <input 
+                  v-model="releaseData.mead.contentAdvisory" 
+                  type="text" 
+                  class="form-input"
+                  placeholder="Additional content warnings (optional)"
+                  @input="modifiedSections.add('mead')"
+                />
+              </div>
+            </div>
+
+            <!-- Musical Characteristics -->
+            <div class="form-section">
+              <h3><font-awesome-icon icon="music" /> Musical Characteristics</h3>
+              <p class="section-description">Technical details that help with music analysis and matching.</p>
+              
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">Tempo (BPM)</label>
+                  <input 
+                    v-model.number="releaseData.mead.tempo" 
+                    type="number" 
+                    class="form-input"
+                    placeholder="e.g., 120"
+                    min="40"
+                    max="200"
+                    @input="modifiedSections.add('mead')"
+                  />
+                  <small class="form-hint">Beats per minute for DJ mixing and workout playlists</small>
+                </div>
+                
+                <div class="form-group">
+                  <label class="form-label">Tempo Description</label>
+                  <select v-model="releaseData.mead.tempoDescription" class="form-select" @change="modifiedSections.add('mead')">
+                    <option value="">Select tempo feel</option>
+                    <option v-for="tempo in TempoDescriptions" :key="tempo.code" :value="tempo.code">
+                      {{ tempo.name }} ({{ tempo.range }})
+                    </option>
+                  </select>
+                </div>
+                
+                <div class="form-group">
+                  <label class="form-label">Time Signature</label>
+                  <select v-model="releaseData.mead.timeSignature" class="form-select" @change="modifiedSections.add('mead')">
+                    <option value="">Select time signature</option>
+                    <option v-for="sig in TimeSignatures" :key="sig.code" :value="sig.code">
+                      {{ sig.name }} - {{ sig.description }}
+                    </option>
+                  </select>
+                </div>
+                
+                <div class="form-group">
+                  <label class="form-label">Musical Key</label>
+                  <select v-model="releaseData.mead.harmonicStructure" class="form-select" @change="modifiedSections.add('mead')">
+                    <option value="">Select key</option>
+                    <option v-for="key in MusicalKeys" :key="key.code" :value="key.code">{{ key.display }}</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Instrumentation -->
+            <div class="form-section">
+              <h3><font-awesome-icon icon="guitar" /> Instrumentation</h3>
+              <p class="section-description">Primary instruments featured in this release.</p>
+              
+              <div class="instrumentation-selector">
+                <div class="instrument-categories">
+                  <div v-for="(category, categoryKey) in InstrumentCategories" :key="categoryKey" class="instrument-category">
+                    <h4>{{ category.name }}</h4>
+                    <p class="category-description">{{ category.description }}</p>
+                    <div class="instrument-chips">
+                      <button 
+                        v-for="instrument in category.instruments" 
+                        :key="instrument.code"
+                        @click="releaseData.mead.instrumentation.includes(instrument.name) ? removeInstrument(instrument.name) : addInstrument(instrument.name)"
+                        :class="{ active: releaseData.mead.instrumentation.includes(instrument.name) }"
+                        class="instrument-chip"
+                        type="button"
+                      >
+                        {{ instrument.name }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                <div v-if="releaseData.mead.instrumentation.length > 0" class="selected-instruments">
+                  <h4>Primary Instruments:</h4>
+                  <div class="selected-instrument-tags">
+                    <span v-for="instrument in releaseData.mead.instrumentation" :key="instrument" class="selected-instrument-tag">
+                      {{ instrument }}
+                      <button @click="removeInstrument(instrument)" class="remove-instrument" type="button">
+                        <font-awesome-icon icon="times" />
+                      </button>
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label">Instrumentation Details</label>
+                <textarea 
+                  v-model="releaseData.mead.instrumentationDetails" 
+                  class="form-textarea"
+                  placeholder="Additional details about the instrumentation or unique instruments used..."
+                  rows="3"
+                  @input="modifiedSections.add('mead')"
+                ></textarea>
+              </div>
+            </div>
+
+            <!-- Vocal Information -->
+            <div class="form-section">
+              <h3><font-awesome-icon icon="microphone" /> Vocal Information</h3>
+              
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">Vocal Register</label>
+                  <select v-model="releaseData.mead.vocalRegister" class="form-select" @change="modifiedSections.add('mead')">
+                    <option value="">Select vocal register</option>
+                    <option v-for="register in VocalRegisters" :key="register.code" :value="register.code">
+                      {{ register.name }} - {{ register.description }}
+                    </option>
+                  </select>
+                </div>
+                
+                <div class="form-group">
+                  <label class="form-label">Vocal Characteristics</label>
+                  <div class="vocal-characteristics">
+                    <label v-for="characteristic in VocalCharacteristics" 
+                           :key="characteristic.code" class="checkbox-option">
+                      <input 
+                        :value="characteristic.code"
+                        :checked="releaseData.mead.vocalCharacteristics.includes(characteristic.code)"
+                        @change="toggleVocalCharacteristic(characteristic.code)"
+                        type="checkbox"
+                      />
+                      <span class="checkbox-content">{{ characteristic.name }}</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Production Information -->
+            <div class="form-section">
+              <h3><font-awesome-icon icon="cog" /> Production Information</h3>
+              
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">Recording Technique</label>
+                  <select v-model="releaseData.mead.recordingTechnique" class="form-select" @change="modifiedSections.add('mead')">
+                    <option value="">Select recording technique</option>
+                    <option v-for="technique in RecordingTechniques" :key="technique.code" :value="technique.code">
+                      {{ technique.name }} - {{ technique.description }}
+                    </option>
+                  </select>
+                </div>
+                
+                <div class="form-group">
+                  <label class="form-label">Audio Characteristics</label>
+                  <select v-model="releaseData.mead.audioCharacteristics" class="form-select" @change="modifiedSections.add('mead')">
+                    <option value="">Select audio characteristics</option>
+                    <option v-for="characteristic in AudioCharacteristics" :key="characteristic.code" :value="characteristic.code">
+                      {{ characteristic.name }} - {{ characteristic.description }}
+                    </option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Discovery & Marketing -->
+            <div class="form-section">
+              <h3><font-awesome-icon icon="bullhorn" /> Discovery & Marketing</h3>
+              
+              <div class="form-group">
+                <label class="form-label">Focus Track</label>
+                <select v-model="releaseData.mead.focusTrack" class="form-select" @change="modifiedSections.add('mead')">
+                  <option value="">Select focus track for voice search</option>
+                  <option v-for="(track, index) in releaseData.tracks" :key="track.id" :value="track.id">
+                    {{ index + 1 }}. {{ track.title }}
+                  </option>
+                </select>
+                <small class="form-hint">Track played when users ask for "the latest {{ releaseData.basic.displayArtist }} track"</small>
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label">Marketing Description</label>
+                <textarea 
+                  v-model="releaseData.mead.marketingDescription" 
+                  class="form-textarea"
+                  placeholder="Brief marketing copy describing this release..."
+                  rows="3"
+                  @input="modifiedSections.add('mead')"
+                ></textarea>
+              </div>
+              
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">Playlist Suitability</label>
+                  <div class="playlist-tags">
+                    <button v-for="playlist in PlaylistSuitability" 
+                            :key="playlist.code"
+                            @click="togglePlaylistSuitability(playlist.code)"
+                            :class="{ active: releaseData.mead.playlistSuitability.includes(playlist.code) }"
+                            class="playlist-chip"
+                            type="button">
+                      {{ playlist.name }}
+                    </button>
+                  </div>
+                </div>
+                
+                <div class="form-group">
+                  <label class="form-label">Seasonality</label>
+                  <select v-model="releaseData.mead.seasonality" class="form-select" @change="modifiedSections.add('mead')">
+                    <option value="">No specific season</option>
+                    <option v-for="season in Seasonality" :key="season.code" :value="season.code">
+                      {{ season.name }} - {{ season.description }}
+                    </option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Track-Level MEAD Override -->
+            <div v-if="releaseData.tracks.length > 0" class="form-section">
+              <h3><font-awesome-icon icon="sliders-h" /> Track-Level MEAD</h3>
+              <p class="section-description">Override release-level MEAD data for individual tracks with unique characteristics.</p>
+              
+              <div class="track-mead-list">
+                <div v-for="(track, index) in releaseData.tracks" :key="track.id" class="track-mead-item">
+                  <div class="track-mead-header">
+                    <span class="track-number">{{ index + 1 }}</span>
+                    <span class="track-title">{{ track.title }}</span>
+                    <button 
+                      @click="track.showMead = !track.showMead" 
+                      class="btn btn-ghost btn-sm"
+                      type="button"
+                    >
+                      <font-awesome-icon :icon="track.showMead ? 'chevron-up' : 'chevron-down'" />
+                      {{ track.showMead ? 'Hide' : 'Customize' }}
+                    </button>
+                  </div>
+                  
+                  <div v-if="track.showMead" class="track-mead-content">
+                    <div class="form-grid">
+                      <div class="form-group">
+                        <label class="form-label">Track BPM</label>
+                        <input 
+                          :value="getTrackMead(track.id).tempo || ''"
+                          @input="setTrackMead(index, { tempo: $event.target.value ? parseInt($event.target.value) : null })"
+                          type="number" 
+                          class="form-input"
+                          placeholder="Override release BPM"
+                          min="40"
+                          max="200"
+                        />
+                      </div>
+                      
+                      <div class="form-group">
+                        <label class="form-label">Track Key</label>
+                        <select 
+                          :value="getTrackMead(track.id).key || ''"
+                          @change="setTrackMead(index, { key: $event.target.value })"
+                          class="form-select"
+                        >
+                          <option value="">Use release key</option>
+                          <option v-for="key in MusicalKeys" :key="key.code" :value="key.code">{{ key.display }}</option>
+                        </select>
+                      </div>
+                    </div>
+                    
+                    <div class="form-group">
+                      <label class="form-label">Track-Specific Moods</label>
+                      <div class="track-moods">
+                        <button v-for="mood in ['Happy', 'Sad', 'Energetic', 'Calm', 'Dark', 'Uplifting', 'Romantic', 'Aggressive']" 
+                                :key="mood"
+                                @click="toggleTrackMood(index, mood)"
+                                :class="{ active: (getTrackMead(track.id).moods || []).includes(mood) }"
+                                class="mood-chip small"
+                                type="button">
+                          {{ mood }}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Territories Section -->
         <div class="collapsible-section" :class="{ expanded: expandedSections.territories, modified: modifiedSections.has('territories') }">
           <div class="section-header" @click="toggleSection('territories')">
@@ -1475,6 +1981,296 @@ const handleSubgenreUpdate = (value) => {
   }
 }
 
+/* MEAD Section Styles */
+.mead-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  margin-left: var(--space-sm);
+}
+
+.mead-info-panel {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+  border: 1px solid rgba(102, 126, 234, 0.2);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.mead-benefits h4 {
+  color: var(--color-primary);
+  margin-bottom: var(--space-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.mead-benefits p {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-md);
+}
+
+.benefit-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.benefit-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background-color: rgba(102, 126, 234, 0.1);
+  color: var(--color-primary);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+}
+
+.section-description {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-md);
+  font-style: italic;
+}
+
+.category-description {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-sm);
+  line-height: 1.3;
+}
+
+/* Mood Selector */
+.mood-selector {
+  margin-bottom: var(--space-lg);
+}
+
+.mood-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.mood-category h4 {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mood-chips,
+.instrument-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.mood-chip,
+.instrument-chip,
+.playlist-chip {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.mood-chip.small {
+  padding: calc(var(--space-xs) / 2) var(--space-xs);
+  font-size: var(--text-xs);
+}
+
+.mood-chip:hover,
+.instrument-chip:hover,
+.playlist-chip:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+}
+
+.mood-chip.active,
+.instrument-chip.active,
+.playlist-chip.active {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.selected-moods,
+.selected-instruments {
+  padding: var(--space-md);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.selected-moods h4,
+.selected-instruments h4 {
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-sm);
+  color: var(--color-text-secondary);
+}
+
+.selected-mood-tags,
+.selected-instrument-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.selected-mood-tag,
+.selected-instrument-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--color-primary);
+  color: white;
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+}
+
+.remove-mood,
+.remove-instrument {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  transition: background-color var(--transition-base);
+}
+
+.remove-mood:hover,
+.remove-instrument:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Instrumentation Selector */
+.instrumentation-selector {
+  margin-bottom: var(--space-lg);
+}
+
+.instrument-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.instrument-category h4 {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Vocal Characteristics */
+.vocal-characteristics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-sm);
+}
+
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  transition: background-color var(--transition-base);
+}
+
+.checkbox-option:hover {
+  background-color: var(--color-bg-secondary);
+}
+
+.checkbox-content {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+
+/* Playlist Tags */
+.playlist-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+/* Track-Level MEAD */
+.track-mead-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.track-mead-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.track-mead-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background-color: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.track-mead-header .track-number {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-primary);
+  color: white;
+  border-radius: var(--radius-full);
+  font-weight: var(--font-semibold);
+  font-size: var(--text-sm);
+  flex-shrink: 0;
+}
+
+.track-mead-header .track-title {
+  flex: 1;
+  font-weight: var(--font-medium);
+  color: var(--color-text);
+}
+
+.track-mead-content {
+  padding: var(--space-md);
+}
+
+.track-moods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
 /* Form Elements */
 .form-grid {
   display: grid;
@@ -1500,6 +2296,9 @@ const handleSubgenreUpdate = (value) => {
   font-weight: var(--font-semibold);
   margin-bottom: var(--space-md);
   color: var(--color-heading);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
 }
 
 .form-label {
@@ -1512,6 +2311,14 @@ const handleSubgenreUpdate = (value) => {
 .form-label.required::after {
   content: ' *';
   color: var(--color-error);
+}
+
+.form-hint {
+  display: block;
+  margin-top: var(--space-xs);
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  font-style: italic;
 }
 
 /* Tracks Section */
@@ -2173,6 +2980,33 @@ const handleSubgenreUpdate = (value) => {
 
   .category-tabs {
     flex-direction: column;
+  }
+  
+  .mood-categories,
+  .instrument-categories {
+    grid-template-columns: 1fr;
+  }
+  
+  .benefit-tags {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .mead-info-panel {
+    padding: var(--space-md);
+  }
+  
+  .vocal-characteristics {
+    grid-template-columns: 1fr;
+  }
+  
+  .playlist-tags {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .playlist-chip {
+    text-align: center;
   }
 }
 
