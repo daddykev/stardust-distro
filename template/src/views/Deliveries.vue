@@ -326,15 +326,15 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="deliveries">
+  <div class="section">
     <div class="container">
       <!-- Header -->
-      <div class="header">
+      <div class="flex justify-between items-start mb-xl">
         <div>
-          <h1>Deliveries</h1>
-          <p class="subtitle">Monitor and manage your release deliveries</p>
+          <h1 class="text-3xl font-bold mb-xs">Deliveries</h1>
+          <p class="text-secondary">Monitor and manage your release deliveries</p>
         </div>
-        <div class="header-actions">
+        <div class="flex gap-sm">
           <button @click="refreshDeliveries" class="btn btn-secondary">
             <font-awesome-icon icon="sync-alt" :spin="isRefreshing" />
             Refresh
@@ -347,75 +347,75 @@ onUnmounted(() => {
       </div>
 
       <!-- Stats Cards -->
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-icon queued">
+      <div class="grid grid-cols-md-4 grid-cols-sm-2 mb-xl">
+        <div class="card card-hover p-lg flex items-center gap-lg">
+          <div class="stat-icon stat-icon--queued">
             <font-awesome-icon icon="clock" />
           </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats.queued }}</div>
-            <div class="stat-label">Queued</div>
+          <div>
+            <div class="text-2xl font-bold">{{ stats.queued }}</div>
+            <div class="text-sm text-secondary mt-xs">Queued</div>
           </div>
         </div>
         
-        <div class="stat-card">
-          <div class="stat-icon processing">
+        <div class="card card-hover p-lg flex items-center gap-lg">
+          <div class="stat-icon stat-icon--processing">
             <font-awesome-icon icon="spinner" />
           </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats.processing }}</div>
-            <div class="stat-label">Processing</div>
+          <div>
+            <div class="text-2xl font-bold">{{ stats.processing }}</div>
+            <div class="text-sm text-secondary mt-xs">Processing</div>
           </div>
         </div>
         
-        <div class="stat-card">
-          <div class="stat-icon completed">
+        <div class="card card-hover p-lg flex items-center gap-lg">
+          <div class="stat-icon stat-icon--completed">
             <font-awesome-icon icon="check-circle" />
           </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats.completed }}</div>
-            <div class="stat-label">Completed</div>
+          <div>
+            <div class="text-2xl font-bold">{{ stats.completed }}</div>
+            <div class="text-sm text-secondary mt-xs">Completed</div>
           </div>
         </div>
         
-        <div class="stat-card">
-          <div class="stat-icon failed">
+        <div class="card card-hover p-lg flex items-center gap-lg">
+          <div class="stat-icon stat-icon--failed">
             <font-awesome-icon icon="exclamation-triangle" />
           </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats.failed }}</div>
-            <div class="stat-label">Failed</div>
+          <div>
+            <div class="text-2xl font-bold">{{ stats.failed }}</div>
+            <div class="text-sm text-secondary mt-xs">Failed</div>
           </div>
         </div>
       </div>
 
       <!-- Tabs -->
-      <div class="tabs">
+      <div class="tabs mb-lg">
         <button 
           @click="activeTab = 'active'"
           class="tab"
-          :class="{ active: activeTab === 'active' }"
+          :class="{ 'tab--active': activeTab === 'active' }"
         >
           Active
         </button>
         <button 
           @click="activeTab = 'history'"
           class="tab"
-          :class="{ active: activeTab === 'history' }"
+          :class="{ 'tab--active': activeTab === 'history' }"
         >
           History
         </button>
         <button 
           @click="activeTab = 'reconciliation'"
           class="tab"
-          :class="{ active: activeTab === 'reconciliation' }"
+          :class="{ 'tab--active': activeTab === 'reconciliation' }"
         >
           Receipts
         </button>
       </div>
 
       <!-- Filters (not shown for reconciliation tab) -->
-      <div v-if="activeTab !== 'reconciliation'" class="filters">
+      <div v-if="activeTab !== 'reconciliation'" class="flex gap-md mb-lg filters">
         <select v-model="filterStatus" class="form-select">
           <option value="">All Status</option>
           <option value="queued">Queued</option>
@@ -442,96 +442,98 @@ onUnmounted(() => {
 
       <!-- Active Deliveries -->
       <div v-if="activeTab === 'active'">
-        <div v-if="isLoading" class="loading-container">
+        <div v-if="isLoading" class="text-center p-3xl text-secondary">
           <div class="loading-spinner"></div>
           <p>Loading deliveries...</p>
         </div>
         
-        <div v-else-if="filteredDeliveries.length === 0" class="empty-state">
-          <font-awesome-icon icon="inbox" />
-          <h3>No Active Deliveries</h3>
-          <p>Queue a new delivery to get started</p>
+        <div v-else-if="filteredDeliveries.length === 0" class="empty-state text-center p-3xl text-secondary">
+          <font-awesome-icon icon="inbox" class="text-3xl mb-md" />
+          <h3 class="text-xl font-semibold mb-sm">No Active Deliveries</h3>
+          <p class="mb-lg">Queue a new delivery to get started</p>
           <router-link to="/deliveries/new" class="btn btn-primary">
             <font-awesome-icon icon="plus" />
             New Delivery
           </router-link>
         </div>
         
-        <div v-else class="deliveries-grid">
-          <div v-for="delivery in filteredDeliveries" :key="delivery.id" class="delivery-card">
-            <div class="delivery-header">
-              <div class="delivery-info">
-                <h3>{{ delivery.releaseTitle }}</h3>
-                <p>{{ delivery.releaseArtist }}</p>
+        <div v-else class="grid gap-lg">
+          <div v-for="delivery in filteredDeliveries" :key="delivery.id" class="card card-hover">
+            <div class="card-body">
+              <div class="flex justify-between items-start mb-md">
+                <div>
+                  <h3 class="text-lg font-semibold mb-xs">{{ delivery.releaseTitle }}</h3>
+                  <p class="text-secondary">{{ delivery.releaseArtist }}</p>
+                </div>
+                <div class="delivery-status" :class="`delivery-status--${delivery.status}`">
+                  <font-awesome-icon 
+                    :icon="getStatusIcon(delivery.status)" 
+                    :spin="delivery.status === 'processing'"
+                  />
+                  {{ delivery.status }}
+                </div>
               </div>
-              <div class="delivery-status" :class="delivery.status">
-                <font-awesome-icon 
-                  :icon="getStatusIcon(delivery.status)" 
-                  :spin="delivery.status === 'processing'"
-                />
-                {{ delivery.status }}
+              
+              <div class="delivery-meta">
+                <div class="meta-item">
+                  <span class="text-sm text-secondary">Target:</span>
+                  <span>{{ delivery.targetName }}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="text-sm text-secondary">Protocol:</span>
+                  <span>{{ delivery.targetProtocol?.toUpperCase() }}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="text-sm text-secondary">Type:</span>
+                  <span>{{ delivery.messageSubType || 'Initial' }}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="text-sm text-secondary">Scheduled:</span>
+                  <span>{{ formatDate(delivery.scheduledAt) }}</span>
+                </div>
+                <div v-if="delivery.startedAt" class="meta-item">
+                  <span class="text-sm text-secondary">Started:</span>
+                  <span>{{ formatDate(delivery.startedAt) }}</span>
+                </div>
+                <div v-if="delivery.currentStep" class="meta-item">
+                  <span class="text-sm text-secondary">Current Step:</span>
+                  <span>{{ delivery.currentStep }}</span>
+                </div>
               </div>
-            </div>
-            
-            <div class="delivery-meta">
-              <div class="meta-item">
-                <span class="meta-label">Target:</span>
-                <span>{{ delivery.targetName }}</span>
+              
+              <div class="flex gap-sm flex-wrap">
+                <button 
+                  v-if="delivery.status === 'processing'"
+                  @click="viewLogs(delivery)"
+                  class="btn btn-sm btn-secondary"
+                >
+                  <font-awesome-icon icon="list" />
+                  View Logs
+                </button>
+                <button 
+                  v-if="delivery.status === 'failed'"
+                  @click="retryDelivery(delivery)"
+                  class="btn btn-sm delivery-btn-warning"
+                >
+                  <font-awesome-icon icon="redo" />
+                  Retry
+                </button>
+                <button 
+                  v-if="['queued', 'processing'].includes(delivery.status)"
+                  @click="cancelDelivery(delivery)"
+                  class="btn btn-sm btn-secondary"
+                >
+                  <font-awesome-icon icon="times" />
+                  Cancel
+                </button>
+                <button 
+                  @click="viewDetails(delivery)"
+                  class="btn btn-sm btn-primary"
+                >
+                  <font-awesome-icon icon="eye" />
+                  Details
+                </button>
               </div>
-              <div class="meta-item">
-                <span class="meta-label">Protocol:</span>
-                <span>{{ delivery.targetProtocol?.toUpperCase() }}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">Type:</span>
-                <span>{{ delivery.messageSubType || 'Initial' }}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">Scheduled:</span>
-                <span>{{ formatDate(delivery.scheduledAt) }}</span>
-              </div>
-              <div v-if="delivery.startedAt" class="meta-item">
-                <span class="meta-label">Started:</span>
-                <span>{{ formatDate(delivery.startedAt) }}</span>
-              </div>
-              <div v-if="delivery.currentStep" class="meta-item">
-                <span class="meta-label">Current Step:</span>
-                <span>{{ delivery.currentStep }}</span>
-              </div>
-            </div>
-            
-            <div class="delivery-actions">
-              <button 
-                v-if="delivery.status === 'processing'"
-                @click="viewLogs(delivery)"
-                class="btn btn-sm btn-secondary"
-              >
-                <font-awesome-icon icon="list" />
-                View Logs
-              </button>
-              <button 
-                v-if="delivery.status === 'failed'"
-                @click="retryDelivery(delivery)"
-                class="btn btn-sm btn-warning"
-              >
-                <font-awesome-icon icon="redo" />
-                Retry
-              </button>
-              <button 
-                v-if="['queued', 'processing'].includes(delivery.status)"
-                @click="cancelDelivery(delivery)"
-                class="btn btn-sm btn-secondary"
-              >
-                <font-awesome-icon icon="times" />
-                Cancel
-              </button>
-              <button 
-                @click="viewDetails(delivery)"
-                class="btn btn-sm btn-primary"
-              >
-                <font-awesome-icon icon="eye" />
-                Details
-              </button>
             </div>
           </div>
         </div>
@@ -539,92 +541,94 @@ onUnmounted(() => {
 
       <!-- History -->
       <div v-if="activeTab === 'history'">
-        <div v-if="filteredDeliveries.length === 0" class="empty-state">
-          <font-awesome-icon icon="history" />
-          <h3>No Delivery History</h3>
+        <div v-if="filteredDeliveries.length === 0" class="empty-state text-center p-3xl text-secondary">
+          <font-awesome-icon icon="history" class="text-3xl mb-md" />
+          <h3 class="text-xl font-semibold mb-sm">No Delivery History</h3>
           <p>Completed deliveries will appear here</p>
         </div>
         
-        <div v-else class="deliveries-grid">
-          <div v-for="delivery in filteredDeliveries" :key="delivery.id" class="delivery-card">
-            <div class="delivery-header">
-              <div class="delivery-info">
-                <h3>{{ delivery.releaseTitle }}</h3>
-                <p>{{ delivery.releaseArtist }}</p>
+        <div v-else class="grid gap-lg">
+          <div v-for="delivery in filteredDeliveries" :key="delivery.id" class="card card-hover">
+            <div class="card-body">
+              <div class="flex justify-between items-start mb-md">
+                <div>
+                  <h3 class="text-lg font-semibold mb-xs">{{ delivery.releaseTitle }}</h3>
+                  <p class="text-secondary">{{ delivery.releaseArtist }}</p>
+                </div>
+                <div class="delivery-status" :class="`delivery-status--${delivery.status}`">
+                  <font-awesome-icon :icon="getStatusIcon(delivery.status)" />
+                  {{ delivery.status }}
+                </div>
               </div>
-              <div class="delivery-status" :class="delivery.status">
-                <font-awesome-icon :icon="getStatusIcon(delivery.status)" />
-                {{ delivery.status }}
+              
+              <div class="delivery-meta">
+                <div class="meta-item">
+                  <span class="text-sm text-secondary">Target:</span>
+                  <span>{{ delivery.targetName }}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="text-sm text-secondary">Protocol:</span>
+                  <span>{{ delivery.targetProtocol?.toUpperCase() }}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="text-sm text-secondary">Type:</span>
+                  <span>{{ delivery.messageSubType || 'Initial' }}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="text-sm text-secondary">Completed:</span>
+                  <span>{{ formatDate(delivery.completedAt || delivery.updatedAt) }}</span>
+                </div>
+                <div v-if="delivery.totalDuration" class="meta-item">
+                  <span class="text-sm text-secondary">Duration:</span>
+                  <span>{{ formatDuration(delivery.totalDuration) }}</span>
+                </div>
+                <div v-if="delivery.error" class="meta-item text-error">
+                  <span class="text-sm text-secondary">Error:</span>
+                  <span>{{ delivery.error }}</span>
+                </div>
               </div>
-            </div>
-            
-            <div class="delivery-meta">
-              <div class="meta-item">
-                <span class="meta-label">Target:</span>
-                <span>{{ delivery.targetName }}</span>
+              
+              <div class="flex gap-sm flex-wrap">
+                <button 
+                  v-if="delivery.logs?.length > 0"
+                  @click="viewLogs(delivery)"
+                  class="btn btn-sm btn-secondary"
+                >
+                  <font-awesome-icon icon="list" />
+                  Logs
+                </button>
+                <button 
+                  v-if="delivery.ernXml"
+                  @click="downloadERN(delivery)"
+                  class="btn btn-sm btn-secondary"
+                >
+                  <font-awesome-icon icon="download" />
+                  ERN
+                </button>
+                <button 
+                  v-if="delivery.receipt || delivery.status === 'completed'"
+                  @click="downloadReceipt(delivery)"
+                  class="btn btn-sm btn-secondary"
+                >
+                  <font-awesome-icon icon="file-invoice" />
+                  Receipt
+                </button>
+                <button 
+                  v-if="delivery.status === 'failed'"
+                  @click="retryDelivery(delivery)"
+                  class="btn btn-sm delivery-btn-warning"
+                >
+                  <font-awesome-icon icon="redo" />
+                  Retry
+                </button>
+                <button 
+                  @click="viewDetails(delivery)"
+                  class="btn btn-sm btn-primary"
+                >
+                  <font-awesome-icon icon="eye" />
+                  Details
+                </button>
               </div>
-              <div class="meta-item">
-                <span class="meta-label">Protocol:</span>
-                <span>{{ delivery.targetProtocol?.toUpperCase() }}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">Type:</span>
-                <span>{{ delivery.messageSubType || 'Initial' }}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">Completed:</span>
-                <span>{{ formatDate(delivery.completedAt || delivery.updatedAt) }}</span>
-              </div>
-              <div v-if="delivery.totalDuration" class="meta-item">
-                <span class="meta-label">Duration:</span>
-                <span>{{ formatDuration(delivery.totalDuration) }}</span>
-              </div>
-              <div v-if="delivery.error" class="meta-item error">
-                <span class="meta-label">Error:</span>
-                <span>{{ delivery.error }}</span>
-              </div>
-            </div>
-            
-            <div class="delivery-actions">
-              <button 
-                v-if="delivery.logs?.length > 0"
-                @click="viewLogs(delivery)"
-                class="btn btn-sm btn-secondary"
-              >
-                <font-awesome-icon icon="list" />
-                Logs
-              </button>
-              <button 
-                v-if="delivery.ernXml"
-                @click="downloadERN(delivery)"
-                class="btn btn-sm btn-secondary"
-              >
-                <font-awesome-icon icon="download" />
-                ERN
-              </button>
-              <button 
-                v-if="delivery.receipt || delivery.status === 'completed'"
-                @click="downloadReceipt(delivery)"
-                class="btn btn-sm btn-secondary"
-              >
-                <font-awesome-icon icon="file-invoice" />
-                Receipt
-              </button>
-              <button 
-                v-if="delivery.status === 'failed'"
-                @click="retryDelivery(delivery)"
-                class="btn btn-sm btn-warning"
-              >
-                <font-awesome-icon icon="redo" />
-                Retry
-              </button>
-              <button 
-                @click="viewDetails(delivery)"
-                class="btn btn-sm btn-primary"
-              >
-                <font-awesome-icon icon="eye" />
-                Details
-              </button>
             </div>
           </div>
         </div>
@@ -638,120 +642,120 @@ onUnmounted(() => {
 
     <!-- Delivery Details Modal -->
     <div v-if="showDetailsModal" class="modal-overlay" @click="closeDetailsModal">
-      <div class="modal modal-large" @click.stop>
+      <div class="modal modal--large" @click.stop>
         <div class="modal-header">
-          <h2>Delivery Details</h2>
+          <h2 class="text-xl font-semibold">Delivery Details</h2>
           <button @click="closeDetailsModal" class="modal-close">
             <font-awesome-icon icon="times" />
           </button>
         </div>
         <div class="modal-body">
-          <div v-if="selectedDelivery" class="details-content">
-            <div class="details-section">
-              <h3>Release Information</h3>
-              <div class="details-grid">
+          <div v-if="selectedDelivery" class="flex flex-col gap-xl">
+            <div>
+              <h3 class="text-lg font-semibold mb-md">Release Information</h3>
+              <div class="grid grid-cols-md-2 gap-md">
                 <div class="detail-item">
-                  <span class="label">Title:</span>
+                  <span class="text-sm text-secondary">Title:</span>
                   <span>{{ selectedDelivery.releaseTitle }}</span>
                 </div>
                 <div class="detail-item">
-                  <span class="label">Artist:</span>
+                  <span class="text-sm text-secondary">Artist:</span>
                   <span>{{ selectedDelivery.releaseArtist }}</span>
                 </div>
                 <div class="detail-item">
-                  <span class="label">UPC:</span>
+                  <span class="text-sm text-secondary">UPC:</span>
                   <span>{{ selectedDelivery.upc || 'N/A' }}</span>
                 </div>
                 <div class="detail-item">
-                  <span class="label">Release ID:</span>
-                  <span class="mono">{{ selectedDelivery.releaseId }}</span>
+                  <span class="text-sm text-secondary">Release ID:</span>
+                  <span class="detail-mono">{{ selectedDelivery.releaseId }}</span>
                 </div>
               </div>
             </div>
 
-            <div class="details-section">
-              <h3>Delivery Information</h3>
-              <div class="details-grid">
+            <div>
+              <h3 class="text-lg font-semibold mb-md">Delivery Information</h3>
+              <div class="grid grid-cols-md-2 gap-md">
                 <div class="detail-item">
-                  <span class="label">Target:</span>
+                  <span class="text-sm text-secondary">Target:</span>
                   <span>{{ selectedDelivery.targetName }}</span>
                 </div>
                 <div class="detail-item">
-                  <span class="label">Protocol:</span>
+                  <span class="text-sm text-secondary">Protocol:</span>
                   <span>{{ selectedDelivery.targetProtocol?.toUpperCase() }}</span>
                 </div>
                 <div class="detail-item">
-                  <span class="label">Message Type:</span>
+                  <span class="text-sm text-secondary">Message Type:</span>
                   <span>{{ selectedDelivery.messageType || 'NewReleaseMessage' }}</span>
                 </div>
                 <div class="detail-item">
-                  <span class="label">Message SubType:</span>
+                  <span class="text-sm text-secondary">Message SubType:</span>
                   <span>{{ selectedDelivery.messageSubType || 'Initial' }}</span>
                 </div>
                 <div class="detail-item">
-                  <span class="label">ERN Version:</span>
+                  <span class="text-sm text-secondary">ERN Version:</span>
                   <span>{{ selectedDelivery.ernVersion || '4.3' }}</span>
                 </div>
                 <div class="detail-item">
-                  <span class="label">Message ID:</span>
-                  <span class="mono">{{ selectedDelivery.ernMessageId }}</span>
+                  <span class="text-sm text-secondary">Message ID:</span>
+                  <span class="detail-mono">{{ selectedDelivery.ernMessageId }}</span>
                 </div>
                 <div class="detail-item">
-                  <span class="label">Status:</span>
-                  <span class="status-badge" :class="selectedDelivery.status">
+                  <span class="text-sm text-secondary">Status:</span>
+                  <span class="status-badge" :class="`status-badge--${selectedDelivery.status}`">
                     {{ selectedDelivery.status }}
                   </span>
                 </div>
                 <div class="detail-item">
-                  <span class="label">Priority:</span>
+                  <span class="text-sm text-secondary">Priority:</span>
                   <span>{{ selectedDelivery.priority || 'normal' }}</span>
                 </div>
               </div>
             </div>
 
-            <div class="details-section">
-              <h3>Timeline</h3>
+            <div>
+              <h3 class="text-lg font-semibold mb-md">Timeline</h3>
               <div class="timeline">
                 <div class="timeline-item">
                   <div class="timeline-marker"></div>
                   <div class="timeline-content">
-                    <strong>Created</strong>
-                    <span>{{ formatDate(selectedDelivery.createdAt) }}</span>
+                    <strong class="font-semibold">Created</strong>
+                    <span class="text-sm text-secondary">{{ formatDate(selectedDelivery.createdAt) }}</span>
                   </div>
                 </div>
                 <div v-if="selectedDelivery.scheduledAt" class="timeline-item">
                   <div class="timeline-marker"></div>
                   <div class="timeline-content">
-                    <strong>Scheduled</strong>
-                    <span>{{ formatDate(selectedDelivery.scheduledAt) }}</span>
+                    <strong class="font-semibold">Scheduled</strong>
+                    <span class="text-sm text-secondary">{{ formatDate(selectedDelivery.scheduledAt) }}</span>
                   </div>
                 </div>
                 <div v-if="selectedDelivery.startedAt" class="timeline-item">
                   <div class="timeline-marker"></div>
                   <div class="timeline-content">
-                    <strong>Started</strong>
-                    <span>{{ formatDate(selectedDelivery.startedAt) }}</span>
+                    <strong class="font-semibold">Started</strong>
+                    <span class="text-sm text-secondary">{{ formatDate(selectedDelivery.startedAt) }}</span>
                   </div>
                 </div>
                 <div v-if="selectedDelivery.completedAt" class="timeline-item">
-                  <div class="timeline-marker success"></div>
+                  <div class="timeline-marker timeline-marker--success"></div>
                   <div class="timeline-content">
-                    <strong>Completed</strong>
-                    <span>{{ formatDate(selectedDelivery.completedAt) }}</span>
+                    <strong class="font-semibold">Completed</strong>
+                    <span class="text-sm text-secondary">{{ formatDate(selectedDelivery.completedAt) }}</span>
                   </div>
                 </div>
                 <div v-if="selectedDelivery.failedAt" class="timeline-item">
-                  <div class="timeline-marker error"></div>
+                  <div class="timeline-marker timeline-marker--error"></div>
                   <div class="timeline-content">
-                    <strong>Failed</strong>
-                    <span>{{ formatDate(selectedDelivery.failedAt) }}</span>
+                    <strong class="font-semibold">Failed</strong>
+                    <span class="text-sm text-secondary">{{ formatDate(selectedDelivery.failedAt) }}</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div v-if="selectedDelivery.receipt" class="details-section">
-              <h3>Receipt</h3>
+            <div v-if="selectedDelivery.receipt">
+              <h3 class="text-lg font-semibold mb-md">Receipt</h3>
               <div class="receipt-content">
                 <pre>{{ JSON.stringify(selectedDelivery.receipt, null, 2) }}</pre>
               </div>
@@ -766,14 +770,14 @@ onUnmounted(() => {
 
     <!-- Logs Modal -->
     <div v-if="showLogsModal" class="modal-overlay" @click="closeLogsModal">
-      <div class="modal modal-large" @click.stop>
+      <div class="modal modal--large" @click.stop>
         <div class="modal-header">
-          <h2>Delivery Logs</h2>
-          <div class="modal-actions">
+          <h2 class="text-xl font-semibold">Delivery Logs</h2>
+          <div class="flex items-center gap-sm">
             <button 
               v-if="isLiveLogging"
               @click="stopLiveLogging"
-              class="btn btn-sm btn-warning"
+              class="btn btn-sm delivery-btn-warning"
             >
               <font-awesome-icon icon="pause" />
               Pause
@@ -793,27 +797,27 @@ onUnmounted(() => {
         </div>
         <div class="modal-body">
           <div class="logs-container">
-            <div v-if="deliveryLogs.length === 0" class="empty-logs">
-              <font-awesome-icon icon="list" />
+            <div v-if="deliveryLogs.length === 0" class="text-center p-xl text-secondary">
+              <font-awesome-icon icon="list" class="text-2xl mb-sm" />
               <p>No logs available</p>
             </div>
-            <div v-else class="logs-list">
+            <div v-else class="flex flex-col gap-sm">
               <div 
                 v-for="(log, index) in deliveryLogs" 
                 :key="index"
                 class="log-entry"
-                :class="`log-${log.level}`"
+                :class="`log-entry--${log.level}`"
               >
-                <div class="log-header">
+                <div class="flex items-center gap-md mb-xs">
                   <span class="log-time">{{ formatLogTime(log.timestamp) }}</span>
-                  <span class="log-level" :class="log.level">{{ log.level }}</span>
-                  <span class="log-step">{{ log.step }}</span>
+                  <span class="log-level" :class="`log-level--${log.level}`">{{ log.level }}</span>
+                  <span class="text-sm text-secondary">{{ log.step }}</span>
                 </div>
-                <div class="log-message">{{ log.message }}</div>
-                <div v-if="log.details" class="log-details">
+                <div class="text-sm">{{ log.message }}</div>
+                <div v-if="log.details" class="log-details mt-xs">
                   <pre>{{ JSON.stringify(log.details, null, 2) }}</pre>
                 </div>
-                <div v-if="log.duration" class="log-duration">
+                <div v-if="log.duration" class="text-xs text-tertiary mt-xs">
                   Duration: {{ formatDuration(log.duration) }}
                 </div>
               </div>
@@ -833,59 +837,14 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Import existing styles from components.css */
-.deliveries {
-  padding: var(--space-xl) 0;
-  min-height: calc(100vh - 64px);
+/* Component-specific styles that don't exist in the design system */
+
+/* Empty state icon opacity */
+.empty-state svg {
+  opacity: 0.5;
 }
 
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-xl);
-}
-
-.header h1 {
-  font-size: var(--text-3xl);
-  font-weight: var(--font-bold);
-  color: var(--color-heading);
-  margin-bottom: var(--space-xs);
-}
-
-.subtitle {
-  color: var(--color-text-secondary);
-}
-
-.header-actions {
-  display: flex;
-  gap: var(--space-sm);
-}
-
-/* Stats Grid */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-lg);
-  margin-bottom: var(--space-xl);
-}
-
-.stat-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  display: flex;
-  align-items: center;
-  gap: var(--space-lg);
-  transition: all var(--transition-base);
-}
-
-.stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
+/* Stat Icons */
 .stat-icon {
   width: 48px;
   height: 48px;
@@ -896,40 +855,24 @@ onUnmounted(() => {
   font-size: 1.5rem;
 }
 
-.stat-icon.queued {
+.stat-icon--queued {
   background: rgba(251, 188, 4, 0.1);
   color: var(--color-warning);
 }
 
-.stat-icon.processing {
+.stat-icon--processing {
   background: rgba(66, 133, 244, 0.1);
   color: var(--color-info);
 }
 
-.stat-icon.completed {
+.stat-icon--completed {
   background: rgba(52, 168, 83, 0.1);
   color: var(--color-success);
 }
 
-.stat-icon.failed {
+.stat-icon--failed {
   background: rgba(234, 67, 53, 0.1);
   color: var(--color-error);
-}
-
-.stat-content {
-  flex: 1;
-}
-
-.stat-value {
-  font-size: var(--text-2xl);
-  font-weight: var(--font-bold);
-  color: var(--color-heading);
-}
-
-.stat-label {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  margin-top: var(--space-xs);
 }
 
 /* Tabs */
@@ -937,7 +880,6 @@ onUnmounted(() => {
   display: flex;
   gap: var(--space-sm);
   border-bottom: 2px solid var(--color-border);
-  margin-bottom: var(--space-lg);
 }
 
 .tab {
@@ -955,11 +897,11 @@ onUnmounted(() => {
   color: var(--color-text);
 }
 
-.tab.active {
+.tab--active {
   color: var(--color-primary);
 }
 
-.tab.active::after {
+.tab--active::after {
   content: '';
   position: absolute;
   bottom: -2px;
@@ -969,55 +911,13 @@ onUnmounted(() => {
   background: var(--color-primary);
 }
 
-/* Filters */
-.filters {
-  display: flex;
-  gap: var(--space-md);
-  margin-bottom: var(--space-lg);
-}
-
+/* Search Input */
 .search-input {
   flex: 1;
   max-width: 400px;
 }
 
-/* Deliveries Grid */
-.deliveries-grid {
-  display: grid;
-  gap: var(--space-lg);
-}
-
-.delivery-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  transition: all var(--transition-base);
-}
-
-.delivery-card:hover {
-  box-shadow: var(--shadow-md);
-  border-color: var(--color-border-dark);
-}
-
-.delivery-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: var(--space-md);
-}
-
-.delivery-info h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  color: var(--color-heading);
-  margin-bottom: var(--space-xs);
-}
-
-.delivery-info p {
-  color: var(--color-text-secondary);
-}
-
+/* Delivery Status Badge */
 .delivery-status {
   padding: var(--space-xs) var(--space-sm);
   border-radius: var(--radius-md);
@@ -1028,39 +928,40 @@ onUnmounted(() => {
   gap: var(--space-xs);
 }
 
-.delivery-status.queued {
+.delivery-status--queued {
   background: rgba(251, 188, 4, 0.1);
   color: var(--color-warning);
 }
 
-.delivery-status.processing {
+.delivery-status--processing {
   background: rgba(66, 133, 244, 0.1);
   color: var(--color-info);
 }
 
-.delivery-status.completed {
+.delivery-status--completed {
   background: rgba(52, 168, 83, 0.1);
   color: var(--color-success);
 }
 
-.delivery-status.failed {
+.delivery-status--failed {
   background: rgba(234, 67, 53, 0.1);
   color: var(--color-error);
 }
 
-.delivery-status.cancelled {
+.delivery-status--cancelled {
   background: var(--color-bg-secondary);
   color: var(--color-text-secondary);
 }
 
+/* Delivery Meta Grid */
 .delivery-meta {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-sm);
-  margin-bottom: var(--space-lg);
   padding: var(--space-md) 0;
   border-top: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-lg);
 }
 
 .meta-item {
@@ -1069,52 +970,20 @@ onUnmounted(() => {
   gap: var(--space-xs);
 }
 
-.meta-label {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
+/* Warning Button */
+.delivery-btn-warning {
+  background-color: var(--color-warning);
+  color: white;
 }
 
-.meta-item.error {
-  color: var(--color-error);
+.delivery-btn-warning:hover:not(:disabled) {
+  background-color: var(--color-warning);
+  color: white;
+  filter: brightness(1.1);
+  transform: translateY(-1px);
 }
 
-.delivery-actions {
-  display: flex;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-}
-
-/* Empty State */
-.empty-state {
-  text-align: center;
-  padding: var(--space-3xl);
-  color: var(--color-text-secondary);
-}
-
-.empty-state svg {
-  font-size: 3rem;
-  margin-bottom: var(--space-md);
-  opacity: 0.5;
-}
-
-.empty-state h3 {
-  font-size: var(--text-xl);
-  font-weight: var(--font-semibold);
-  color: var(--color-heading);
-  margin-bottom: var(--space-sm);
-}
-
-.empty-state p {
-  margin-bottom: var(--space-lg);
-}
-
-/* Loading */
-.loading-container {
-  text-align: center;
-  padding: var(--space-3xl);
-  color: var(--color-text-secondary);
-}
-
+/* Loading Spinner */
 .loading-spinner {
   width: 48px;
   height: 48px;
@@ -1129,7 +998,7 @@ onUnmounted(() => {
   to { transform: rotate(360deg); }
 }
 
-/* Modal */
+/* Modal Styles */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -1155,7 +1024,7 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
-.modal-large {
+.modal--large {
   max-width: 900px;
 }
 
@@ -1165,17 +1034,6 @@ onUnmounted(() => {
   align-items: center;
   padding: var(--space-lg);
   border-bottom: 1px solid var(--color-border);
-}
-
-.modal-header h2 {
-  font-size: var(--text-xl);
-  font-weight: var(--font-semibold);
-}
-
-.modal-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
 }
 
 .modal-close {
@@ -1211,43 +1069,20 @@ onUnmounted(() => {
   gap: var(--space-sm);
 }
 
-/* Details Content */
-.details-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xl);
-}
-
-.details-section h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-md);
-  color: var(--color-heading);
-}
-
-.details-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: var(--space-md);
-}
-
+/* Detail Items */
 .detail-item {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
 }
 
-.detail-item .label {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.detail-item .mono {
+.detail-mono {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   word-break: break-all;
 }
 
+/* Status Badge */
 .status-badge {
   display: inline-block;
   padding: var(--space-xs) var(--space-sm);
@@ -1256,22 +1091,22 @@ onUnmounted(() => {
   font-weight: var(--font-medium);
 }
 
-.status-badge.completed {
+.status-badge--completed {
   background: rgba(52, 168, 83, 0.1);
   color: var(--color-success);
 }
 
-.status-badge.failed {
+.status-badge--failed {
   background: rgba(234, 67, 53, 0.1);
   color: var(--color-error);
 }
 
-.status-badge.processing {
+.status-badge--processing {
   background: rgba(66, 133, 244, 0.1);
   color: var(--color-info);
 }
 
-.status-badge.queued {
+.status-badge--queued {
   background: rgba(251, 188, 4, 0.1);
   color: var(--color-warning);
 }
@@ -1308,12 +1143,12 @@ onUnmounted(() => {
   border: 2px solid var(--color-border);
 }
 
-.timeline-marker.success {
+.timeline-marker--success {
   border-color: var(--color-success);
   background: var(--color-success);
 }
 
-.timeline-marker.error {
+.timeline-marker--error {
   border-color: var(--color-error);
   background: var(--color-error);
 }
@@ -1322,16 +1157,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
-}
-
-.timeline-content strong {
-  font-weight: var(--font-semibold);
-  color: var(--color-heading);
-}
-
-.timeline-content span {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
 }
 
 /* Receipt */
@@ -1360,55 +1185,30 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
-.empty-logs {
-  text-align: center;
-  padding: var(--space-xl);
-  color: var(--color-text-secondary);
-}
-
-.empty-logs svg {
-  font-size: 2rem;
-  margin-bottom: var(--space-sm);
-  opacity: 0.5;
-}
-
-.logs-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
 .log-entry {
   padding: var(--space-sm);
   border-radius: var(--radius-sm);
   border-left: 3px solid transparent;
 }
 
-.log-entry.log-info {
+.log-entry--info {
   background: rgba(66, 133, 244, 0.05);
   border-left-color: var(--color-info);
 }
 
-.log-entry.log-success {
+.log-entry--success {
   background: rgba(52, 168, 83, 0.05);
   border-left-color: var(--color-success);
 }
 
-.log-entry.log-warning {
+.log-entry--warning {
   background: rgba(251, 188, 4, 0.05);
   border-left-color: var(--color-warning);
 }
 
-.log-entry.log-error {
+.log-entry--error {
   background: rgba(234, 67, 53, 0.05);
   border-left-color: var(--color-error);
-}
-
-.log-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  margin-bottom: var(--space-xs);
 }
 
 .log-time {
@@ -1425,39 +1225,27 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
 }
 
-.log-level.info {
+.log-level--info {
   background: var(--color-info);
   color: white;
 }
 
-.log-level.success {
+.log-level--success {
   background: var(--color-success);
   color: white;
 }
 
-.log-level.warning {
+.log-level--warning {
   background: var(--color-warning);
   color: white;
 }
 
-.log-level.error {
+.log-level--error {
   background: var(--color-error);
   color: white;
 }
 
-.log-step {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.log-message {
-  font-size: var(--text-sm);
-  color: var(--color-text);
-  margin-bottom: var(--space-xs);
-}
-
 .log-details {
-  margin-top: var(--space-xs);
   padding: var(--space-xs);
   background: var(--color-bg);
   border-radius: var(--radius-sm);
@@ -1472,33 +1260,10 @@ onUnmounted(() => {
   word-wrap: break-word;
 }
 
-.log-duration {
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-  margin-top: var(--space-xs);
-}
-
-/* Responsive */
+/* Responsive Filters */
 @media (max-width: 768px) {
-  .header {
-    flex-direction: column;
-    gap: var(--space-md);
-  }
-  
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
   .filters {
     flex-direction: column;
-  }
-  
-  .delivery-meta {
-    grid-template-columns: 1fr;
-  }
-  
-  .details-grid {
-    grid-template-columns: 1fr;
   }
 }
 </style>
