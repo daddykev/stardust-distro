@@ -15,6 +15,43 @@ import {
   serverTimestamp
 } from 'firebase/firestore'
 
+/**
+ * Helper function to clean data for Firestore
+ * Removes undefined values and File objects
+ */
+const cleanForFirestore = (data) => {
+  if (data === null || data === undefined) {
+    return null
+  }
+  
+  if (data instanceof Date || typeof data !== 'object') {
+    return data
+  }
+  
+  if (data instanceof File) {
+    return null // Don't send File objects to Firestore
+  }
+  
+  if (Array.isArray(data)) {
+    return data
+      .map(item => cleanForFirestore(item))
+      .filter(item => item !== undefined)
+  }
+  
+  const cleaned = {}
+  for (const [key, value] of Object.entries(data)) {
+    // Skip undefined values entirely
+    if (value !== undefined) {
+      const cleanedValue = cleanForFirestore(value)
+      if (cleanedValue !== undefined) {
+        cleaned[key] = cleanedValue
+      }
+    }
+  }
+  
+  return cleaned
+}
+
 export class CatalogService {
   constructor() {
     this.collection = 'releases'
@@ -25,16 +62,19 @@ export class CatalogService {
    */
   async createRelease(releaseData, userId) {
     try {
+      // Clean the data before saving
+      const cleanedData = cleanForFirestore(releaseData)
+      
       const release = {
-        ...releaseData,
-        status: releaseData.status || 'draft',
+        ...cleanedData,
+        status: cleanedData.status || 'draft',
         createdBy: userId,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         tenantId: userId, // For now, using userId as tenantId
         ddex: {
-          version: releaseData.preview?.ernVersion || '4.3',
-          profile: releaseData.preview?.profile || 'AudioAlbum',
+          version: cleanedData.preview?.ernVersion || '4.3',
+          profile: cleanedData.preview?.profile || 'AudioAlbum',
           validated: false
         }
       }
@@ -52,12 +92,15 @@ export class CatalogService {
    */
   async updateRelease(releaseId, updates) {
     try {
+      // Clean the updates before sending to Firestore
+      const cleanedUpdates = cleanForFirestore(updates)
+      
       const docRef = doc(db, this.collection, releaseId)
       await updateDoc(docRef, {
-        ...updates,
+        ...cleanedUpdates,
         updatedAt: serverTimestamp()
       })
-      return { id: releaseId, ...updates }
+      return { id: releaseId, ...cleanedUpdates }
     } catch (error) {
       console.error('Error updating release:', error)
       throw error
@@ -134,8 +177,11 @@ export class CatalogService {
    */
   async saveDraft(releaseData, userId, releaseId = null) {
     try {
+      // Clean the data before processing
+      const cleanedData = cleanForFirestore(releaseData)
+      
       const draftData = {
-        ...releaseData,
+        ...cleanedData,
         status: 'draft',
         isDraft: true
       }
@@ -175,31 +221,38 @@ export class CatalogService {
       const release = await this.getRelease(releaseId)
       const tracks = release.tracks || []
       
+      // Clean track data
+      const cleanedTrackData = cleanForFirestore(trackData)
+      
       const newTrack = {
         id: Date.now().toString(),
         sequenceNumber: tracks.length + 1,
         // Ensure these fields are captured
-        title: trackData.title,
-        artist: trackData.artist || release.basic?.displayArtist,
-        displayArtist: trackData.displayArtist || trackData.artist || release.basic?.displayArtist,
-        duration: trackData.duration || 0,
-        isrc: trackData.isrc || '',
-        // Store audio metadata
-        audio: {
-          url: trackData.audio?.url,
-          format: trackData.audio?.format || 'WAV',
-          duration: trackData.audio?.duration || trackData.duration,
-          bitrate: trackData.audio?.bitrate,
-          sampleRate: trackData.audio?.sampleRate
-        },
-        // Store additional metadata
-        metadata: {
-          title: trackData.title,
-          displayArtist: trackData.displayArtist || trackData.artist,
-          genre: trackData.genre,
-          language: trackData.language || 'en',
-          contributors: trackData.contributors || []
-        },
+        title: cleanedTrackData.title,
+        artist: cleanedTrackData.artist || release.basic?.displayArtist,
+        displayArtist: cleanedTrackData.displayArtist || cleanedTrackData.artist || release.basic?.displayArtist,
+        duration: cleanedTrackData.duration || 0,
+        isrc: cleanedTrackData.isrc || '',
+        // Store audio metadata (if exists)
+        ...(cleanedTrackData.audio && {
+          audio: {
+            url: cleanedTrackData.audio?.url,
+            format: cleanedTrackData.audio?.format || 'WAV',
+            duration: cleanedTrackData.audio?.duration || cleanedTrackData.duration,
+            bitrate: cleanedTrackData.audio?.bitrate,
+            sampleRate: cleanedTrackData.audio?.sampleRate
+          }
+        }),
+        // Store additional metadata (if exists)
+        ...(cleanedTrackData.metadata && {
+          metadata: {
+            title: cleanedTrackData.title,
+            displayArtist: cleanedTrackData.displayArtist || cleanedTrackData.artist,
+            genre: cleanedTrackData.genre,
+            language: cleanedTrackData.language || 'en',
+            contributors: cleanedTrackData.contributors || []
+          }
+        }),
         createdAt: new Date().toISOString()
       }
       
@@ -226,7 +279,10 @@ export class CatalogService {
         throw new Error('Track not found')
       }
       
-      tracks[trackIndex] = { ...tracks[trackIndex], ...updates }
+      // Clean the updates
+      const cleanedUpdates = cleanForFirestore(updates)
+      
+      tracks[trackIndex] = { ...tracks[trackIndex], ...cleanedUpdates }
       
       await this.updateRelease(releaseId, { tracks })
       return tracks[trackIndex]

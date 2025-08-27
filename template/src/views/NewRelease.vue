@@ -221,35 +221,78 @@ const validateEANChecksum = (ean) => {
   return checkDigit === parseInt(ean[12])
 }
 
-// Helper function to clean File objects from data
+// Helper function to clean File objects and undefined values from data
 const cleanDataForFirestore = (data) => {
+  // Deep clean function to remove undefined values and File objects
+  const deepClean = (obj) => {
+    if (obj === null || obj === undefined) {
+      return null
+    }
+    
+    if (obj instanceof Date) {
+      return obj
+    }
+    
+    if (obj instanceof File) {
+      return null // Don't send File objects to Firestore
+    }
+    
+    if (Array.isArray(obj)) {
+      return obj.map(item => deepClean(item)).filter(item => item !== undefined)
+    }
+    
+    if (typeof obj === 'object') {
+      const cleaned = {}
+      for (const [key, value] of Object.entries(obj)) {
+        if (value !== undefined) {
+          const cleanedValue = deepClean(value)
+          if (cleanedValue !== undefined) {
+            cleaned[key] = cleanedValue
+          }
+        }
+      }
+      return cleaned
+    }
+    
+    return obj
+  }
+  
+  // Clean the entire data object
+  const cleanedData = deepClean(data)
+  
+  // Ensure required structure exists
   return {
-    ...data,
+    basic: cleanedData.basic || {},
+    tracks: cleanedData.tracks || [],
     assets: {
-      ...data.assets,
-      coverImage: data.assets.coverImage?.url ? {
-        url: data.assets.coverImage.url,
-        name: data.assets.coverImage.name,
-        size: data.assets.coverImage.size,
-        dimensions: data.assets.coverImage.dimensions
+      coverImage: cleanedData.assets?.coverImage?.url ? {
+        url: cleanedData.assets.coverImage.url,
+        name: cleanedData.assets.coverImage.name || '',
+        size: cleanedData.assets.coverImage.size || 0,
+        dimensions: cleanedData.assets.coverImage.dimensions || null
       } : null,
-      additionalImages: (data.assets.additionalImages || []).filter(img => img?.url).map(img => ({
-        url: img.url,
-        name: img.name,
-        size: img.size,
-        dimensions: img.dimensions
-      }))
+      additionalImages: []
     },
-    tracks: data.tracks.map(track => ({
-      ...track,
-      audio: track.audio?.url ? {
-        url: track.audio.url,
-        name: track.audio.name,
-        size: track.audio.size,
-        format: track.audio.format,
-        duration: track.audio.duration
-      } : null
-    }))
+    metadata: {
+      genre: cleanedData.metadata?.genre || '',
+      genreCode: cleanedData.metadata?.genreCode || '',
+      subgenre: cleanedData.metadata?.subgenre || '',
+      subgenreCode: cleanedData.metadata?.subgenreCode || '',
+      language: cleanedData.metadata?.language || 'en',
+      copyright: cleanedData.metadata?.copyright || '',
+      copyrightYear: cleanedData.metadata?.copyrightYear || new Date().getFullYear(),
+      productionYear: cleanedData.metadata?.productionYear || new Date().getFullYear()
+    },
+    territories: {
+      mode: cleanedData.territories?.mode || 'worldwide',
+      included: cleanedData.territories?.included || [],
+      excluded: cleanedData.territories?.excluded || []
+    },
+    preview: {
+      ernVersion: cleanedData.preview?.ernVersion || '4.3',
+      profile: cleanedData.preview?.profile || 'AudioAlbum',
+      validated: cleanedData.preview?.validated || false
+    }
   }
 }
 
