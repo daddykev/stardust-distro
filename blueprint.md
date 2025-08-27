@@ -166,6 +166,7 @@ stardust-distro/
 │   │   ├── minimal/               # Minimal setup ❌
 │   │   └── custom/                # Custom configurations ❌
 │   └── package.json               # CLI dependencies ✅
+├── node_modules/                  # Dependencies (git-ignored)
 ├── template/                      # Default project template
 │   ├── src/                       # Vue application
 │   │   ├── components/            # UI components
@@ -240,13 +241,7 @@ stardust-distro/
 │   │   ├── firebase.js            # Firebase initialization ✅
 │   │   ├── App.vue                # Root component with theme management ✅
 │   │   └── main.js                # Entry point with FontAwesome setup ✅
-│   ├── functions/                 # Cloud Functions
-│   │   ├── api/                   # App API
-│   │   │   └── deezer.js          # Deezer Public API functions ✅
-│   │   ├── index.js               # Function exports (v2 implementation) ✅
-│   │   ├── package.json           # Dependencies (v2) ✅
-│   │   ├── package-lock.json      # Locked dependencies ✅
-│   │   └── node_modules/          # Dependencies (git-ignored) ✅
+│   ├── dist/                      # Build output (git-ignored)
 │   ├── docs/                      # Documentation
 │   │   ├── api-reference.md       # API reference guide ✅
 │   │   ├── catalog-import.md      # Catalog migration guide ✅
@@ -258,14 +253,15 @@ stardust-distro/
 │   │   ├── release-creation.md    # Release creation guide ✅
 │   │   ├── testing-guide.md       # Testing component guide ✅
 │   │   └── troubleshooting.md     # Troubleshooting guide ✅
+│   ├── functions/                 # Cloud Functions
+│   │   ├── api/                   # App API
+│   │   │   └── deezer.js          # Deezer Public API functions ✅
+│   │   ├── index.js               # Function exports (v2 implementation) ✅
+│   │   ├── package.json           # Dependencies (v2) ✅
+│   │   ├── package-lock.json      # Locked dependencies ✅
+│   │   └── node_modules/          # Dependencies (git-ignored) ✅
 │   ├── public/                    # Static assets
 │   │   └── index.html             # HTML template ✅
-│   ├── node_modules/              # Dependencies (git-ignored) ✅
-│   ├── dist/                      # Build output (git-ignored) ✅
-│   ├── scripts/                   # Build scripts ❌
-│   │   ├── setup.js               # Initial setup
-│   │   ├── configure.js           # Configuration wizard
-│   │   └── migrate.js             # Migration tools
 │   ├── .env                       # Environment variables (git-ignored) ✅
 │   ├── .env.example               # Environment template ✅
 │   ├── .gitignore                 # Git ignore ✅
