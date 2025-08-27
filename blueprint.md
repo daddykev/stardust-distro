@@ -303,7 +303,7 @@ stardust-distro/
 ├── .firebaserc                    # Firebase project config ✅
 ├── .gitignore                     # Git ignore rules ✅
 ├── blueprint.md                   # This document ✅
-├── CONTRIBUTING.md                # Contribution guide ❌
+├── CONTRIBUTING.md                # Contribution guide ✅
 ├── LICENSE                        # MIT License ✅
 ├── package-lock.json              # Locked dependencies ✅
 ├── package.json                   # Root package config ✅
