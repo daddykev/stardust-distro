@@ -8,6 +8,7 @@ import Dashboard from '../views/Dashboard.vue'
 import Settings from '../views/Settings.vue'
 import Catalog from '../views/Catalog.vue'
 import NewRelease from '../views/NewRelease.vue'
+import EditRelease from '../views/EditRelease.vue'
 import Deliveries from '../views/Deliveries.vue'
 import Analytics from '../views/Analytics.vue'
 import Testing from '../views/Testing.vue'
@@ -79,7 +80,7 @@ const router = createRouter({
     {
       path: '/releases/edit/:id',
       name: 'edit-release',
-      component: NewRelease,
+      component: EditRelease,
       meta: { requiresAuth: true }
     },
     {

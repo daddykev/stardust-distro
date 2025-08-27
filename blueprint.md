@@ -200,6 +200,7 @@ stardust-distro/
 │   │   │   ├── Catalog.vue        # Catalog management ✅
 │   │   │   ├── Dashboard.vue      # Main dashboard ✅
 │   │   │   ├── Deliveries.vue     # Delivery management ✅
+│   │   │   ├── EditRelease.vue    # Release editor ✅
 │   │   │   ├── GenreMaps.vue      # Genre map management ✅
 │   │   │   ├── Login.vue          # Authentication page ✅
 │   │   │   ├── Migration.vue      # Catalog migration manager ✅
