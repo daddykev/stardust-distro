@@ -96,6 +96,27 @@ We're excited to announce that **Phase 6 is now complete**, bringing the platfor
 
 -----
 
+## 📖 Documentation
+
+### Technical Blueprint
+📋 **[View Technical Blueprint](blueprint.md)** - Complete development overview, architecture, and implementation status
+
+### Platform Guides
+Our comprehensive documentation covers every aspect of the platform:
+
+- 🚀 **[Getting Started Guide](template/docs/getting-started.md)** - Quick setup and initial configuration
+- ⚙️ **[Configuration Guide](template/docs/configuration.md)** - Platform settings and customization
+- 📦 **[Release Creation Guide](template/docs/release-creation.md)** - Step-by-step release wizard walkthrough
+- 🎵 **[Catalog Import Guide](template/docs/catalog-import.md)** - Bulk import and migration procedures  
+- 🚚 **[Delivery Setup Guide](template/docs/delivery-setup.md)** - DSP connections and target configuration
+- 🎯 **[Genre Mapping Guide](template/docs/genre-mapping.md)** - DSP taxonomy mapping and management
+- 🧪 **[Testing Guide](template/docs/testing-guide.md)** - Production testing suite documentation
+- 📋 **[DDEX Standards Guide](template/docs/DDEX.md)** - DDEX compliance and ERN implementation
+- 🔧 **[API Reference](template/docs/api-reference.md)** - Cloud Functions and service documentation
+- ❓ **[Troubleshooting Guide](template/docs/troubleshooting.md)** - Common issues and solutions
+
+-----
+
 ## ✨ Core Features
 
 ### 🌊 Smart Catalog Migration - NEW!
