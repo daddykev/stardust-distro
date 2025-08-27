@@ -8,6 +8,11 @@ import {
   getMetadata
 } from 'firebase/storage'
 import fingerprintService from './fingerprints'
+import { 
+  sanitizeFileName, 
+  validateFileType, 
+  validateFileSize 
+} from '@/utils/sanitizer'
 
 export class AssetService {
   constructor() {
@@ -15,283 +20,352 @@ export class AssetService {
   }
 
   /**
-   * Generate storage path for an asset
+   * Generate storage path for an asset with security
    */
   generatePath(userId, releaseId, assetType, fileName) {
-    // Clean filename
-    const cleanName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_')
+    // Sanitize filename for security
+    const sanitizedName = sanitizeFileName(fileName)
     const timestamp = Date.now()
-    return `${this.basePath}/${userId}/${releaseId}/${assetType}/${timestamp}_${cleanName}`
+    const randomString = Math.random().toString(36).substring(2, 15)
+    
+    // Create secure path that prevents directory traversal
+    const secureFileName = `${timestamp}_${randomString}_${sanitizedName}`
+    return `${this.basePath}/${userId}/${releaseId}/${assetType}/${secureFileName}`
   }
 
   /**
-   * Upload a single file with progress tracking and duplicate detection
+   * Upload a single file with progress tracking, security validation, and duplicate detection
    */
-  uploadFile(file, path, onProgress = null, checkDuplicates = true) {
-    return new Promise((resolve, reject) => {
-      const storageRef = ref(storage, path)
-      const uploadTask = uploadBytesResumable(storageRef, file)
+  async uploadFile(file, path, onProgress = null, checkDuplicates = true) {
+    try {
+      // Security: Validate file type by magic numbers
+      const fileValidation = await validateFileType(file)
+      
+      // Security: Validate file size based on type
+      const maxSizeMB = ['jpeg', 'png'].includes(fileValidation.type) ? 10 : 500
+      validateFileSize(file, maxSizeMB)
+      
+      return new Promise((resolve, reject) => {
+        const storageRef = ref(storage, path)
+        const uploadTask = uploadBytesResumable(storageRef, file)
 
-      uploadTask.on('state_changed',
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100
-          if (onProgress) {
-            onProgress(progress, snapshot)
-          }
-        },
-        (error) => {
-          console.error('Upload error:', error)
-          reject(error)
-        },
-        async () => {
-          try {
-            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref)
-            const metadata = await getMetadata(uploadTask.snapshot.ref)
-            
-            const result = {
-              url: downloadURL,
-              path: path,
-              name: file.name,
-              size: metadata.size,
-              contentType: metadata.contentType,
-              uploadedAt: metadata.timeCreated
+        uploadTask.on('state_changed',
+          (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100
+            if (onProgress) {
+              onProgress(progress, snapshot)
             }
-            
-            // Calculate fingerprint using Cloud Function after upload
-            if (checkDuplicates) {
-              try {
-                const fingerprint = await fingerprintService.calculateFingerprint(downloadURL, {
-                  fileName: file.name,
-                  fileSize: file.size,
-                  fileType: file.type
-                })
-                
-                result.fingerprint = fingerprint
-                
-                // Check for duplicates
-                const duplicateCheck = await fingerprintService.checkDuplicates(fingerprint)
-                if (duplicateCheck.hasDuplicates) {
-                  result.duplicateInfo = duplicateCheck.duplicates[0]
-                }
-              } catch (error) {
-                console.warn('Fingerprint calculation failed:', error)
-                // Don't fail the upload if fingerprinting fails
-              }
-            }
-            
-            resolve(result)
-          } catch (error) {
+          },
+          (error) => {
+            console.error('Upload error:', error)
             reject(error)
+          },
+          async () => {
+            try {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref)
+              const metadata = await getMetadata(uploadTask.snapshot.ref)
+              
+              const result = {
+                url: downloadURL,
+                path: path,
+                name: sanitizeFileName(file.name), // Use sanitized name
+                size: metadata.size,
+                contentType: metadata.contentType,
+                uploadedAt: metadata.timeCreated,
+                fileType: fileValidation.type // Add validated file type
+              }
+              
+              // Calculate fingerprint using Cloud Function after upload
+              if (checkDuplicates) {
+                try {
+                  const fingerprint = await fingerprintService.calculateFingerprint(downloadURL, {
+                    fileName: file.name,
+                    fileSize: file.size,
+                    fileType: file.type
+                  })
+                  
+                  result.fingerprint = fingerprint
+                  
+                  // Check for duplicates
+                  const duplicateCheck = await fingerprintService.checkDuplicates(fingerprint)
+                  if (duplicateCheck.hasDuplicates) {
+                    result.duplicateInfo = duplicateCheck.duplicates[0]
+                  }
+                } catch (error) {
+                  console.warn('Fingerprint calculation failed:', error)
+                  // Don't fail the upload if fingerprinting fails
+                }
+              }
+              
+              resolve(result)
+            } catch (error) {
+              reject(error)
+            }
           }
-        }
-      )
-    })
+        )
+      })
+    } catch (error) {
+      // Security validation failed
+      console.error('File validation failed:', error)
+      throw error
+    }
   }
 
   /**
-   * Upload cover image with duplicate detection
+   * Upload cover image with security validation and duplicate detection
    */
   async uploadCoverImage(file, userId, releaseId, onProgress = null) {
-    // Validate image
-    if (!file.type.startsWith('image/')) {
-      throw new Error('File must be an image')
-    }
-
-    // Check file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      throw new Error('Image must be less than 10MB')
-    }
-
-    const path = this.generatePath(userId, releaseId, 'images', `cover_${file.name}`)
-    const result = await this.uploadFile(file, path, onProgress, true)
-    
-    // If duplicate detected, ask user
-    if (result.duplicateInfo) {
-      const useExisting = confirm(
-        `This image appears to be a duplicate of "${result.duplicateInfo.fingerprint.fileName}". ` +
-        `Would you like to use the existing image?`
-      )
+    try {
+      // Security: Pre-validate image file
+      const fileValidation = await validateFileType(file)
       
-      if (useExisting && result.duplicateInfo.fingerprint.url) {
-        // Delete the newly uploaded file
-        try {
-          const storageRef = ref(storage, path)
-          await deleteObject(storageRef)
-        } catch (error) {
-          console.error('Error deleting duplicate:', error)
-        }
-        
-        return {
-          url: result.duplicateInfo.fingerprint.url,
-          path: result.duplicateInfo.fingerprint.path || path,
-          name: result.duplicateInfo.fingerprint.fileName,
-          size: result.duplicateInfo.fingerprint.fileSize,
-          type: 'cover',
-          reused: true,
-          originalFingerprint: result.duplicateInfo.fingerprint,
-          dimensions: await this.getImageDimensions(file)
-        }
+      // Ensure it's actually an image
+      if (!['jpeg', 'png'].includes(fileValidation.type)) {
+        throw new Error('File must be a JPEG or PNG image')
       }
-    }
-    
-    return {
-      ...result,
-      type: 'cover',
-      dimensions: await this.getImageDimensions(file)
-    }
-  }
 
-  /**
-   * Upload audio file with duplicate detection and audio fingerprinting
-   */
-  async uploadAudioFile(file, userId, releaseId, trackId, onProgress = null) {
-    // Validate audio format
-    const validFormats = ['audio/wav', 'audio/x-wav', 'audio/flac', 'audio/mpeg', 'audio/mp3']
-    if (!validFormats.includes(file.type)) {
-      throw new Error('Invalid audio format. Please upload WAV, FLAC, or MP3')
-    }
+      // Security: Check file size (max 10MB for images)
+      validateFileSize(file, 10)
 
-    // Check file size (max 500MB)
-    if (file.size > 500 * 1024 * 1024) {
-      throw new Error('Audio file must be less than 500MB')
-    }
-
-    const path = this.generatePath(userId, releaseId, 'audio', `track_${trackId}_${file.name}`)
-    const result = await this.uploadFile(file, path, onProgress, true)
-    
-    // Check for exact duplicates first
-    if (result.duplicateInfo) {
-      const proceed = confirm(
-        `This audio file is an exact duplicate of "${result.duplicateInfo.fingerprint.fileName}". ` +
-        `Continue with upload?`
-      )
+      const path = this.generatePath(userId, releaseId, 'images', `cover_${file.name}`)
+      const result = await this.uploadFile(file, path, onProgress, true)
       
-      if (!proceed) {
-        // Delete the uploaded file
-        try {
-          const storageRef = ref(storage, path)
-          await deleteObject(storageRef)
-        } catch (error) {
-          console.error('Error deleting file:', error)
-        }
-        throw new Error('Upload cancelled due to duplicate detection')
-      }
-    }
-    
-    // Calculate audio fingerprint for similarity detection
-    if (result.url) {
-      try {
-        const audioFingerprint = await fingerprintService.calculateAudioFingerprint(
-          result.url,
-          trackId,
-          releaseId
+      // If duplicate detected, ask user
+      if (result.duplicateInfo) {
+        const useExisting = confirm(
+          `This image appears to be a duplicate of "${result.duplicateInfo.fingerprint.fileName}". ` +
+          `Would you like to use the existing image?`
         )
         
-        // Check for similar audio
-        if (audioFingerprint.similar && audioFingerprint.similar.length > 0) {
-          const topMatch = audioFingerprint.similar[0]
-          if (topMatch.similarity > 90) {
-            const proceed = confirm(
-              `This audio is ${topMatch.similarity}% similar to another track in your catalog. ` +
-              `Continue with upload?`
-            )
-            
-            if (!proceed) {
-              // Delete the uploaded file
-              try {
-                const storageRef = ref(storage, path)
-                await deleteObject(storageRef)
-              } catch (error) {
-                console.error('Error deleting file:', error)
-              }
-              throw new Error('Upload cancelled due to similarity detection')
-            }
+        if (useExisting && result.duplicateInfo.fingerprint.url) {
+          // Delete the newly uploaded file
+          try {
+            const storageRef = ref(storage, path)
+            await deleteObject(storageRef)
+          } catch (error) {
+            console.error('Error deleting duplicate:', error)
+          }
+          
+          return {
+            url: result.duplicateInfo.fingerprint.url,
+            path: result.duplicateInfo.fingerprint.path || path,
+            name: result.duplicateInfo.fingerprint.fileName,
+            size: result.duplicateInfo.fingerprint.fileSize,
+            type: 'cover',
+            reused: true,
+            originalFingerprint: result.duplicateInfo.fingerprint,
+            dimensions: await this.getImageDimensions(file)
           }
         }
-        
-        result.audioFingerprint = audioFingerprint
-      } catch (error) {
-        console.warn('Audio fingerprint calculation failed:', error)
-        // Don't fail the upload if fingerprinting fails
       }
-    }
-    
-    return {
-      ...result,
-      trackId,
-      format: this.getAudioFormat(file.type),
-      duration: await this.getAudioDuration(file)
+      
+      return {
+        ...result,
+        type: 'cover',
+        dimensions: await this.getImageDimensions(file)
+      }
+    } catch (error) {
+      console.error('Cover image upload failed:', error)
+      throw error
     }
   }
 
   /**
-   * Upload multiple files with batch fingerprinting
+   * Upload audio file with security validation, duplicate detection and audio fingerprinting
+   */
+  async uploadAudioFile(file, userId, releaseId, trackId, onProgress = null) {
+    try {
+      // Security: Pre-validate audio file
+      const fileValidation = await validateFileType(file)
+      
+      // Ensure it's actually an audio file
+      if (!['wav', 'flac', 'mp3'].includes(fileValidation.type)) {
+        throw new Error('File must be WAV, FLAC, or MP3 audio')
+      }
+
+      // Security: Check file size (max 500MB for audio)
+      validateFileSize(file, 500)
+
+      const path = this.generatePath(userId, releaseId, 'audio', `track_${trackId}_${file.name}`)
+      const result = await this.uploadFile(file, path, onProgress, true)
+      
+      // Check for exact duplicates first
+      if (result.duplicateInfo) {
+        const proceed = confirm(
+          `This audio file is an exact duplicate of "${result.duplicateInfo.fingerprint.fileName}". ` +
+          `Continue with upload?`
+        )
+        
+        if (!proceed) {
+          // Delete the uploaded file
+          try {
+            const storageRef = ref(storage, path)
+            await deleteObject(storageRef)
+          } catch (error) {
+            console.error('Error deleting file:', error)
+          }
+          throw new Error('Upload cancelled due to duplicate detection')
+        }
+      }
+      
+      // Calculate audio fingerprint for similarity detection
+      if (result.url) {
+        try {
+          const audioFingerprint = await fingerprintService.calculateAudioFingerprint(
+            result.url,
+            trackId,
+            releaseId
+          )
+          
+          // Check for similar audio
+          if (audioFingerprint.similar && audioFingerprint.similar.length > 0) {
+            const topMatch = audioFingerprint.similar[0]
+            if (topMatch.similarity > 90) {
+              const proceed = confirm(
+                `This audio is ${topMatch.similarity}% similar to another track in your catalog. ` +
+                `Continue with upload?`
+              )
+              
+              if (!proceed) {
+                // Delete the uploaded file
+                try {
+                  const storageRef = ref(storage, path)
+                  await deleteObject(storageRef)
+                } catch (error) {
+                  console.error('Error deleting file:', error)
+                }
+                throw new Error('Upload cancelled due to similarity detection')
+              }
+            }
+          }
+          
+          result.audioFingerprint = audioFingerprint
+        } catch (error) {
+          console.warn('Audio fingerprint calculation failed:', error)
+          // Don't fail the upload if fingerprinting fails
+        }
+      }
+      
+      return {
+        ...result,
+        trackId,
+        format: this.getAudioFormat(fileValidation.mimeTypes[0] || file.type),
+        duration: await this.getAudioDuration(file)
+      }
+    } catch (error) {
+      console.error('Audio file upload failed:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Upload multiple files with security validation and batch fingerprinting
    */
   async uploadMultiple(files, userId, releaseId, type = 'documents') {
     const uploads = []
+    const errors = []
     
-    // First, upload all files
+    // Security: Pre-validate all files
     for (const file of files) {
-      const path = this.generatePath(userId, releaseId, type, file.name)
-      const result = await this.uploadFile(file, path, null, false) // Skip individual fingerprinting
-      uploads.push(result)
+      try {
+        await validateFileType(file)
+        const maxSizeMB = type === 'images' ? 10 : 500
+        validateFileSize(file, maxSizeMB)
+      } catch (error) {
+        errors.push({ file: file.name, error: error.message })
+      }
+    }
+    
+    // If any validation errors, report them
+    if (errors.length > 0) {
+      const errorMsg = errors.map(e => `${e.file}: ${e.error}`).join('\n')
+      throw new Error(`File validation errors:\n${errorMsg}`)
+    }
+    
+    // Upload all validated files
+    for (const file of files) {
+      try {
+        const path = this.generatePath(userId, releaseId, type, file.name)
+        const result = await this.uploadFile(file, path, null, false) // Skip individual fingerprinting
+        uploads.push(result)
+      } catch (error) {
+        console.error(`Failed to upload ${file.name}:`, error)
+        errors.push({ file: file.name, error: error.message })
+      }
     }
     
     // Then calculate fingerprints in batch for efficiency
-    try {
-      const fingerprintResult = await fingerprintService.calculateBatchFingerprints(
-        uploads.map(u => ({ 
-          url: u.url, 
-          name: u.name, 
-          type: u.contentType 
-        })),
-        releaseId
-      )
-      
-      // Add fingerprint data to uploads
-      if (fingerprintResult.results) {
-        fingerprintResult.results.forEach((fp, index) => {
-          if (uploads[index] && fp.success) {
-            uploads[index].fingerprint = fp.fingerprint
-          }
-        })
-      }
-      
-      // Warn about duplicates within batch
-      if (fingerprintResult.duplicatesInBatch && fingerprintResult.duplicatesInBatch.length > 0) {
-        const duplicateNames = fingerprintResult.duplicatesInBatch
-          .map(d => `${d.file1} and ${d.file2}`)
-          .join(', ')
+    if (uploads.length > 0) {
+      try {
+        const fingerprintResult = await fingerprintService.calculateBatchFingerprints(
+          uploads.map(u => ({ 
+            url: u.url, 
+            name: u.name, 
+            type: u.contentType 
+          })),
+          releaseId
+        )
         
-        console.warn('Duplicates detected in batch:', duplicateNames)
-        
-        // Optionally alert the user
-        if (confirm(`Duplicate files detected in upload: ${duplicateNames}. Continue?`) === false) {
-          // Clean up uploaded files
-          for (const upload of uploads) {
-            try {
-              const storageRef = ref(storage, upload.path)
-              await deleteObject(storageRef)
-            } catch (error) {
-              console.error('Error cleaning up:', error)
+        // Add fingerprint data to uploads
+        if (fingerprintResult.results) {
+          fingerprintResult.results.forEach((fp, index) => {
+            if (uploads[index] && fp.success) {
+              uploads[index].fingerprint = fp.fingerprint
             }
-          }
-          throw new Error('Upload cancelled due to duplicates in batch')
+          })
         }
+        
+        // Warn about duplicates within batch
+        if (fingerprintResult.duplicatesInBatch && fingerprintResult.duplicatesInBatch.length > 0) {
+          const duplicateNames = fingerprintResult.duplicatesInBatch
+            .map(d => `${d.file1} and ${d.file2}`)
+            .join(', ')
+          
+          console.warn('Duplicates detected in batch:', duplicateNames)
+          
+          // Optionally alert the user
+          if (confirm(`Duplicate files detected in upload: ${duplicateNames}. Continue?`) === false) {
+            // Clean up uploaded files
+            for (const upload of uploads) {
+              try {
+                const storageRef = ref(storage, upload.path)
+                await deleteObject(storageRef)
+              } catch (error) {
+                console.error('Error cleaning up:', error)
+              }
+            }
+            throw new Error('Upload cancelled due to duplicates in batch')
+          }
+        }
+      } catch (error) {
+        console.error('Batch fingerprint calculation failed:', error)
+        // Don't fail the entire upload if fingerprinting fails
       }
-    } catch (error) {
-      console.error('Batch fingerprint calculation failed:', error)
-      // Don't fail the entire upload if fingerprinting fails
+    }
+    
+    // Report any upload errors
+    if (errors.length > 0) {
+      console.warn('Some files failed to upload:', errors)
     }
     
     return uploads
   }
 
   /**
-   * Delete an asset
+   * Delete an asset with security checks
    */
-  async deleteAsset(path) {
+  async deleteAsset(path, userId) {
     try {
+      // Security: Verify the path belongs to the user
+      if (!path.includes(`/${userId}/`)) {
+        throw new Error('Unauthorized: Cannot delete assets from other users')
+      }
+      
+      // Security: Prevent directory traversal
+      if (path.includes('..')) {
+        throw new Error('Invalid path')
+      }
+      
       const storageRef = ref(storage, path)
       await deleteObject(storageRef)
       return true
@@ -313,6 +387,9 @@ export class AssetService {
           height: img.height
         })
       }
+      img.onerror = () => {
+        resolve({ width: 0, height: 0 })
+      }
       img.src = URL.createObjectURL(file)
     })
   }
@@ -326,29 +403,41 @@ export class AssetService {
       audio.onloadedmetadata = () => {
         resolve(Math.round(audio.duration))
       }
+      audio.onerror = () => {
+        resolve(0)
+      }
       audio.src = URL.createObjectURL(file)
     })
   }
 
   /**
-   * Get audio format from MIME type
+   * Get audio format from MIME type or validated type
    */
   getAudioFormat(mimeType) {
     const formats = {
       'audio/wav': 'WAV',
       'audio/x-wav': 'WAV',
       'audio/flac': 'FLAC',
+      'audio/x-flac': 'FLAC',
       'audio/mpeg': 'MP3',
-      'audio/mp3': 'MP3'
+      'audio/mp3': 'MP3',
+      'wav': 'WAV',
+      'flac': 'FLAC',
+      'mp3': 'MP3'
     }
     return formats[mimeType] || 'UNKNOWN'
   }
 
   /**
-   * Validate image requirements
+   * Validate image requirements with security
    */
   validateImage(file, requirements = {}) {
     const errors = []
+    
+    // Security: Validate file type first
+    validateFileType(file).catch(err => {
+      errors.push('Invalid file type: Must be JPEG or PNG')
+    })
     
     if (requirements.minSize && file.size < requirements.minSize) {
       errors.push(`File size must be at least ${requirements.minSize / 1024}KB`)
@@ -385,8 +474,11 @@ export class AssetService {
    */
   async checkExistingFile(file) {
     try {
+      // Security: Validate file first
+      await validateFileType(file)
+      
       // First upload to a temp location to get URL
-      const tempPath = `temp/${Date.now()}_${file.name}`
+      const tempPath = `temp/${Date.now()}_${sanitizeFileName(file.name)}`
       const tempRef = ref(storage, tempPath)
       
       // Upload without progress tracking
