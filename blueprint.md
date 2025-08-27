@@ -255,9 +255,12 @@ stardust-distro/
 │   │   │   │   └── mappings.js    # Genre mappings ✅
 │   │   │   ├── mead/              # DDEX MEAD 1.1 dictionaries
 │   │   │   │   └── index.js       # Comprehensive MEAD dictionary and API ✅
-│   │   │   ├── currencies/        # Currency codes ❌
-│   │   │   ├── languages/         # Language codes ❌
-│   │   │   └── territories/       # Territory codes ❌
+│   │   │   ├── currencies/        # Currency dictionary
+│   │   │   │   └── index.js       # Based on ISO 4217 ✅
+│   │   │   ├── languages/         # Language dictionary
+│   │   │   │   └── index.js       # Based on ISO 639-1 and ISO 639-2 ✅
+│   │   │   └── territories/       # Territory dictionary
+│   │   │   │   └── index.js       # Based on ISO 3166-1 ✅
 │   │   ├── router/                # Vue Router
 │   │   │   └── index.js           # Route definitions ✅
 │   │   ├── assets/                # Design system CSS architecture
