@@ -245,6 +245,8 @@ stardust-distro/
 │   │   │   │   ├── index.js       # Contributor service and API ✅
 │   │   │   │   ├── performer.js   # Performer roles ✅
 │   │   │   │   └── producer-engineer.js  # Producer-engineer roles ✅
+│   │   │   ├── currencies/        # Currency dictionary
+│   │   │   │   └── index.js       # Based on ISO 4217 ✅
 │   │   │   ├── genres/            # Genre classification system
 │   │   │   │   ├── amazon-201805.js  # Amazon genres v2018-05 ✅
 │   │   │   │   ├── apple-539.js   # Apple Music genres v5.3.9 ✅
@@ -253,14 +255,12 @@ stardust-distro/
 │   │   │   │   ├── genre-truth.js # Genre truth ✅
 │   │   │   │   ├── index.js       # Genre service and API ✅
 │   │   │   │   └── mappings.js    # Genre mappings ✅
-│   │   │   ├── mead/              # DDEX MEAD 1.1 dictionaries
-│   │   │   │   └── index.js       # Comprehensive MEAD dictionary and API ✅
-│   │   │   ├── currencies/        # Currency dictionary
-│   │   │   │   └── index.js       # Based on ISO 4217 ✅
 │   │   │   ├── languages/         # Language dictionary
 │   │   │   │   └── index.js       # Based on ISO 639-1 and ISO 639-2 ✅
+│   │   │   ├── mead/              # DDEX MEAD dictionary
+│   │   │   │   └── index.js       # Based on MEAD 1.1 ✅
 │   │   │   └── territories/       # Territory dictionary
-│   │   │   │   └── index.js       # Based on ISO 3166-1 ✅
+│   │   │       └── index.js       # Based on ISO 3166-1 ✅
 │   │   ├── router/                # Vue Router
 │   │   │   └── index.js           # Route definitions ✅
 │   │   ├── assets/                # Design system CSS architecture
