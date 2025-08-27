@@ -17,6 +17,11 @@ const crypto = require('crypto')
 const { Buffer } = require('buffer')
 const { onDocumentCreated } = require('firebase-functions/v2/firestore')
 
+// Security imports
+const { requireAuth, requireTenantAccess, checkRateLimit } = require('./middleware/auth')
+const { validateWith, sanitizeInputs, validateFileUpload } = require('./middleware/validation')
+const { cleanForFirestore } = require('./utils/validation')
+
 const cors = require('cors');
 const express = require('express');
 
@@ -74,28 +79,30 @@ function calculateMD5(buffer) {
 }
 
 /**
- * Callable function for MD5 calculation
+ * Callable function for MD5 calculation with security
  */
 exports.calculateFileMD5 = onCall({
   timeoutSeconds: 60,
   memory: '256MB',
   cors: true
 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'User must be authenticated')
-  }
+  // Validate auth
+  requireAuth(request);
   
-  const { url } = request.data
+  // Validate and sanitize input
+  validateWith('calculateMD5')(request);
   
-  if (!url) {
-    throw new HttpsError('invalid-argument', 'URL is required')
-  }
+  // Rate limiting: 100 requests per minute
+  await checkRateLimit(request.auth.uid, 100, 60000);
+  
+  const { url } = request.data;
   
   try {
     console.log(`Calculating MD5 for: ${url}`)
     const response = await axios.get(url, {
       responseType: 'arraybuffer',
-      timeout: 30000
+      timeout: 30000,
+      maxContentLength: 500 * 1024 * 1024 // 500MB max
     })
     
     const buffer = Buffer.from(response.data)
@@ -122,30 +129,14 @@ exports.calculateFileMD5 = onCall({
 async function addDeliveryLog(deliveryId, logEntry) {
   try {
     const timestamp = admin.firestore.Timestamp.now()
-    const log = {
+    const log = cleanForFirestore({
       timestamp,
-      level: logEntry.level || 'info', // info, warning, error, success
+      level: logEntry.level || 'info',
       step: logEntry.step || 'general',
-      message: logEntry.message
-    }
-    
-    // Only add optional fields if they exist
-    if (logEntry.details && Object.keys(logEntry.details).length > 0) {
-      // Clean details object of undefined values
-      const cleanDetails = {}
-      for (const [key, value] of Object.entries(logEntry.details)) {
-        if (value !== undefined && value !== null) {
-          cleanDetails[key] = value
-        }
-      }
-      if (Object.keys(cleanDetails).length > 0) {
-        log.details = cleanDetails
-      }
-    }
-    
-    if (logEntry.duration !== undefined && logEntry.duration !== null) {
-      log.duration = logEntry.duration
-    }
+      message: logEntry.message,
+      details: logEntry.details,
+      duration: logEntry.duration
+    })
     
     // Update the delivery document with the new log
     await db.collection('deliveries').doc(deliveryId).update({
@@ -164,7 +155,7 @@ async function addDeliveryLog(deliveryId, logEntry) {
 }
 
 // ============================================================================
-// SCHEDULED FUNCTIONS
+// SCHEDULED FUNCTIONS (No auth needed for system functions)
 // ============================================================================
 
 /**
@@ -244,7 +235,7 @@ exports.processDeliveryQueue = onSchedule({
 })
 
 // ============================================================================
-// CALLABLE FUNCTIONS
+// CALLABLE FUNCTIONS WITH SECURITY
 // ============================================================================
 
 /**
@@ -257,14 +248,21 @@ exports.deliverFTP = onCall({
   cors: true
 }, async (request) => {
   // Verify authentication
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'User must be authenticated')
-  }
+  requireAuth(request);
   
-  const { target, package: deliveryPackage } = request.data
+  // Validate input
+  validateWith('deliverFTP')(request);
   
-  if (!target || !deliveryPackage) {
-    throw new HttpsError('invalid-argument', 'Missing required parameters')
+  // Rate limiting: 20 deliveries per minute
+  await checkRateLimit(request.auth.uid, 20, 60000);
+  
+  const { target, package: deliveryPackage } = request.data;
+  
+  // Additional file validation
+  if (deliveryPackage.files) {
+    deliveryPackage.files.forEach(file => {
+      validateFileUpload(file);
+    });
   }
   
   try {
@@ -284,14 +282,16 @@ exports.deliverSFTP = onCall({
   maxInstances: 5,
   cors: true
 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'User must be authenticated')
-  }
+  requireAuth(request);
+  validateWith('deliverSFTP')(request);
+  await checkRateLimit(request.auth.uid, 20, 60000);
   
-  const { target, package: deliveryPackage } = request.data
+  const { target, package: deliveryPackage } = request.data;
   
-  if (!target || !deliveryPackage) {
-    throw new HttpsError('invalid-argument', 'Missing required parameters')
+  if (deliveryPackage.files) {
+    deliveryPackage.files.forEach(file => {
+      validateFileUpload(file);
+    });
   }
   
   try {
@@ -311,14 +311,16 @@ exports.deliverS3 = onCall({
   maxInstances: 5,
   cors: true
 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'User must be authenticated')
-  }
+  requireAuth(request);
+  validateWith('deliverS3')(request);
+  await checkRateLimit(request.auth.uid, 20, 60000);
   
-  const { target, package: deliveryPackage } = request.data
+  const { target, package: deliveryPackage } = request.data;
   
-  if (!target || !deliveryPackage) {
-    throw new HttpsError('invalid-argument', 'Missing required parameters')
+  if (deliveryPackage.files) {
+    deliveryPackage.files.forEach(file => {
+      validateFileUpload(file);
+    });
   }
   
   try {
@@ -330,7 +332,7 @@ exports.deliverS3 = onCall({
 })
 
 /**
- * API Delivery Handler - Updated for DSP Authentication
+ * API Delivery Handler
  */
 exports.deliverAPI = onCall({
   timeoutSeconds: 300,
@@ -338,15 +340,11 @@ exports.deliverAPI = onCall({
   maxInstances: 5,
   cors: true
 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'User must be authenticated')
-  }
+  requireAuth(request);
+  validateWith('deliverAPI')(request);
+  await checkRateLimit(request.auth.uid, 20, 60000);
   
-  const { target, package: deliveryPackage } = request.data
-  
-  if (!target || !deliveryPackage) {
-    throw new HttpsError('invalid-argument', 'Missing required parameters')
-  }
+  const { target, package: deliveryPackage } = request.data;
   
   try {
     // Check if this is a DSP delivery that needs special handling
@@ -370,14 +368,16 @@ exports.deliverAzure = onCall({
   maxInstances: 5,
   cors: true
 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'User must be authenticated')
-  }
+  requireAuth(request);
+  validateWith('deliverAzure')(request);
+  await checkRateLimit(request.auth.uid, 20, 60000);
   
-  const { target, package: deliveryPackage } = request.data
+  const { target, package: deliveryPackage } = request.data;
   
-  if (!target || !deliveryPackage) {
-    throw new HttpsError('invalid-argument', 'Missing required parameters')
+  if (deliveryPackage.files) {
+    deliveryPackage.files.forEach(file => {
+      validateFileUpload(file);
+    });
   }
   
   try {
@@ -397,15 +397,14 @@ exports.getDeliveryAnalytics = onCall({
   maxInstances: 10,
   cors: true
 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'User must be authenticated')
-  }
+  requireAuth(request);
+  validateWith('getDeliveryAnalytics')(request);
+  await checkRateLimit(request.auth.uid, 60, 60000); // 60 requests per minute
   
-  const { tenantId, startDate, endDate } = request.data
+  const { tenantId, startDate, endDate } = request.data;
   
-  if (!tenantId) {
-    throw new HttpsError('invalid-argument', 'Tenant ID is required')
-  }
+  // Verify tenant access
+  await requireTenantAccess(request, tenantId);
   
   try {
     const deliveries = await db.collection('deliveries')
@@ -655,18 +654,13 @@ async function processDelivery(deliveryId, delivery) {
     const deliveryDuration = Date.now() - deliveryStartTime
 
     // Build clean details object for log
-    const executionDetails = {
+    const executionDetails = cleanForFirestore({
       filesDelivered: result.files?.length || 0,
       bytesTransferred: result.bytesTransferred || 0,
-      messageSubType: delivery.messageSubType || 'Initial'
-    }
-    
-    if (result.acknowledgmentId) {
-      executionDetails.acknowledgmentId = result.acknowledgmentId
-    }
-    if (result.deliveryId) {
-      executionDetails.deliveryId = result.deliveryId
-    }
+      messageSubType: delivery.messageSubType || 'Initial',
+      acknowledgmentId: result.acknowledgmentId,
+      deliveryId: result.deliveryId
+    })
 
     await addDeliveryLog(deliveryId, {
       level: 'success',
@@ -687,26 +681,16 @@ async function processDelivery(deliveryId, delivery) {
     const totalDuration = Date.now() - startTime
     
     // Build receipt object with only defined values
-    const receipt = {
+    const receipt = cleanForFirestore({
       acknowledgment: result.acknowledgment || 'Delivery completed successfully',
       timestamp: admin.firestore.Timestamp.now(),
       files: result.files || [],
-      messageSubType: delivery.messageSubType || 'Initial'
-    }
-    
-    // Only add optional fields if they exist
-    if (result.messageId) {
-      receipt.dspMessageId = result.messageId
-    }
-    if (result.acknowledgmentId) {
-      receipt.acknowledgmentId = result.acknowledgmentId
-    }
-    if (result.deliveryId) {
-      receipt.deliveryId = result.deliveryId
-    }
-    if (result.bytesTransferred !== undefined && result.bytesTransferred !== null) {
-      receipt.bytesTransferred = result.bytesTransferred
-    }
+      messageSubType: delivery.messageSubType || 'Initial',
+      dspMessageId: result.messageId,
+      acknowledgmentId: result.acknowledgmentId,
+      deliveryId: result.deliveryId,
+      bytesTransferred: result.bytesTransferred
+    })
     
     await db.collection('deliveries').doc(deliveryId).update({
       status: 'completed',
@@ -717,7 +701,7 @@ async function processDelivery(deliveryId, delivery) {
 
     // Record in delivery history for successful completion - FIX: Clean undefined values
     if (delivery.status !== 'test') {
-      const historyRecord = {
+      const historyRecord = cleanForFirestore({
         releaseId: delivery.releaseId,
         targetId: delivery.targetId,
         targetName: delivery.targetName,
@@ -729,25 +713,13 @@ async function processDelivery(deliveryId, delivery) {
         tenantId: delivery.tenantId,
         status: 'completed',
         deliveredAt: admin.firestore.Timestamp.now(),
-        createdAt: admin.firestore.Timestamp.now()
-      }
-      
-      // Build receipt for history with only defined values
-      const historyReceipt = {}
-      if (result.acknowledgmentId) {
-        historyReceipt.acknowledgmentId = result.acknowledgmentId
-      }
-      if (result.messageId) {
-        historyReceipt.dspMessageId = result.messageId
-      }
-      if (result.bytesTransferred !== undefined && result.bytesTransferred !== null) {
-        historyReceipt.bytesTransferred = result.bytesTransferred
-      }
-      
-      // Only add receipt if it has properties
-      if (Object.keys(historyReceipt).length > 0) {
-        historyRecord.receipt = historyReceipt
-      }
+        createdAt: admin.firestore.Timestamp.now(),
+        receipt: {
+          acknowledgmentId: result.acknowledgmentId,
+          dspMessageId: result.messageId,
+          bytesTransferred: result.bytesTransferred
+        }
+      })
       
       await db.collection('deliveryHistory').add(historyRecord)
       
@@ -804,18 +776,14 @@ async function handleDeliveryError(deliveryId, delivery, error) {
   const maxRetries = 3
   const retryDelays = [5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000] // 5min, 15min, 1hr
 
-  const attempt = {
+  const attempt = cleanForFirestore({
     attemptNumber,
     startTime: admin.firestore.Timestamp.now(),
     endTime: admin.firestore.Timestamp.now(),
     status: 'failed',
-    error: error.message
-  }
-  
-  // Only add messageSubType if it exists
-  if (delivery.messageSubType) {
-    attempt.messageSubType = delivery.messageSubType
-  }
+    error: error.message,
+    messageSubType: delivery.messageSubType
+  })
 
   if (attemptNumber < maxRetries) {
     // Schedule retry
@@ -905,17 +873,13 @@ async function prepareDeliveryPackage(delivery) {
   
   // Add ERN file (already contains properly escaped URLs and correct message type)
   if (delivery.ernXml) {
-    const ernFile = {
+    const ernFile = cleanForFirestore({
       name: `${delivery.ernMessageId}.xml`,
       content: delivery.ernXml,
       type: 'text/xml',
-      isERN: true
-    }
-    
-    // Only add messageSubType if it exists
-    if (delivery.messageSubType) {
-      ernFile.messageSubType = delivery.messageSubType
-    }
+      isERN: true,
+      messageSubType: delivery.messageSubType
+    })
     
     files.push(ernFile)
   }
@@ -937,19 +901,15 @@ async function prepareDeliveryPackage(delivery) {
           
           console.log(`Audio file ${index + 1}: ${extractFileName(audioUrl)} → ${ddexFileName}`)
           
-          const audioFile = {
+          const audioFile = cleanForFirestore({
             name: ddexFileName,  // This is what will be used for delivery
             originalName: extractFileName(audioUrl),  // Keep for reference
             url: audioUrl,
             type: 'audio',
             needsDownload: true,
-            trackNumber: track?.sequenceNumber || index + 1
-          }
-          
-          // Only add isrc if it exists
-          if (track?.isrc) {
-            audioFile.isrc = track.isrc
-          }
+            trackNumber: track?.sequenceNumber || index + 1,
+            isrc: track?.isrc
+          })
           
           files.push(audioFile)
         }
@@ -1087,17 +1047,13 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
       // Upload to FTP with DDEX name
       await client.uploadFrom(localPath, file.name)
       
-      const uploadedFile = {
+      const uploadedFile = cleanForFirestore({
         name: file.name, // DDEX name
         size: fileContent.length,
         md5Hash: md5Hash,
-        uploadedAt: new Date().toISOString()
-      }
-      
-      // Only add originalName if it exists
-      if (file.originalName) {
-        uploadedFile.originalName = file.originalName
-      }
+        uploadedAt: new Date().toISOString(),
+        originalName: file.originalName
+      })
       
       uploadedFiles.push(uploadedFile)
 
@@ -1204,17 +1160,13 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
                 })
               })
 
-              const uploadedFile = {
+              const uploadedFile = cleanForFirestore({
                 name: file.name, // DDEX name
                 size: fileContent.length,
                 md5Hash: md5Hash,
-                uploadedAt: new Date().toISOString()
-              }
-              
-              // Only add originalName if it exists
-              if (file.originalName) {
-                uploadedFile.originalName = file.originalName
-              }
+                uploadedAt: new Date().toISOString(),
+                originalName: file.originalName
+              })
               
               uploadedFiles.push(uploadedFile)
 
@@ -1341,20 +1293,16 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
     console.log(`S3: Uploading to key: ${key} (MD5: ${md5Hash})`)
     
     // Build metadata object with only defined values
-    const metadata = {
+    const metadata = cleanForFirestore({
       'delivery-id': deliveryPackage.deliveryId || '',
       'message-id': deliveryPackage.metadata.messageId || '',
       'message-sub-type': deliveryPackage.metadata.messageSubType || 'Initial',
       'test-mode': String(deliveryPackage.metadata.testMode || false),
       'ddex-name': file.name,
       'upc': deliveryPackage.upc || '',
-      'md5-hash': md5Hash
-    }
-    
-    // Only add originalName if it exists
-    if (file.originalName) {
-      metadata['original-name'] = file.originalName
-    }
+      'md5-hash': md5Hash,
+      'original-name': file.originalName
+    })
     
     // For large files, use multipart upload
     if (fileContent.length > 5 * 1024 * 1024) { // 5MB threshold
@@ -1372,18 +1320,15 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
 
       const result = await multipartUpload.done()
       
-      const uploadedFile = {
+      const uploadedFile = cleanForFirestore({
         name: file.name, // DDEX name
         location: `https://${bucket}.s3.${target.region || target.connection?.region}.amazonaws.com/${key}`,
         etag: result.ETag,
         size: fileContent.length,
         md5Hash: md5Hash,
-        uploadedAt: new Date().toISOString()
-      }
-      
-      if (file.originalName) {
-        uploadedFile.originalName = file.originalName
-      }
+        uploadedAt: new Date().toISOString(),
+        originalName: file.originalName
+      })
       
       uploadedFiles.push(uploadedFile)
     } else {
@@ -1399,18 +1344,15 @@ async function deliverViaS3(target, deliveryPackage, deliveryId) {
 
       const result = await s3Client.send(command)
       
-      const uploadedFile = {
+      const uploadedFile = cleanForFirestore({
         name: file.name, // DDEX name
         location: `https://${bucket}.s3.${target.region || target.connection?.region}.amazonaws.com/${key}`,
         etag: result.ETag,
         size: fileContent.length,
         md5Hash: md5Hash,
-        uploadedAt: new Date().toISOString()
-      }
-      
-      if (file.originalName) {
-        uploadedFile.originalName = file.originalName
-      }
+        uploadedAt: new Date().toISOString(),
+        originalName: file.originalName
+      })
       
       uploadedFiles.push(uploadedFile)
     }
@@ -1466,14 +1408,14 @@ async function deliverViaAPI(target, deliveryPackage, deliveryId) {
   }
 
   // Add metadata including UPC and message type - clean undefined values
-  const metadata = {
+  const metadata = cleanForFirestore({
     messageId: deliveryPackage.metadata.messageId,
     messageType: deliveryPackage.metadata.messageType || 'NewReleaseMessage',
     messageSubType: deliveryPackage.metadata.messageSubType || 'Initial',
     releaseTitle: deliveryPackage.releaseTitle,
     testMode: deliveryPackage.metadata.testMode || false,
     upc: deliveryPackage.upc
-  }
+  })
   
   formData.append('metadata', JSON.stringify(metadata))
 
@@ -1567,7 +1509,7 @@ async function deliverToDSP(target, deliveryPackage) {
     })
     
     // Prepare the DSP-specific payload - clean undefined values
-    const payload = {
+    const payload = cleanForFirestore({
       distributorId: deliveryPackage.distributorId || target.config?.distributorId || 'stardust-distro',
       messageId: deliveryPackage.metadata?.messageId || deliveryPackage.messageId,
       messageType: deliveryPackage.metadata?.messageType || 'NewReleaseMessage',
@@ -1596,7 +1538,7 @@ async function deliverToDSP(target, deliveryPackage) {
       fileTransferRequired: true,
       sourceStorage: 'firebase',
       sourceDeliveryId: deliveryId
-    }
+    })
     
     // Prepare headers with authentication
     const headers = {
@@ -1734,19 +1676,15 @@ async function deliverViaAzure(target, deliveryPackage, deliveryId) {
     console.log(`Azure: MD5 hash: ${md5Hash}`)
 
     // Build metadata object with only defined values
-    const metadata = {
+    const metadata = cleanForFirestore({
       deliveryId: deliveryPackage.deliveryId || '',
       messageId: deliveryPackage.metadata.messageId || '',
       messageSubType: deliveryPackage.metadata.messageSubType || 'Initial',
       ddexName: file.name,
       upc: deliveryPackage.upc || '',
-      md5Hash: md5Hash
-    }
-    
-    // Only add originalName if it exists
-    if (file.originalName) {
-      metadata.originalName = file.originalName
-    }
+      md5Hash: md5Hash,
+      originalName: file.originalName
+    })
 
     const uploadResponse = await blockBlobClient.upload(
       fileContent,
@@ -1759,17 +1697,14 @@ async function deliverViaAzure(target, deliveryPackage, deliveryId) {
       }
     )
 
-    const uploadedFile = {
+    const uploadedFile = cleanForFirestore({
       name: file.name, // DDEX name
       etag: uploadResponse.etag,
       size: fileContent.length,
       md5Hash: md5Hash,
-      uploadedAt: new Date().toISOString()
-    }
-    
-    if (file.originalName) {
-      uploadedFile.originalName = file.originalName
-    }
+      uploadedAt: new Date().toISOString(),
+      originalName: file.originalName
+    })
     
     uploadedFiles.push(uploadedFile)
     
@@ -1866,7 +1801,7 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
           const storageFile = bucket.file(filePath)
           
           // Build metadata object with only defined values
-          const metadata = {
+          const metadata = cleanForFirestore({
             distributorId: distributorId,
             messageId: deliveryPackage.metadata.messageId,
             messageSubType: deliveryPackage.metadata.messageSubType || 'Initial',
@@ -1874,13 +1809,9 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
             testMode: String(deliveryPackage.metadata.testMode || false),
             ddexName: file.name,
             upc: deliveryPackage.upc,
-            md5Hash: md5Hash
-          }
-          
-          // Only add originalName if it exists
-          if (file.originalName) {
-            metadata.originalName = file.originalName
-          }
+            md5Hash: md5Hash,
+            originalName: file.originalName
+          })
           
           await storageFile.save(fileBuffer, {
             metadata: {
@@ -1890,17 +1821,14 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
             }
           })
           
-          const uploadedFile = {
+          const uploadedFile = cleanForFirestore({
             name: file.name, // DDEX compliant name
             path: filePath,
             size: fileBuffer.length,
             md5Hash: md5Hash,
-            uploadedAt: new Date().toISOString()
-          }
-          
-          if (file.originalName) {
-            uploadedFile.originalName = file.originalName
-          }
+            uploadedAt: new Date().toISOString(),
+            originalName: file.originalName
+          })
           
           uploadedFiles.push(uploadedFile)
           
@@ -2071,6 +1999,265 @@ function extractFileName(url) {
   }
 }
 
+// ============================================================================
+// TEST CONNECTION WITH SECURITY
+// ============================================================================
+
+exports.testDeliveryConnection = onCall({
+  timeoutSeconds: 60,
+  maxInstances: 10,
+  cors: true,
+  consumeAppCheckToken: false
+}, async (request) => {
+  requireAuth(request);
+  validateWith('testDeliveryConnection')(request);
+  await checkRateLimit(request.auth.uid, 30, 60000); // 30 tests per minute
+  
+  const { protocol, config, testMode } = request.data;
+
+  if (!testMode) {
+    throw new HttpsError('invalid-argument', 'Test mode required')
+  }
+
+  // Sanitize config
+  const sanitizedConfig = sanitizeInputs(config);
+
+  try {
+    switch (protocol) {
+      case 'storage':
+        // Test Firebase Storage connection
+        const bucket = admin.storage().bucket()
+        await bucket.file('test/connection.txt').save('test')
+        await bucket.file('test/connection.txt').delete()
+        return { success: true, message: 'Storage connection successful' }
+
+      case 'FTP':
+        // Test FTP connection with passive mode and timeout
+        const ftpClient = new ftp.Client()
+        
+        // Set shorter timeout to prevent gateway timeout
+        ftpClient.ftp.timeout = 10000  // 10 seconds instead of default 30
+        
+        const ftpConfig = {
+          host: sanitizedConfig.host,
+          port: sanitizedConfig.port || 21,
+          user: sanitizedConfig.username || sanitizedConfig.user,
+          password: sanitizedConfig.password,
+          secure: sanitizedConfig.secure || false,
+          connTimeout: 10000,
+          pasvTimeout: 10000,
+          keepalive: 5000
+        }
+        
+        if (sanitizedConfig.forcePasv || sanitizedConfig.pasv) {
+          ftpClient.ftp.pasv = true
+        }
+        
+        try {
+          await ftpClient.access(ftpConfig)
+          
+          const listPromise = ftpClient.list('/')
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('List timeout')), 5000)
+          )
+          
+          try {
+            const list = await Promise.race([listPromise, timeoutPromise])
+            ftpClient.close()
+            
+            return { 
+              success: true, 
+              message: 'FTP connection successful',
+              filesFound: Array.isArray(list) ? list.length : 0
+            }
+          } catch (listError) {
+            ftpClient.close()
+            return { 
+              success: true, 
+              message: 'FTP connection successful (list skipped)',
+              note: 'Connected but directory listing timed out'
+            }
+          }
+        } catch (ftpError) {
+          ftpClient.close()
+          console.error('FTP test error:', ftpError)
+          return { 
+            success: false, 
+            message: ftpError.message,
+            code: ftpError.code 
+          }
+        }
+
+      case 'SFTP':
+        // Test SFTP connection with timeout
+        return new Promise((resolve, reject) => {
+          const sftpConn = new SSHClient()
+          
+          const timeout = setTimeout(() => {
+            sftpConn.end()
+            resolve({ 
+              success: false, 
+              message: 'SFTP connection timeout (10s)',
+              note: 'SSH2 may not be compatible with Cloud Functions'
+            })
+          }, 10000)
+          
+          sftpConn.on('ready', () => {
+            clearTimeout(timeout)
+            sftpConn.sftp((err, sftp) => {
+              if (err) {
+                sftpConn.end()
+                resolve({ success: false, message: err.message })
+                return
+              }
+              
+              sftpConn.end()
+              resolve({ 
+                success: true, 
+                message: 'SFTP connection successful'
+              })
+            })
+          })
+          
+          sftpConn.on('error', (err) => {
+            clearTimeout(timeout)
+            resolve({ 
+              success: false, 
+              message: err.message,
+              code: err.code 
+            })
+          })
+          
+          const sftpConfig = {
+            host: sanitizedConfig.host,
+            port: sanitizedConfig.port || 22,
+            username: sanitizedConfig.username,
+            password: sanitizedConfig.password,
+            readyTimeout: 10000,
+            timeout: 10000
+          }
+          
+          if (sanitizedConfig.privateKey) {
+            sftpConfig.privateKey = sanitizedConfig.privateKey
+            if (sanitizedConfig.passphrase) {
+              sftpConfig.passphrase = sanitizedConfig.passphrase
+            }
+          }
+          
+          try {
+            sftpConn.connect(sftpConfig)
+          } catch (connectError) {
+            clearTimeout(timeout)
+            resolve({ 
+              success: false, 
+              message: 'SSH2 Client initialization failed',
+              error: connectError.message
+            })
+          }
+        })
+
+      case 'S3':
+        // Test S3 connection with timeout
+        const { ListObjectsV2Command } = require('@aws-sdk/client-s3')
+        
+        const s3Client = new S3Client({
+          region: sanitizedConfig.region,
+          endpoint: sanitizedConfig.endpoint,
+          credentials: {
+            accessKeyId: sanitizedConfig.accessKeyId,
+            secretAccessKey: sanitizedConfig.secretAccessKey
+          },
+          forcePathStyle: sanitizedConfig.forcePathStyle,
+          requestHandler: {
+            requestTimeout: 10000,
+            httpsAgent: {
+              connectTimeout: 10000
+            }
+          }
+        })
+        
+        const command = new ListObjectsV2Command({
+          Bucket: sanitizedConfig.bucket,
+          MaxKeys: 1
+        })
+        
+        await s3Client.send(command)
+        return { success: true, message: 'S3 connection successful' }
+
+      case 'API':
+        // Test API connection with timeout
+        if (!sanitizedConfig.endpoint) {
+          return { 
+            success: false, 
+            message: 'API endpoint not configured' 
+          }
+        }
+        
+        try {
+          const response = await axios({
+            method: 'HEAD',
+            url: sanitizedConfig.endpoint,
+            headers: sanitizedConfig.headers || {},
+            timeout: 10000,
+            validateStatus: function (status) {
+              return status < 500
+            }
+          })
+          
+          return { 
+            success: true, 
+            message: 'API endpoint accessible',
+            statusCode: response.status 
+          }
+        } catch (apiError) {
+          if (apiError.code === 'ECONNREFUSED') {
+            return { 
+              success: false, 
+              message: 'API endpoint unreachable (connection refused)' 
+            }
+          }
+          if (apiError.code === 'ECONNABORTED') {
+            return { 
+              success: false, 
+              message: 'API request timeout (10s)' 
+            }
+          }
+          return { 
+            success: false, 
+            message: apiError.message 
+          }
+        }
+
+      case 'Azure':
+        // Test Azure connection
+        const blobServiceClient = BlobServiceClient.fromConnectionString(
+          sanitizedConfig.connectionString
+        )
+        const containerClient = blobServiceClient.getContainerClient(
+          sanitizedConfig.containerName
+        )
+        
+        const exists = await containerClient.exists()
+        if (!exists) {
+          await containerClient.create()
+        }
+        
+        return { success: true, message: 'Azure connection successful' }
+
+      default:
+        throw new Error(`Unknown protocol: ${protocol}`)
+    }
+  } catch (error) {
+    console.error(`Test connection failed for ${protocol}:`, error)
+    return { 
+      success: false, 
+      message: error.message,
+      protocol,
+      stack: error.stack 
+    }
+  }
+})
+
 // Add test API endpoint
 exports.testAPIEndpoint = onRequest({
   cors: true,
@@ -2107,262 +2294,6 @@ exports.testAPIEndpoint = onRequest({
     timestamp: new Date().toISOString(),
     filesReceived: req.body.files?.length || 0
   })
-})
-
-// Test connection function with CORS and timeout handling
-exports.testDeliveryConnection = onCall({
-  timeoutSeconds: 60,  // Increase from 30 to 60 seconds
-  maxInstances: 10,
-  cors: true,  // This should handle CORS for callable functions
-  consumeAppCheckToken: false  // Disable app check for testing
-}, async (request) => {
-  const { protocol, config, testMode } = request.data
-
-  if (!testMode) {
-    throw new HttpsError('invalid-argument', 'Test mode required')
-  }
-
-  try {
-    switch (protocol) {
-      case 'storage':
-        // Test Firebase Storage connection
-        const bucket = admin.storage().bucket()
-        await bucket.file('test/connection.txt').save('test')
-        await bucket.file('test/connection.txt').delete()
-        return { success: true, message: 'Storage connection successful' }
-
-      case 'FTP':
-        // Test FTP connection with passive mode and timeout
-        const ftpClient = new ftp.Client()
-        
-        // Set shorter timeout to prevent gateway timeout
-        ftpClient.ftp.timeout = 10000  // 10 seconds instead of default 30
-        
-        // Fix the config mapping for basic-ftp
-        const ftpConfig = {
-          host: config.host,
-          port: config.port || 21,
-          user: config.username || config.user || config.username,  // Try both
-          password: config.password,
-          secure: config.secure || false,
-          connTimeout: 10000,  // Connection timeout
-          pasvTimeout: 10000,  // PASV data connection timeout
-          keepalive: 5000
-        }
-        
-        // Force passive mode if specified
-        if (config.forcePasv || config.pasv) {
-          ftpClient.ftp.pasv = true
-        }
-        
-        try {
-          await ftpClient.access(ftpConfig)
-          
-          // Quick list to verify connection (with timeout)
-          const listPromise = ftpClient.list('/')
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('List timeout')), 5000)
-          )
-          
-          try {
-            const list = await Promise.race([listPromise, timeoutPromise])
-            ftpClient.close()
-            
-            return { 
-              success: true, 
-              message: 'FTP connection successful',
-              filesFound: Array.isArray(list) ? list.length : 0
-            }
-          } catch (listError) {
-            // Connection worked but list failed/timed out - still a success
-            ftpClient.close()
-            return { 
-              success: true, 
-              message: 'FTP connection successful (list skipped)',
-              note: 'Connected but directory listing timed out'
-            }
-          }
-        } catch (ftpError) {
-          ftpClient.close()
-          console.error('FTP test error:', ftpError)
-          return { 
-            success: false, 
-            message: ftpError.message,
-            code: ftpError.code 
-          }
-        }
-
-      case 'SFTP':
-        // Test SFTP connection with timeout
-        return new Promise((resolve, reject) => {
-          const sftpConn = new SSHClient()
-          
-          // Set a timeout for the entire operation
-          const timeout = setTimeout(() => {
-            sftpConn.end()
-            resolve({ 
-              success: false, 
-              message: 'SFTP connection timeout (10s)',
-              note: 'SSH2 may not be compatible with Cloud Functions'
-            })
-          }, 10000)
-          
-          sftpConn.on('ready', () => {
-            clearTimeout(timeout)
-            sftpConn.sftp((err, sftp) => {
-              if (err) {
-                sftpConn.end()
-                resolve({ success: false, message: err.message })
-                return
-              }
-              
-              // Quick test - just confirm SFTP subsystem works
-              sftpConn.end()
-              resolve({ 
-                success: true, 
-                message: 'SFTP connection successful'
-              })
-            })
-          })
-          
-          sftpConn.on('error', (err) => {
-            clearTimeout(timeout)
-            resolve({ 
-              success: false, 
-              message: err.message,
-              code: err.code 
-            })
-          })
-          
-          // Connect with config
-          const sftpConfig = {
-            host: config.host,
-            port: config.port || 22,
-            username: config.username,
-            password: config.password,
-            readyTimeout: 10000,
-            timeout: 10000
-          }
-          
-          if (config.privateKey) {
-            sftpConfig.privateKey = config.privateKey
-            if (config.passphrase) {
-              sftpConfig.passphrase = config.passphrase
-            }
-          }
-          
-          try {
-            sftpConn.connect(sftpConfig)
-          } catch (connectError) {
-            clearTimeout(timeout)
-            resolve({ 
-              success: false, 
-              message: 'SSH2 Client initialization failed',
-              error: connectError.message
-            })
-          }
-        })
-
-      case 'S3':
-        // Test S3 connection with timeout
-        const { ListObjectsV2Command } = require('@aws-sdk/client-s3')
-        
-        const s3Client = new S3Client({
-          region: config.region,
-          endpoint: config.endpoint,
-          credentials: {
-            accessKeyId: config.accessKeyId,
-            secretAccessKey: config.secretAccessKey
-          },
-          forcePathStyle: config.forcePathStyle,
-          requestHandler: {
-            requestTimeout: 10000,
-            httpsAgent: {
-              connectTimeout: 10000
-            }
-          }
-        })
-        
-        const command = new ListObjectsV2Command({
-          Bucket: config.bucket,
-          MaxKeys: 1
-        })
-        
-        await s3Client.send(command)
-        return { success: true, message: 'S3 connection successful' }
-
-      case 'API':
-        // Test API connection with timeout
-        if (!config.endpoint) {
-          return { 
-            success: false, 
-            message: 'API endpoint not configured' 
-          }
-        }
-        
-        try {
-          const response = await axios({
-            method: 'HEAD',
-            url: config.endpoint,
-            headers: config.headers || {},
-            timeout: 10000,  // 10 second timeout
-            validateStatus: function (status) {
-              return status < 500
-            }
-          })
-          
-          return { 
-            success: true, 
-            message: 'API endpoint accessible',
-            statusCode: response.status 
-          }
-        } catch (apiError) {
-          if (apiError.code === 'ECONNREFUSED') {
-            return { 
-              success: false, 
-              message: 'API endpoint unreachable (connection refused)' 
-            }
-          }
-          if (apiError.code === 'ECONNABORTED') {
-            return { 
-              success: false, 
-              message: 'API request timeout (10s)' 
-            }
-          }
-          return { 
-            success: false, 
-            message: apiError.message 
-          }
-        }
-
-      case 'Azure':
-        // Test Azure connection
-        const blobServiceClient = BlobServiceClient.fromConnectionString(
-          config.connectionString
-        )
-        const containerClient = blobServiceClient.getContainerClient(
-          config.containerName
-        )
-        
-        const exists = await containerClient.exists()
-        if (!exists) {
-          await containerClient.create()
-        }
-        
-        return { success: true, message: 'Azure connection successful' }
-
-      default:
-        throw new Error(`Unknown protocol: ${protocol}`)
-    }
-  } catch (error) {
-    console.error(`Test connection failed for ${protocol}:`, error)
-    return { 
-      success: false, 
-      message: error.message,
-      protocol,
-      stack: error.stack 
-    }
-  }
 })
 
 // ============================================================================
@@ -2402,7 +2333,7 @@ async function acquireDeliveryLock(deliveryId, idempotencyKey) {
       }
       
       // Acquire the lock
-      const lockData = {
+      const lockData = cleanForFirestore({
         deliveryId,
         idempotencyKey,
         status: 'processing',
@@ -2410,7 +2341,7 @@ async function acquireDeliveryLock(deliveryId, idempotencyKey) {
         expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 600000), // 10 minute expiry
         instanceId: process.env.K_SERVICE ? process.env.K_REVISION : 'local',
         attempt: (lockDoc.exists ? lockDoc.data().attempt || 0 : 0) + 1
-      }
+      })
       
       transaction.set(lockRef, lockData)
       console.log(`Lock acquired for ${lockId}`)
@@ -2432,15 +2363,12 @@ async function releaseDeliveryLock(deliveryId, idempotencyKey, status, result = 
   const lockRef = db.collection('locks').doc(lockId)
   
   try {
-    const updateData = {
+    const updateData = cleanForFirestore({
       status,
       releasedAt: admin.firestore.Timestamp.now(),
-      expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 86400000) // Keep for 24 hours
-    }
-    
-    if (result) {
-      updateData.result = result
-    }
+      expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 86400000), // Keep for 24 hours
+      result
+    })
     
     await lockRef.update(updateData)
     console.log(`Lock released for ${lockId} with status: ${status}`)
@@ -2511,7 +2439,7 @@ exports.cleanupExpiredLocks = onSchedule({
 })
 
 // ============================================================================
-// CONTENT FINGERPRINTING FUNCTIONS
+// CONTENT FINGERPRINTING FUNCTIONS WITH SECURITY
 // ============================================================================
 
 /**
@@ -2522,15 +2450,11 @@ exports.calculateFileFingerprint = onCall({
   memory: '512MB',
   cors: true
 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'User must be authenticated')
-  }
+  requireAuth(request);
+  validateWith('calculateFileFingerprint')(request);
+  await checkRateLimit(request.auth.uid, 60, 60000);
   
-  const { url, fileName, fileSize, fileType } = request.data
-  
-  if (!url) {
-    throw new HttpsError('invalid-argument', 'URL is required')
-  }
+  const { url, fileName, fileSize, fileType } = request.data;
   
   try {
     console.log(`Calculating fingerprint for: ${fileName || url}`)
@@ -2565,14 +2489,14 @@ exports.calculateFileFingerprint = onCall({
       timestamp: new Date().toISOString()
     }
     
-    // Store fingerprint in Firestore
+    // Store fingerprint in Firestore with cleaned data
     const fingerprintId = sha256Hash
-    await db.collection('fingerprints').doc(fingerprintId).set({
+    await db.collection('fingerprints').doc(fingerprintId).set(cleanForFirestore({
       ...fingerprint,
       userId: request.auth.uid,
       createdAt: admin.firestore.Timestamp.now(),
       updatedAt: admin.firestore.Timestamp.now()
-    })
+    }))
     
     return fingerprint
   } catch (error) {
@@ -2589,15 +2513,11 @@ exports.checkDuplicates = onCall({
   memory: '256MB',
   cors: true
 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'User must be authenticated')
-  }
+  requireAuth(request);
+  validateWith('checkDuplicates')(request);
+  await checkRateLimit(request.auth.uid, 100, 60000);
   
-  const { md5, sha256, sha1, threshold = 100 } = request.data
-  
-  if (!md5 && !sha256 && !sha1) {
-    throw new HttpsError('invalid-argument', 'At least one hash is required')
-  }
+  const { md5, sha256, sha1, threshold = 100 } = request.data;
   
   try {
     const duplicates = []
@@ -2668,15 +2588,11 @@ exports.calculateAudioFingerprint = onCall({
   memory: '1GB',
   cors: true
 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'User must be authenticated')
-  }
+  requireAuth(request);
+  validateWith('calculateAudioFingerprint')(request);
+  await checkRateLimit(request.auth.uid, 30, 60000); // 30 audio fingerprints per minute
   
-  const { url, trackId, releaseId } = request.data
-  
-  if (!url) {
-    throw new HttpsError('invalid-argument', 'Audio URL is required')
-  }
+  const { url, trackId, releaseId } = request.data;
   
   try {
     console.log(`Calculating audio fingerprint for: ${url}`)
@@ -2695,12 +2611,10 @@ exports.calculateAudioFingerprint = onCall({
     const sha256Hash = crypto.createHash('sha256').update(buffer).digest('hex')
     
     // Create simplified audio fingerprint based on file characteristics
-    // In production, you'd use a library like Chromaprint or Echoprint
     const audioFingerprint = {
       fileSize: buffer.length,
       md5: md5Hash,
       sha256: sha256Hash,
-      // Create a simple fingerprint from chunks of the file
       chunkHashes: []
     }
     
@@ -2718,7 +2632,7 @@ exports.calculateAudioFingerprint = onCall({
     audioFingerprint.composite = audioFingerprint.chunkHashes.join('')
     
     // Store in Firestore
-    const fingerprintDoc = {
+    const fingerprintDoc = cleanForFirestore({
       type: 'audio',
       url,
       trackId,
@@ -2726,7 +2640,7 @@ exports.calculateAudioFingerprint = onCall({
       fingerprint: audioFingerprint,
       userId: request.auth.uid,
       createdAt: admin.firestore.Timestamp.now()
-    }
+    })
     
     await db.collection('audioFingerprints').doc(sha256Hash).set(fingerprintDoc)
     
@@ -2745,63 +2659,6 @@ exports.calculateAudioFingerprint = onCall({
 })
 
 /**
- * Helper function to find similar audio
- */
-async function findSimilarAudio(compositeFingerprint, excludeId) {
-  try {
-    const snapshot = await db.collection('audioFingerprints')
-      .where('type', '==', 'audio')
-      .limit(100)
-      .get()
-    
-    const similar = []
-    
-    snapshot.forEach(doc => {
-      if (doc.id === excludeId) return
-      
-      const data = doc.data()
-      if (data.fingerprint && data.fingerprint.composite) {
-        const similarity = calculateStringSimilarity(
-          compositeFingerprint,
-          data.fingerprint.composite
-        )
-        
-        if (similarity > 80) { // 80% similarity threshold
-          similar.push({
-            id: doc.id,
-            similarity,
-            trackId: data.trackId,
-            releaseId: data.releaseId,
-            url: data.url
-          })
-        }
-      }
-    })
-    
-    return similar.sort((a, b) => b.similarity - a.similarity)
-  } catch (error) {
-    console.error('Error finding similar audio:', error)
-    return []
-  }
-}
-
-/**
- * Calculate string similarity percentage
- */
-function calculateStringSimilarity(str1, str2) {
-  if (!str1 || !str2) return 0
-  
-  const len = Math.min(str1.length, str2.length)
-  let matches = 0
-  
-  for (let i = 0; i < len; i++) {
-    if (str1[i] === str2[i]) matches++
-  }
-  
-  return Math.round((matches / len) * 100)
-}
-
-/**
  * Batch fingerprint calculation for multiple files
  */
 exports.calculateBatchFingerprints = onCall({
@@ -2809,15 +2666,11 @@ exports.calculateBatchFingerprints = onCall({
   memory: '1GB',
   cors: true
 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'User must be authenticated')
-  }
+  requireAuth(request);
+  validateWith('calculateBatchFingerprints')(request);
+  await checkRateLimit(request.auth.uid, 10, 60000); // 10 batch operations per minute
   
-  const { files, releaseId } = request.data
-  
-  if (!files || !Array.isArray(files)) {
-    throw new HttpsError('invalid-argument', 'Files array is required')
-  }
+  const { files, releaseId } = request.data;
   
   try {
     console.log(`Calculating fingerprints for ${files.length} files`)
@@ -2894,12 +2747,12 @@ exports.calculateBatchFingerprints = onCall({
       
       results.forEach(result => {
         const docRef = db.collection('fingerprints').doc(result.fingerprint.hashes.sha256)
-        batch.set(docRef, {
+        batch.set(docRef, cleanForFirestore({
           ...result.fingerprint,
           releaseId,
           userId: request.auth.uid,
           createdAt: admin.firestore.Timestamp.now()
-        })
+        }))
       })
       
       await batch.commit()
@@ -2927,15 +2780,11 @@ exports.getFingerprintStats = onCall({
   memory: '256MB',
   cors: true
 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'User must be authenticated')
-  }
+  requireAuth(request);
+  validateWith('getFingerprintStats')(request);
+  await checkRateLimit(request.auth.uid, 60, 60000);
   
-  const { releaseId } = request.data
-  
-  if (!releaseId) {
-    throw new HttpsError('invalid-argument', 'Release ID is required')
-  }
+  const { releaseId } = request.data;
   
   try {
     const fingerprints = await db.collection('fingerprints')
@@ -2985,36 +2834,85 @@ exports.getFingerprintStats = onCall({
   }
 })
 
-// Update the sendNotification function (keep your existing one but add email support)
+/**
+ * Helper function to find similar audio
+ */
+async function findSimilarAudio(compositeFingerprint, excludeId) {
+  try {
+    const snapshot = await db.collection('audioFingerprints')
+      .where('type', '==', 'audio')
+      .limit(100)
+      .get()
+    
+    const similar = []
+    
+    snapshot.forEach(doc => {
+      if (doc.id === excludeId) return
+      
+      const data = doc.data()
+      if (data.fingerprint && data.fingerprint.composite) {
+        const similarity = calculateStringSimilarity(
+          compositeFingerprint,
+          data.fingerprint.composite
+        )
+        
+        if (similarity > 80) {
+          similar.push({
+            id: doc.id,
+            similarity,
+            trackId: data.trackId,
+            releaseId: data.releaseId,
+            url: data.url
+          })
+        }
+      }
+    })
+    
+    return similar.sort((a, b) => b.similarity - a.similarity)
+  } catch (error) {
+    console.error('Error finding similar audio:', error)
+    return []
+  }
+}
+
+/**
+ * Calculate string similarity percentage
+ */
+function calculateStringSimilarity(str1, str2) {
+  if (!str1 || !str2) return 0
+  
+  const len = Math.min(str1.length, str2.length)
+  let matches = 0
+  
+  for (let i = 0; i < len; i++) {
+    if (str1[i] === str2[i]) matches++
+  }
+  
+  return Math.round((matches / len) * 100)
+}
+
+// ============================================================================
+// EMAIL & NOTIFICATION FUNCTIONS
+// ============================================================================
+
+/**
+ * Send notification (internal function)
+ */
 async function sendNotification(delivery, type, data) {
   try {
-    // Store notification in Firestore (your existing code)
-    const notification = {
+    const notification = cleanForFirestore({
       type,
       deliveryId: delivery.id,
       releaseTitle: delivery.releaseTitle || 'Unknown',
       targetName: delivery.targetName || 'Unknown',
       tenantId: delivery.tenantId,
-      timestamp: admin.firestore.Timestamp.now()
-    }
-    
-    // Only add optional fields if they exist
-    if (data && Object.keys(data).length > 0) {
-      const cleanData = {}
-      for (const [key, value] of Object.entries(data)) {
-        if (value !== undefined && value !== null) {
-          cleanData[key] = value
-        }
-      }
-      if (Object.keys(cleanData).length > 0) {
-        notification.data = cleanData
-      }
-    }
+      timestamp: admin.firestore.Timestamp.now(),
+      data
+    })
     
     await db.collection('notifications').add(notification)
     console.log(`Notification sent: ${type} for delivery ${delivery.id}`)
 
-    // Add email notification
     if (delivery.tenantId && (type === 'success' || type === 'failed' || type === 'retry')) {
       try {
         const userDoc = await db.collection('users').doc(delivery.tenantId).get()
@@ -3022,7 +2920,6 @@ async function sendNotification(delivery, type, data) {
         if (userDoc.exists) {
           const user = userDoc.data()
           
-          // Check if user wants email notifications
           if (user.notifications?.emailNotifications !== false && 
               user.notifications?.deliveryStatus !== false) {
             
@@ -3083,7 +2980,6 @@ async function sendNotification(delivery, type, data) {
               textBody = `Delivery retry scheduled for "${delivery.releaseTitle}". Attempt ${data?.attemptNumber || 1} of 3. Next retry ${nextRetry}.`
             }
             
-            // Queue the email
             if (subject && htmlBody) {
               await db.collection('mail').add({
                 to: user.email,
@@ -3101,12 +2997,10 @@ async function sendNotification(delivery, type, data) {
         }
       } catch (emailError) {
         console.error('Error queueing email:', emailError)
-        // Don't throw - email failure shouldn't stop the process
       }
     }
   } catch (error) {
     console.error('Error sending notification:', error)
-    // Don't throw - notification failure shouldn't stop delivery
   }
 }
 
@@ -3123,7 +3017,6 @@ exports.onUserCreated = onDocumentCreated({
   try {
     console.log(`New user created: ${user.email}`)
     
-    // Queue welcome email
     await db.collection('mail').add({
       to: user.email,
       message: {
@@ -3196,7 +3089,6 @@ exports.sendWeeklySummaries = onSchedule({
       Date.now() - 7 * 24 * 60 * 60 * 1000
     )
     
-    // Get users who want weekly summaries
     const users = await db.collection('users')
       .where('notifications.weeklyReports', '==', true)
       .get()
@@ -3208,7 +3100,6 @@ exports.sendWeeklySummaries = onSchedule({
       const userId = userDoc.id
       
       try {
-        // Get week's deliveries
         const deliveries = await db.collection('deliveries')
           .where('tenantId', '==', userId)
           .where('createdAt', '>=', oneWeekAgo)
@@ -3219,7 +3110,6 @@ exports.sendWeeklySummaries = onSchedule({
           continue
         }
         
-        // Calculate stats
         const stats = {
           total: deliveries.size,
           successful: 0,
@@ -3237,7 +3127,6 @@ exports.sendWeeklySummaries = onSchedule({
         const successRate = stats.total > 0 ? 
           Math.round((stats.successful / stats.total) * 100) : 0
         
-        // Queue summary email
         await db.collection('mail').add({
           to: user.email,
           message: {
