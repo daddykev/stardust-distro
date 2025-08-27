@@ -1,6 +1,3 @@
-Here's the updated security.md reflecting your progress:
-
-```markdown
 # 🔐 Security Checklist for Stardust Distro v1.0 Launch
 
 ## Overview
