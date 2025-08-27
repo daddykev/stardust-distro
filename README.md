@@ -22,7 +22,7 @@ A complete, production-ready distribution platform that includes:
 - **Full Catalog Management** - Unlimited releases, tracks, and assets with smart duplicate detection
 - **Multi-Format Generation** - Full support for DDEX ERN (3.8.2, 4.2, 4.3) and Apple Music XML (5.3.23 spec)
 - **All Delivery Protocols** - FTP, SFTP, S3, API, and Azure with automatic retry logic
-- **Powerful Catalog Migration** - Dual-mode bulk import wizard with metadata-less mode
+- **Powerful Catalog Migration** - Smart bulk import tool, syncs metadata and cover art via API
 - **Genre Intelligence** - DSP-specific genre mapping with 200+ hierarchical genres
 - **Mobile-First Design** - Full functionality on all devices, including smartphones
 - **Real-time Monitoring** - Comprehensive logging, delivery tracking, and performance metrics
@@ -42,10 +42,10 @@ We're excited to announce that **Phase 6 is now complete**, bringing the platfor
 #### ✨ Latest Additions
 
 **Catalog Migration System**
-- **Dual-Mode Import Wizard**: Choose between traditional CSV import or our innovative metadata-less mode
+- **Dual-Mode Import Wizard**: Choose between traditional CSV import or our fast "metadata-less" mode
 - **Standard Mode**: Upload CSV with metadata → Bulk upload DDEX-named files → Auto-match and create releases
-- **Metadata-less Mode**: Upload audio files → Automatically fetch complete metadata from API → Download missing cover art
-- **Smart Matching**: Automatic UPC-based file matching with intelligent error handling
+- **Metadata-less Mode**: Upload audio files → Fetch essential metadata from API → Saves missing cover art
+- **Smart Product Matching**: Automatic UPC-based file matching with intelligent error handling
 - **Resume Capability**: Import jobs persist in Firestore - close your browser and resume anytime
 - **Visual Progress**: Real-time progress tracking with animated indicators and statistics
 
