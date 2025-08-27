@@ -179,12 +179,10 @@ stardust-distro/
 │   │   ├── configure.js           # Configure delivery targets ✅
 │   │   ├── target.js              # Manage delivery targets ✅
 │   │   └── dev.js                 # Development server ✅
-│   ├── templates/                 # Project templates
-│   │   ├── default/               # Default template ✅
-│   │   │   └── (full Vue app)     # Complete template structure ✅
-│   │   ├── minimal/               # Minimal setup ❌
-│   │   └── custom/                # Custom configurations ❌
-│   └── package.json               # CLI dependencies ✅
+│   ├── package.json               # CLI dependencies ✅
+│   └── templates/                 # Project templates
+│       └── default/               # Default template
+│           └── (full Vue app)     # Complete template structure ✅
 ├── node_modules/                  # Dependencies (git-ignored)
 ├── template/                      # Default project template
 │   ├── src/                       # Vue application
@@ -219,7 +217,7 @@ stardust-distro/
 │   │   │   └── useDelivery.js     # Delivery operations ✅
 │   │   ├── services/              # API services
 │   │   │   ├── apple.js           # Apple Music XML generation ✅
-│   │   │   ├── apple/             # Apple versions ✅
+│   │   │   ├── apple/             # Apple versions
 │   │   │   │   ├── apple-5323.js  # Apple 5.3.23 builder ✅
 │   │   │   ├── assets.js          # Asset management ✅
 │   │   │   ├── catalog.js         # Catalog operations ✅
@@ -227,7 +225,7 @@ stardust-distro/
 │   │   │   ├── deliveryHistory.js # Logger for delivery history ✅
 │   │   │   ├── deliveryTargets.js # Target management ✅
 │   │   │   ├── ern.js             # ERN XML generation ✅
-│   │   │   ├── ern/               # ERN versions ✅
+│   │   │   ├── ern/               # ERN versions
 │   │   │   │   ├── ern-42.js      # ERN 4.2 builder ✅
 │   │   │   │   ├── ern-43.js      # ERN 4.3 builder ✅
 │   │   │   │   └── ern-382.js     # ERN 3.8.2 builder ✅
