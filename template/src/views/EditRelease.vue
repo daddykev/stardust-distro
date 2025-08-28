@@ -5,6 +5,7 @@ import { useCatalog } from '../composables/useCatalog'
 import { useAuth } from '../composables/useAuth'
 import GenreSelector from '../components/GenreSelector.vue'
 import { getGenreByCode } from '../dictionaries/genres'
+import ernService from '../services/ern'  // Add ERN service import
 import { 
   ContributorCategories,
   searchContributorRoles,
@@ -58,7 +59,8 @@ const expandedSections = ref({
   assets: false,
   metadata: false,
   mead: false,
-  territories: false
+  territories: false,
+  ern: false  // Add ERN section
 })
 
 // Track which sections have been modified
@@ -99,6 +101,14 @@ const releaseData = ref({
     mode: 'worldwide',
     included: [],
     excluded: []
+  },
+  // Add ERN section
+  ern: {
+    version: '4.3',
+    profile: 'AudioAlbum',
+    validated: false,
+    lastGeneratedAt: null,
+    lastMessageId: null
   }
 })
 
@@ -118,7 +128,8 @@ const validationErrors = ref({
   assets: [],
   metadata: [],
   mead: [],
-  territories: []
+  territories: [],
+  ern: []  // Add ERN validation errors
 })
 
 // Upload progress tracking
@@ -135,6 +146,13 @@ const contributorModal = ref({
   searchResults: [],
   error: null
 })
+
+// ERN generation state
+const isGeneratingERN = ref(false)
+const isValidatingERN = ref(false)
+const ernError = ref(null)
+const generatedERN = ref(null)
+const showERNPreview = ref(false)
 
 // Category labels for UI
 const contributorCategories = {
@@ -177,7 +195,7 @@ const displayGenreName = computed(() => {
   return releaseData.value.metadata.subgenre || releaseData.value.metadata.genre || 'No genre set'
 })
 
-// Section completion status
+// Section completion status - Updated to include ERN
 const sectionStatus = computed(() => {
   return {
     basic: {
@@ -219,8 +237,25 @@ const sectionStatus = computed(() => {
       complete: true, // Territories are optional
       summary: releaseData.value.territories.mode === 'worldwide' ? 'Worldwide' : 'Selected territories',
       errors: validationErrors.value.territories.length
+    },
+    // Add ERN status
+    ern: {
+      complete: releaseData.value.ern.validated,
+      summary: releaseData.value.ern.lastGeneratedAt 
+        ? `Generated ${formatDate(releaseData.value.ern.lastGeneratedAt)}` 
+        : 'Not generated',
+      errors: ernError.value ? 1 : 0
     }
   }
+})
+
+// Check if release is ready for delivery
+const isReadyForDelivery = computed(() => {
+  return sectionStatus.value.basic.complete && 
+         sectionStatus.value.tracks.complete && 
+         sectionStatus.value.assets.complete && 
+         sectionStatus.value.metadata.complete &&
+         releaseData.value.ern.validated
 })
 
 // MEAD summary helper
@@ -294,7 +329,8 @@ onMounted(async () => {
         assets: { ...releaseData.value.assets, ...(currentRelease.value.assets || {}) },
         metadata: { ...releaseData.value.metadata, ...(currentRelease.value.metadata || {}) },
         mead: { ...defaultMeadData, ...(currentRelease.value.mead || {}) },
-        territories: { ...releaseData.value.territories, ...(currentRelease.value.territories || {}) }
+        territories: { ...releaseData.value.territories, ...(currentRelease.value.territories || {}) },
+        ern: { ...releaseData.value.ern, ...(currentRelease.value.ern || {}) }  // Include ERN data
       }
       
       // Ensure all tracks have contributors array
@@ -717,6 +753,166 @@ const handleAudioUpload = async (event, trackIndex) => {
   } finally {
     delete uploadProgress.value[`track_${track.id}`]
   }
+}
+
+// ERN Methods
+const validateERN = async () => {
+  isValidatingERN.value = true
+  ernError.value = null
+  
+  try {
+    // Validate all required fields
+    const errors = []
+    
+    // Basic validation
+    if (!releaseData.value.basic.title) errors.push('Release title is required')
+    if (!releaseData.value.basic.displayArtist) errors.push('Display artist is required')
+    if (!releaseData.value.basic.barcode) errors.push('Barcode is required')
+    if (!releaseData.value.basic.releaseDate) errors.push('Release date is required')
+    
+    // Tracks validation
+    if (releaseData.value.tracks.length === 0) {
+      errors.push('At least one track is required')
+    } else {
+      releaseData.value.tracks.forEach((track, index) => {
+        if (!track.title) errors.push(`Track ${index + 1}: Title is required`)
+        if (!track.audio) errors.push(`Track ${index + 1}: Audio file is required`)
+      })
+    }
+    
+    // Assets validation
+    if (!releaseData.value.assets.coverImage) {
+      errors.push('Cover image is required')
+    }
+    
+    // Metadata validation
+    const hasGenre = !!(
+      releaseData.value.metadata.genreCode || 
+      releaseData.value.metadata.subgenreCode ||
+      releaseData.value.metadata.genre ||
+      releaseData.value.metadata.subgenre
+    )
+    if (!hasGenre) errors.push('Genre is required')
+    if (!releaseData.value.metadata.copyright) errors.push('Copyright information is required')
+    
+    if (errors.length > 0) {
+      ernError.value = errors.join(', ')
+      showToast('Validation failed. Please check all required fields.', 'error')
+      return false
+    }
+    
+    // In production, this would call DDEX Workbench API
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    
+    releaseData.value.ern.validated = true
+    showToast('Validation successful!', 'success')
+    return true
+    
+  } catch (err) {
+    console.error('Validation error:', err)
+    ernError.value = err.message || 'Validation failed'
+    showToast('Validation failed', 'error')
+    return false
+  } finally {
+    isValidatingERN.value = false
+  }
+}
+
+const generateERN = async () => {
+  // First validate
+  const isValid = await validateERN()
+  if (!isValid) return
+  
+  isGeneratingERN.value = true
+  ernError.value = null
+  
+  try {
+    // Save any pending changes first
+    if (hasChanges.value) {
+      await saveChanges()
+    }
+    
+    // Generate ERN using the service
+    const result = await ernService.generateERN(releaseId.value, {
+      ernVersion: releaseData.value.ern.version,
+      profile: releaseData.value.ern.profile,
+      testMode: false,
+      senderName: user.value?.organizationName || user.value?.displayName,
+      senderPartyId: 'stardust-distro' // Default for now
+    })
+    
+    generatedERN.value = result
+    releaseData.value.ern.lastGeneratedAt = new Date()
+    releaseData.value.ern.lastMessageId = result.messageId
+    releaseData.value.ern.validated = true
+    
+    // Always update release status to 'ready' when ERN is generated successfully
+    // This ensures the release is deliverable regardless of previous status
+    await updateRelease(releaseId.value, { 
+      status: 'ready',
+      ern: releaseData.value.ern
+    })
+    
+    // Update the local currentRelease to reflect the new status
+    if (currentRelease.value) {
+      currentRelease.value.status = 'ready'
+      currentRelease.value.ern = releaseData.value.ern
+    }
+    
+    // Update original data to include the new ERN data
+    originalData.value = JSON.parse(JSON.stringify(releaseData.value))
+    
+    modifiedSections.value.add('ern')
+    showToast('ERN generated successfully! Release is now ready for delivery.', 'success')
+    
+  } catch (err) {
+    console.error('Error generating ERN:', err)
+    ernError.value = err.message || 'Failed to generate ERN'
+    showToast('Failed to generate ERN', 'error')
+  } finally {
+    isGeneratingERN.value = false
+  }
+}
+
+const previewERN = () => {
+  if (generatedERN.value) {
+    showERNPreview.value = true
+  }
+}
+
+const downloadERN = () => {
+  if (!generatedERN.value) return
+  
+  const blob = new Blob([generatedERN.value.ern], { type: 'text/xml' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${releaseData.value.basic.title}_ERN_${generatedERN.value.messageId}.xml`.replace(/[^a-z0-9]/gi, '_')
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+const copyERNToClipboard = () => {
+  if (!generatedERN.value) return
+  
+  navigator.clipboard.writeText(generatedERN.value.ern)
+    .then(() => {
+      showToast('ERN copied to clipboard!', 'success')
+    })
+    .catch(err => {
+      console.error('Failed to copy:', err)
+      showToast('Failed to copy to clipboard', 'error')
+    })
+}
+
+const initiateDelivery = () => {
+  // Navigate to new delivery with this release pre-selected
+  router.push({
+    path: '/deliveries/new',
+    query: { releaseId: releaseId.value }
+  })
 }
 
 // Helper functions
@@ -1655,6 +1851,171 @@ const handleSubgenreUpdate = (value) => {
             </div>
           </div>
         </div>
+
+        <!-- ERN & Delivery Section (NEW) -->
+        <div class="collapsible-section" :class="{ expanded: expandedSections.ern, modified: modifiedSections.has('ern') }">
+          <div class="section-header" @click="toggleSection('ern')">
+            <div class="section-icon">
+              <font-awesome-icon :icon="expandedSections.ern ? 'chevron-down' : 'chevron-right'" />
+            </div>
+            <div class="section-info">
+              <h2 class="section-title">
+                ERN & Delivery
+                <span v-if="sectionStatus.ern.complete" class="status-badge complete">
+                  <font-awesome-icon icon="check" />
+                </span>
+                <span v-else-if="sectionStatus.ern.errors" class="status-badge error">
+                  <font-awesome-icon icon="exclamation-triangle" />
+                </span>
+                <span v-if="isReadyForDelivery" class="ready-badge">
+                  <font-awesome-icon icon="rocket" />
+                  Ready for Delivery
+                </span>
+              </h2>
+              <p class="section-summary">{{ sectionStatus.ern.summary }}</p>
+            </div>
+          </div>
+          
+          <div v-if="expandedSections.ern" class="section-content">
+            <!-- ERN Configuration -->
+            <div class="ern-config-section">
+              <h3><font-awesome-icon icon="file-code" /> ERN Configuration</h3>
+              <p class="section-description">Configure and generate the DDEX ERN message for this release.</p>
+              
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">ERN Version</label>
+                  <select v-model="releaseData.ern.version" class="form-select" @change="modifiedSections.add('ern')">
+                    <option value="3.8.2">ERN 3.8.2</option>
+                    <option value="4.2">ERN 4.2</option>
+                    <option value="4.3">ERN 4.3 (Recommended)</option>
+                  </select>
+                </div>
+                
+                <div class="form-group">
+                  <label class="form-label">Profile</label>
+                  <select v-model="releaseData.ern.profile" class="form-select" @change="modifiedSections.add('ern')">
+                    <option value="AudioAlbum">Audio Album</option>
+                    <option value="AudioSingle">Audio Single</option>
+                    <option value="VideoAlbum">Video Album</option>
+                  </select>
+                </div>
+              </div>
+              
+              <!-- Release Readiness Check -->
+              <div class="readiness-check">
+                <h4><font-awesome-icon icon="check-circle" /> Release Readiness</h4>
+                <div class="readiness-items">
+                  <div class="readiness-item" :class="{ complete: sectionStatus.basic.complete }">
+                    <font-awesome-icon :icon="sectionStatus.basic.complete ? 'check-circle' : 'circle'" />
+                    <span>Basic Information</span>
+                  </div>
+                  <div class="readiness-item" :class="{ complete: sectionStatus.tracks.complete }">
+                    <font-awesome-icon :icon="sectionStatus.tracks.complete ? 'check-circle' : 'circle'" />
+                    <span>Tracks & Audio</span>
+                  </div>
+                  <div class="readiness-item" :class="{ complete: sectionStatus.assets.complete }">
+                    <font-awesome-icon :icon="sectionStatus.assets.complete ? 'check-circle' : 'circle'" />
+                    <span>Cover Image</span>
+                  </div>
+                  <div class="readiness-item" :class="{ complete: sectionStatus.metadata.complete }">
+                    <font-awesome-icon :icon="sectionStatus.metadata.complete ? 'check-circle' : 'circle'" />
+                    <span>Metadata</span>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- ERN Actions -->
+              <div class="ern-actions">
+                <button 
+                  @click="validateERN" 
+                  class="btn btn-secondary"
+                  :disabled="isValidatingERN"
+                >
+                  <font-awesome-icon v-if="isValidatingERN" icon="spinner" class="fa-spin" />
+                  <font-awesome-icon v-else icon="check" />
+                  {{ isValidatingERN ? 'Validating...' : 'Validate Release' }}
+                </button>
+                
+                <button 
+                  @click="generateERN" 
+                  class="btn btn-primary"
+                  :disabled="isGeneratingERN"
+                >
+                  <font-awesome-icon v-if="isGeneratingERN" icon="spinner" class="fa-spin" />
+                  <font-awesome-icon v-else icon="file-code" />
+                  {{ isGeneratingERN ? 'Generating...' : 'Generate ERN' }}
+                </button>
+              </div>
+              
+              <!-- ERN Error Display -->
+              <div v-if="ernError" class="ern-error">
+                <font-awesome-icon icon="exclamation-triangle" />
+                <div>
+                  <h4>Validation Errors</h4>
+                  <p>{{ ernError }}</p>
+                </div>
+              </div>
+              
+              <!-- ERN Success Display -->
+              <div v-if="releaseData.ern.validated && generatedERN" class="ern-success">
+                <font-awesome-icon icon="check-circle" />
+                <div>
+                  <h4>ERN Generated Successfully</h4>
+                  <p>Message ID: <code>{{ generatedERN.messageId }}</code></p>
+                  <p>Generated: {{ formatDate(releaseData.ern.lastGeneratedAt) }}</p>
+                </div>
+                <div class="ern-success-actions">
+                  <button @click="previewERN" class="btn btn-ghost btn-sm">
+                    <font-awesome-icon icon="eye" />
+                    Preview
+                  </button>
+                  <button @click="downloadERN" class="btn btn-ghost btn-sm">
+                    <font-awesome-icon icon="download" />
+                    Download
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Delivery Section -->
+            <div class="delivery-section">
+              <h3><font-awesome-icon icon="truck" /> Delivery</h3>
+              <p class="section-description">Once your ERN is generated and validated, you can initiate delivery to DSPs.</p>
+              
+              <div v-if="!isReadyForDelivery" class="delivery-requirements">
+                <font-awesome-icon icon="info-circle" />
+                <div>
+                  <h4>Requirements for Delivery</h4>
+                  <p>Please ensure all sections are complete and the ERN is validated before initiating delivery.</p>
+                </div>
+              </div>
+              
+              <div v-else class="delivery-ready">
+                <div class="delivery-status">
+                  <font-awesome-icon icon="check-circle" class="text-success" />
+                  <div>
+                    <h4>Ready for Delivery</h4>
+                    <p>This release meets all requirements and can be delivered to DSPs.</p>
+                  </div>
+                </div>
+                
+                <button 
+                  @click="initiateDelivery" 
+                  class="btn btn-success btn-lg"
+                >
+                  <font-awesome-icon icon="paper-plane" />
+                  Initiate Delivery
+                </button>
+                
+                <p class="delivery-hint">
+                  This will take you to the delivery wizard where you can select DSP targets and schedule the delivery.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -1761,6 +2122,41 @@ const handleSubgenreUpdate = (value) => {
           >
             <font-awesome-icon icon="plus" />
             Add Contributor
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ERN Preview Modal -->
+    <div v-if="showERNPreview" class="modal-overlay" @click="showERNPreview = false">
+      <div class="modal-content ern-preview-modal" @click.stop>
+        <div class="modal-header">
+          <h2>ERN Preview</h2>
+          <button @click="showERNPreview = false" class="btn-icon">
+            <font-awesome-icon icon="times" />
+          </button>
+        </div>
+        
+        <div class="modal-body">
+          <div class="ern-preview-header">
+            <p><strong>Message ID:</strong> {{ generatedERN?.messageId }}</p>
+            <p><strong>Version:</strong> ERN {{ releaseData.ern.version }}</p>
+            <p><strong>Profile:</strong> {{ releaseData.ern.profile }}</p>
+          </div>
+          <pre class="ern-preview-content">{{ generatedERN?.ern }}</pre>
+        </div>
+        
+        <div class="modal-footer">
+          <button @click="copyERNToClipboard" class="btn btn-secondary">
+            <font-awesome-icon icon="copy" />
+            Copy to Clipboard
+          </button>
+          <button @click="downloadERN" class="btn btn-primary">
+            <font-awesome-icon icon="download" />
+            Download ERN
+          </button>
+          <button @click="showERNPreview = false" class="btn btn-secondary">
+            Close
           </button>
         </div>
       </div>
@@ -2874,6 +3270,232 @@ const handleSubgenreUpdate = (value) => {
   cursor: not-allowed;
 }
 
+/* ERN Section Styles */
+.ready-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background: linear-gradient(135deg, #34a853 0%, #4285f4 100%);
+  color: white;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  margin-left: var(--space-sm);
+}
+
+.ern-config-section,
+.delivery-section {
+  margin-bottom: var(--space-xl);
+  padding-bottom: var(--space-xl);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.ern-config-section h3,
+.delivery-section h3 {
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-md);
+  color: var(--color-heading);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.readiness-check {
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  margin: var(--space-lg) 0;
+}
+
+.readiness-check h4 {
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-md);
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.readiness-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-md);
+}
+
+.readiness-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background-color: var(--color-surface);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
+}
+
+.readiness-item.complete {
+  color: var(--color-success);
+  background-color: rgba(52, 168, 83, 0.1);
+}
+
+.readiness-item:not(.complete) {
+  color: var(--color-text-secondary);
+}
+
+.ern-actions {
+  display: flex;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+}
+
+.ern-error {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background-color: rgba(234, 67, 53, 0.1);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-lg);
+  margin-top: var(--space-lg);
+  color: var(--color-error);
+}
+
+.ern-error h4 {
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-xs);
+}
+
+.ern-error p {
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+.ern-success {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background-color: rgba(52, 168, 83, 0.1);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-lg);
+  margin-top: var(--space-lg);
+  color: var(--color-success);
+  align-items: center;
+}
+
+.ern-success h4 {
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-xs);
+}
+
+.ern-success p {
+  font-size: var(--text-sm);
+  margin: var(--space-xs) 0;
+}
+
+.ern-success code {
+  background-color: var(--color-bg);
+  padding: var(--space-xs);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+}
+
+.ern-success-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-left: auto;
+}
+
+.delivery-requirements,
+.delivery-ready {
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+.delivery-requirements {
+  display: flex;
+  gap: var(--space-md);
+  color: var(--color-text-secondary);
+}
+
+.delivery-requirements h4 {
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-xs);
+}
+
+.delivery-status {
+  display: flex;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+  align-items: center;
+}
+
+.delivery-status h4 {
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-xs);
+  color: var(--color-success);
+}
+
+.delivery-status p {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.delivery-hint {
+  margin-top: var(--space-md);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.btn-success {
+  background-color: var(--color-success);
+  color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+  background-color: var(--color-success);
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(52, 168, 83, 0.3);
+}
+
+/* ERN Preview Modal */
+.ern-preview-modal {
+  max-width: 900px;
+}
+
+.ern-preview-header {
+  padding: var(--space-md);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-md);
+}
+
+.ern-preview-header p {
+  margin: var(--space-xs) 0;
+  font-size: var(--text-sm);
+}
+
+.ern-preview-content {
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
 /* Utility Classes */
 .btn-icon {
   width: 32px;
@@ -3007,6 +3629,28 @@ const handleSubgenreUpdate = (value) => {
   
   .playlist-chip {
     text-align: center;
+  }
+
+  .readiness-items {
+    grid-template-columns: 1fr;
+  }
+  
+  .ern-actions {
+    flex-direction: column;
+  }
+  
+  .ern-success {
+    flex-direction: column;
+  }
+  
+  .ern-success-actions {
+    margin-left: 0;
+    margin-top: var(--space-md);
+  }
+  
+  .delivery-requirements,
+  .delivery-status {
+    flex-direction: column;
   }
 }
 
