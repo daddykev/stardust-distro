@@ -79,7 +79,12 @@ import {
   faShieldAlt,
   faEnvelope,
   faFileImport,
-  faImages
+  faImages,
+  faTags,
+  faFingerprint,
+  faLock,
+  faKey,
+  faLanguage
 } from '@fortawesome/free-solid-svg-icons'
 
 // Import brand icons
@@ -90,7 +95,8 @@ import {
   faGithub,
   faTwitter,
   faFacebook,
-  faYoutube
+  faYoutube,
+  faNpm
 } from '@fortawesome/free-brands-svg-icons'
 
 // Add solid icons to the library
@@ -159,7 +165,12 @@ library.add(
   faShieldAlt,
   faEnvelope,
   faFileImport,
-  faImages
+  faImages,
+  faTags,
+  faFingerprint,
+  faLock,
+  faKey,
+  faLanguage 
 )
 
 // Add brand icons to the library
@@ -170,7 +181,8 @@ library.add(
   faGithub,
   faTwitter,
   faFacebook,
-  faYoutube
+  faYoutube,
+  faNpm
 )
 
 const app = createApp(App)
