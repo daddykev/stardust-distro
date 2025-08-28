@@ -1,65 +1,42 @@
 {
   "name": "@stardust-distro/cli",
-  "version": "0.9.6",
-  "description": "CLI for creating and managing Stardust Distro music distribution platforms",
+  "version": "0.9.9",
+  "description": "Deploy your own music distribution platform in under 5 minutes",
   "type": "module",
-  "main": "bin/stardust-distro.js",
+  "main": "index.js",
   "bin": {
-    "stardust-distro": "bin/stardust-distro.js",
-    "create-stardust-distro": "bin/stardust-distro.js"
+    "stardust-distro": "./bin/stardust-distro.js"
   },
-  "files": [
-    "bin/",
-    "commands/",
-    "templates/",
-    "README.md"
-  ],
   "scripts": {
-    "start": "node bin/stardust-distro.js",
-    "test": "node bin/stardust-distro.js --version",
-    "prepublishOnly": "npm run validate-template",
-    "validate-template": "node scripts/validate-template.js"
-  },
-  "dependencies": {
-    "chalk": "^5.3.0",
-    "commander": "^11.0.0",
-    "figlet": "^1.7.0",
-    "fs-extra": "^11.2.0",
-    "inquirer": "^9.2.0",
-    "ora": "^7.0.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "vitest": "^1.0.0"
+    "test": "./bin/stardust-distro.js --version"
   },
   "keywords": [
-    "stardust",
     "music",
     "distribution",
     "ddex",
     "ern",
-    "cli",
-    "scaffolding",
-    "firebase",
-    "vue",
-    "music-industry"
+    "music-industry",
+    "streaming"
   ],
-  "author": "Kevin Marques Moo",
+  "author": "Stardust Team",
   "license": "MIT",
+  "dependencies": {
+    "chalk": "4.1.2",
+    "commander": "11.1.0",
+    "figlet": "^1.8.2",
+    "fs-extra": "11.2.0",
+    "inquirer": "8.2.6",
+    "ora": "5.4.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/daddykev/stardust-distro.git"
   },
-  "homepage": "https://github.com/daddykev/stardust-distro#readme",
   "bugs": {
     "url": "https://github.com/daddykev/stardust-distro/issues"
   },
-  "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=8.0.0"
-  },
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  }
+  "homepage": "https://github.com/daddykev/stardust-distro#readme"
 }

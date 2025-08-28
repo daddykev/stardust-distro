@@ -19,7 +19,7 @@ console.log(
 program
   .name('stardust-distro')
   .description('CLI for creating and managing Stardust Distro distribution platforms')
-  .version('0.9.5');
+  .version('0.9.9');
 
 // Register commands
 createCommand(program);
