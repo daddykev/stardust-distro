@@ -25,9 +25,17 @@ service firebase.storage {
              request.resource.size < 5 * 1024 * 1024; // 5MB limit
     }
     
-    // Test paths - simplified for testing (just require authentication)
+    // Test paths - simplified for testing
     match /test/{allPaths=**} {
       allow read, write: if isAuthenticated();
+    }
+    
+    // Import paths - user-scoped for catalog migration
+    match /imports/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && 
+        (isValidAudioFile() || isValidImageFile());
+      allow delete: if isOwner(userId);
     }
     
     // User-scoped paths only
@@ -39,11 +47,11 @@ service firebase.storage {
     
     // Release assets - tenant-scoped
     match /releases/{releaseId}/{allPaths=**} {
-      allow read: if isAuthenticated(); // Check release ownership in app
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated() && 
         (isValidAudioFile() || isValidImageFile());
       allow update: if false; // Immutable
-      allow delete: if isAuthenticated(); // Check ownership in app
+      allow delete: if isAuthenticated();
     }
     
     // Delivery packages - read-only after creation

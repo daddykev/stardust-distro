@@ -777,6 +777,17 @@ const processFileUpload = async (files, type) => {
   uploadProgress.value = {} // Reset progress
 
   try {
+    // Create import job if it doesn't exist (BEFORE validation)
+    if (!importJob.value) {
+      console.log('📝 Creating import job for file upload...')
+      importJob.value = await importService.createImportJob(user.value.uid, {
+        mode: isMetadatalessMode.value ? 'metadata-less' : 'standard',
+        status: 'files_uploading',
+        createdAt: new Date().toISOString()
+      })
+      console.log(`  Created import job: ${importJob.value.id}`)
+    }
+
     // Validate DDEX naming
     const validatedFiles = []
     const errors = []
@@ -807,13 +818,14 @@ const processFileUpload = async (files, type) => {
       }
     }
 
-    // Upload validated files
+    // Upload validated files - now importJob.value.id is guaranteed to exist
     console.log(`📤 Starting upload of ${validatedFiles.length} files to Firebase Storage...`)
+    console.log(`  Using import job ID: ${importJob.value.id}`)
     
     const uploaded = await importService.uploadBatchFiles(
       validatedFiles,
       user.value.uid,
-      importJob.value?.id,
+      importJob.value.id, // This will no longer be undefined
       (progress) => {
         // Progress handling remains the same
         if (progress && typeof progress === 'object') {
@@ -842,19 +854,15 @@ const processFileUpload = async (files, type) => {
     
     uploadedFiles.value[type].push(...uploaded)
 
-    // Update import job if exists
-    if (importJob.value) {
-      console.log('💾 Updating import job...')
-      await importService.updateImportJob(importJob.value.id, {
-        uploadedFiles: uploadedFiles.value,
-        status: 'files_uploading'
-      })
-    }
+    // Update import job
+    console.log('💾 Updating import job...')
+    await importService.updateImportJob(importJob.value.id, {
+      uploadedFiles: uploadedFiles.value,
+      status: 'files_uploaded'
+    })
 
     // MODIFIED: Don't auto-process metadata immediately
-    // Instead, check if we should trigger it manually or wait
     if (isMetadatalessMode.value && currentStep.value === 1) {
-      // Don't auto-trigger - let user decide when ready
       console.log('📝 Files uploaded. Upload more files or click "Process Metadata" when ready.')
     }
 
