@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
+import { watch } from 'vue'
 import SplashPage from '../views/SplashPage.vue'
 import Login from '../views/Login.vue'
 import Signup from '../views/Signup.vue'
@@ -7,8 +8,12 @@ import Dashboard from '../views/Dashboard.vue'
 import Settings from '../views/Settings.vue'
 import Catalog from '../views/Catalog.vue'
 import NewRelease from '../views/NewRelease.vue'
+import EditRelease from '../views/EditRelease.vue'
 import Deliveries from '../views/Deliveries.vue'
 import Analytics from '../views/Analytics.vue'
+import Testing from '../views/Testing.vue'
+import GenreMaps from '../views/GenreMaps.vue'
+import Migration from '../views/Migration.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -37,9 +42,33 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/genre-maps',
+      name: 'genre-maps',
+      component: GenreMaps,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/testing',
+      name: 'testing',
+      component: Testing,
+      meta: { requiresAuth: true }
+    },    
+    {
       path: '/catalog',
       name: 'catalog',
       component: Catalog,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/migration',
+      name: 'migration',
+      component: Migration,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/catalog/:id',
+      name: 'release-detail',
+      component: () => import('../views/ReleaseDetail.vue'),
       meta: { requiresAuth: true }
     },
     {
@@ -49,9 +78,21 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/releases/edit/:id',
+      name: 'edit-release',
+      component: EditRelease,
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/deliveries',
       name: 'deliveries',
       component: Deliveries,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/deliveries/new',
+      name: 'new-delivery',
+      component: () => import('../views/NewDelivery.vue'),
       meta: { requiresAuth: true }
     },
     {
@@ -66,10 +107,16 @@ const router = createRouter({
       component: Settings,
       meta: { requiresAuth: true }
     },
-    // Catch-all route - redirect to home
+    // 404 Not Found page
+    {
+      path: '/404',
+      name: 'not-found',
+      component: () => import('../views/NotFound.vue')
+    },
+    // Catch-all route - redirect to 404
     {
       path: '/:pathMatch(.*)*',
-      redirect: '/'
+      redirect: '/404'
     }
   ]
 })
@@ -80,18 +127,18 @@ router.beforeEach(async (to, from, next) => {
   
   // Wait for auth state to be determined
   if (isLoading.value) {
-    // Wait for auth state to load
+    // Wait for auth state to load using watch
     await new Promise(resolve => {
-      const unwatch = setInterval(() => {
-        const { isLoading: loading } = useAuth()
-        if (!loading.value) {
-          clearInterval(unwatch)
-          resolve()
+      const unwatch = watch(isLoading, (newVal) => {
+        if (!newVal) {
+          unwatch()
+          resolve(true)
         }
-      }, 50)
+      }, { immediate: true })
     })
   }
   
+  // Get fresh auth state after loading
   const { isAuthenticated: isAuth } = useAuth()
   
   if (to.meta.requiresAuth && !isAuth.value) {

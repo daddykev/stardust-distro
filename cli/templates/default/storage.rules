@@ -7,30 +7,69 @@ service firebase.storage {
     }
     
     function isOwner(userId) {
-      return request.auth.uid == userId;
+      return request.auth != null && request.auth.uid == userId;
     }
     
-    // Audio files
-    match /audio/{tenantId}/{releaseId}/{filename} {
+    function isValidAudioFile() {
+      return request.resource.contentType.matches('audio/(wav|flac|mpeg|mp3)') &&
+             request.resource.size < 500 * 1024 * 1024; // 500MB limit
+    }
+    
+    function isValidImageFile() {
+      return request.resource.contentType.matches('image/(jpeg|jpg|png)') &&
+             request.resource.size < 10 * 1024 * 1024; // 10MB limit
+    }
+    
+    function isValidERNFile() {
+      return request.resource.contentType == 'text/xml' &&
+             request.resource.size < 5 * 1024 * 1024; // 5MB limit
+    }
+    
+    // Test paths - simplified for testing (just require authentication)
+    match /test/{allPaths=**} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // User-scoped paths only
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && 
+        (isValidAudioFile() || isValidImageFile() || isValidERNFile());
+    }
+    
+    // Release assets - tenant-scoped
+    match /releases/{releaseId}/{allPaths=**} {
+      allow read: if isAuthenticated(); // Check release ownership in app
+      allow create: if isAuthenticated() && 
+        (isValidAudioFile() || isValidImageFile());
+      allow update: if false; // Immutable
+      allow delete: if isAuthenticated(); // Check ownership in app
+    }
+    
+    // Delivery packages - read-only after creation
+    match /deliveries/{deliveryId}/{allPaths=**} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && request.resource.size < 500 * 1024 * 1024;
+      allow create: if isAuthenticated();
+      allow update: if false; // Immutable
+      allow delete: if false; // Keep for audit
     }
     
-    // Image files
-    match /images/{tenantId}/{releaseId}/{filename} {
-      allow read: if true; // Public images
-      allow write: if isAuthenticated() && request.resource.size < 10 * 1024 * 1024;
+    // Temporary uploads - auto-cleanup after 24h
+    match /temp/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && 
+        request.time < resource.timeCreated + duration.value(24, 'h');
     }
     
-    // Documents
-    match /documents/{tenantId}/{filename} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && request.resource.size < 50 * 1024 * 1024;
+    // Public assets (if needed)
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if false; // Admin SDK only
     }
     
-    // User uploads (temporary)
-    match /temp/{userId}/{filename} {
-      allow read, write: if isOwner(userId);
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }

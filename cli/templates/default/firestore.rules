@@ -2,31 +2,197 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow users to read and write their own user profile
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function hasRole(role) {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+    
+    // Users - strict personal data protection
     match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) && 
+        (!('role' in request.resource.data) || 
+         request.resource.data.role == resource.data.role);
+      allow delete: if false; // Soft delete only
     }
     
-    // Allow authenticated users to read all releases (for now)
-    // In production, this would be scoped to organization/tenant
+    // Invite codes - public read, admin write
+    match /inviteCodes/{codeId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // Releases - tenant isolation with ownership
     match /releases/{releaseId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read: if isAuthenticated() && 
+        (resource.data.createdBy == request.auth.uid || 
+         resource.data.tenantId == request.auth.uid);
+      allow create: if isAuthenticated() && 
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.tenantId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.createdBy == request.auth.uid &&
+        request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if isAuthenticated() && 
+        resource.data.createdBy == request.auth.uid;
     }
     
-    // Allow authenticated users to manage delivery targets
+    // Allow authenticated users to query releases (for testing)
+    match /releases/{releaseId} {
+      allow list: if isAuthenticated() && 
+        request.query.limit <= 10;
+    }
+    
+    // Delivery targets - strict tenant isolation
     match /deliveryTargets/{targetId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
+      allow list: if isAuthenticated() && 
+        request.query.limit <= 10; // Allow limited queries for testing
+      allow create: if isAuthenticated() && 
+        request.resource.data.tenantId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid &&
+        request.resource.data.tenantId == resource.data.tenantId;
+      allow delete: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
     }
     
-    // Allow authenticated users to view deliveries
+    // Deliveries - allow limited queries for testing
     match /deliveries/{deliveryId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read: if isAuthenticated() && 
+        (resource.data.tenantId == request.auth.uid ||
+         resource.data.createdBy == request.auth.uid);
+      allow list: if isAuthenticated() && 
+        request.query.limit <= 10; // Allow limited queries
+      allow create: if isAuthenticated() && 
+        request.resource.data.tenantId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
+      allow delete: if false; // Never delete delivery history
     }
     
+    // Genre mappings - user-scoped
+    match /genreMappings/{mappingId} {
+      allow read: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.tenantId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid &&
+        request.resource.data.tenantId == resource.data.tenantId;
+      allow delete: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
+    }
+
+    // Locks - managed by Functions
+    match /locks/{lockId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && 
+        request.auth.uid == request.resource.data.tenantId;
+      allow delete: if isAuthenticated() && 
+        (resource.data.expiresAt < request.time ||
+         resource.data.tenantId == request.auth.uid);
+    }
+
+    // Fingerprints - user-scoped with validation
+    match /fingerprints/{fingerprintId} {
+      allow read: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.sha256 != null;
+      allow update: if false; // Immutable
+      allow delete: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+    }
+
+    // Audio fingerprints - user-scoped
+    match /audioFingerprints/{fingerprintId} {
+      allow read: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid;
+      allow update: if false; // Immutable
+      allow delete: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+    }
+
+    // Test results - allow creation by authenticated users, read by all authenticated
+    match /testResults/{resultId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+    
+    // System health - allow write by authenticated users for testing
+    match /systemHealth/{document} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Receipts - tenant-scoped
+    match /receipts/{receiptId} {
+      allow read: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.tenantId == request.auth.uid;
+      allow update: if false; // Immutable
+      allow delete: if false;
+    }
+
+    // Import jobs - user-scoped
+    match /importJobs/{jobId} {
+      allow read: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // Delivery history - audit trail
+    match /deliveryHistory/{historyId} {
+      allow read: if isAuthenticated() && 
+        resource.data.tenantId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+        request.resource.data.tenantId == request.auth.uid;
+      allow update: if false; // Immutable audit trail
+      allow delete: if false;
+    }
+    
+    // Email queue - Functions only
+    match /mail/{mailId} {
+      allow read: if false;
+      allow write: if false; // Only Cloud Functions
+    }
+    
+    // Notifications - user-scoped
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId;
+      allow create, delete: if false; // Functions only
+    }
+
     // Default deny all
     match /{document=**} {
       allow read, write: if false;

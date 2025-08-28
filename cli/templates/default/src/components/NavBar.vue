@@ -27,9 +27,9 @@ const navigationItems = computed(() => {
   return [
     { name: 'Dashboard', path: '/dashboard', icon: 'chart-bar' },
     { name: 'Catalog', path: '/catalog', icon: 'music' },
-    { name: 'New Release', path: '/releases/new', icon: 'plus' },
     { name: 'Deliveries', path: '/deliveries', icon: 'truck' },
-    { name: 'Analytics', path: '/analytics', icon: 'chart-line' },
+    { name: 'Migration', path: '/migration', icon: 'plus' },
+    { name: 'Testing', path: '/testing', icon: 'chart-line' },
     { name: 'Settings', path: '/settings', icon: 'cog' }
   ]
 })

@@ -36,47 +36,38 @@ const loadDashboardData = async () => {
   if (!userProfile.value) return
   
   try {
-    // For now, we'll use mock data since we don't have releases yet
-    // In production, this would fetch real data from Firestore
+    // Load real releases from Firestore
+    const releasesQuery = query(
+      collection(db, 'releases'),
+      where('createdBy', '==', userProfile.value.id),
+      orderBy('createdAt', 'desc')
+    )
     
-    // Simulate loading real data
-    await new Promise(resolve => setTimeout(resolve, 500))
+    const snapshot = await getDocs(releasesQuery)
+    const allReleases = []
     
-    // Mock stats (replace with real Firestore queries)
+    snapshot.forEach((doc) => {
+      allReleases.push({ id: doc.id, ...doc.data() })
+    })
+    
+    // Calculate real stats
     stats.value = {
-      totalReleases: 12,
-      pendingDeliveries: 3,
-      successfulDeliveries: 45,
-      failedDeliveries: 2
+      totalReleases: allReleases.length,
+      pendingDeliveries: allReleases.filter(r => r.status === 'ready').length,
+      successfulDeliveries: allReleases.filter(r => r.status === 'delivered').length,
+      failedDeliveries: allReleases.filter(r => r.status === 'failed').length
     }
     
-    // Mock recent activity
-    recentActivity.value = [
-      {
-        id: '1',
-        type: 'release_created',
-        title: 'New release created',
-        description: 'Summer Vibes EP',
-        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-        status: 'success'
-      },
-      {
-        id: '2',
-        type: 'delivery_completed',
-        title: 'Delivery completed',
-        description: 'Delivered to Spotify',
-        timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000), // 5 hours ago
-        status: 'success'
-      },
-      {
-        id: '3',
-        type: 'delivery_failed',
-        title: 'Delivery failed',
-        description: 'Failed to deliver to Apple Music',
-        timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1 day ago
-        status: 'error'
-      }
-    ]
+    // Get recent activity (last 5 releases)
+    recentActivity.value = allReleases.slice(0, 5).map(release => ({
+      id: release.id,
+      type: 'release_created',
+      title: release.status === 'delivered' ? 'Release delivered' : 'Release created',
+      description: release.basic?.title || 'Untitled',
+      timestamp: release.createdAt?.toDate ? release.createdAt.toDate() : new Date(release.createdAt),
+      status: release.status === 'delivered' ? 'success' : 'info'
+    }))
+    
   } catch (error) {
     console.error('Error loading dashboard data:', error)
   } finally {

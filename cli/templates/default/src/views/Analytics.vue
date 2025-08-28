@@ -1,5 +1,15 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useAuth } from '../composables/useAuth'
+import { useDelivery } from '../composables/useDelivery'
+import { useCatalog } from '../composables/useCatalog'
+import deliveryService from '../services/delivery'
+import { db } from '../firebase'
+import { collection, query, where, getDocs, orderBy, limit, Timestamp } from 'firebase/firestore'
+
+const { user } = useAuth()
+const { deliveries, subscribeToDeliveries, cleanup } = useDelivery()
+const { releases, loadReleases } = useCatalog()
 
 // Time period selection
 const selectedPeriod = ref('30days')
@@ -12,60 +22,25 @@ const customDateRange = ref({
 const isLoading = ref(true)
 const analyticsData = ref({
   overview: {
-    totalReleases: 127,
-    totalDeliveries: 892,
-    successRate: 96.5,
-    avgDeliveryTime: 4.2,
-    activeTargets: 12,
-    totalTracks: 1453
+    totalReleases: 0,
+    totalDeliveries: 0,
+    successRate: 0,
+    avgDeliveryTime: 0,
+    activeTargets: 0,
+    totalTracks: 0
   },
   trends: {
-    releases: [
-      { month: 'Jan', count: 8 },
-      { month: 'Feb', count: 12 },
-      { month: 'Mar', count: 15 },
-      { month: 'Apr', count: 11 },
-      { month: 'May', count: 18 },
-      { month: 'Jun', count: 22 }
-    ],
-    deliveries: [
-      { month: 'Jan', success: 45, failed: 2 },
-      { month: 'Feb', success: 67, failed: 3 },
-      { month: 'Mar', success: 89, failed: 1 },
-      { month: 'Apr', success: 72, failed: 4 },
-      { month: 'May', success: 98, failed: 2 },
-      { month: 'Jun', success: 112, failed: 3 }
-    ]
+    releases: [],
+    deliveries: []
   },
-  topPerformers: [
-    { title: 'Summer Vibes EP', artist: 'The Sunset Band', deliveries: 24, successRate: 100 },
-    { title: 'Midnight Dreams', artist: 'Luna Nova', deliveries: 18, successRate: 94.4 },
-    { title: 'Electric Pulse', artist: 'Digital Waves', deliveries: 15, successRate: 93.3 },
-    { title: 'Ocean Waves', artist: 'Coastal Sound', deliveries: 12, successRate: 100 },
-    { title: 'Urban Legends', artist: 'City Lights', deliveries: 10, successRate: 90 }
-  ],
-  dspPerformance: [
-    { name: 'Spotify', deliveries: 234, successRate: 98.2, avgTime: 3.5 },
-    { name: 'Apple Music', deliveries: 189, successRate: 97.8, avgTime: 4.1 },
-    { name: 'YouTube Music', deliveries: 156, successRate: 95.5, avgTime: 5.2 },
-    { name: 'Deezer', deliveries: 134, successRate: 94.0, avgTime: 4.8 },
-    { name: 'Amazon Music', deliveries: 98, successRate: 96.9, avgTime: 3.9 }
-  ],
-  territories: [
-    { code: 'US', name: 'United States', releases: 45, percentage: 35.4 },
-    { code: 'GB', name: 'United Kingdom', releases: 32, percentage: 25.2 },
-    { code: 'DE', name: 'Germany', releases: 18, percentage: 14.2 },
-    { code: 'FR', name: 'France', releases: 15, percentage: 11.8 },
-    { code: 'JP', name: 'Japan', releases: 10, percentage: 7.9 },
-    { code: 'Other', name: 'Other', releases: 7, percentage: 5.5 }
-  ],
-  releaseTypes: [
-    { type: 'Album', count: 45, percentage: 35.4 },
-    { type: 'Single', count: 52, percentage: 40.9 },
-    { type: 'EP', count: 28, percentage: 22.0 },
-    { type: 'Compilation', count: 2, percentage: 1.6 }
-  ]
+  topPerformers: [],
+  dspPerformance: [],
+  territories: [],
+  releaseTypes: []
 })
+
+// Real delivery analytics
+const deliveryAnalytics = ref(null)
 
 // Computed
 const periodLabel = computed(() => {
@@ -79,22 +54,85 @@ const periodLabel = computed(() => {
   }
 })
 
+const periodDays = computed(() => {
+  switch (selectedPeriod.value) {
+    case '7days': return 7
+    case '30days': return 30
+    case '90days': return 90
+    case '12months': return 365
+    default: return 30
+  }
+})
+
+const dateRange = computed(() => {
+  const endDate = new Date()
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - periodDays.value)
+  return { startDate, endDate }
+})
+
 const maxReleaseCount = computed(() => {
-  return Math.max(...analyticsData.value.trends.releases.map(r => r.count))
+  return Math.max(...analyticsData.value.trends.releases.map(r => r.count), 1)
 })
 
 const maxDeliveryCount = computed(() => {
   const deliveries = analyticsData.value.trends.deliveries
-  return Math.max(...deliveries.map(d => d.success + d.failed))
+  return Math.max(...deliveries.map(d => d.success + d.failed), 1)
 })
 
 // Methods
 const loadAnalytics = async () => {
   isLoading.value = true
   try {
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    // Data is already set in ref above for demo
+    // Load releases if not already loaded
+    if (releases.value.length === 0) {
+      await loadReleases()
+    }
+
+    // Subscribe to deliveries
+    subscribeToDeliveries(user.value.uid, { limit: 1000 })
+
+    // Get delivery analytics from service
+    deliveryAnalytics.value = await deliveryService.getAnalytics(
+      user.value.uid, 
+      dateRange.value
+    )
+
+    // Get active delivery targets
+    const targetsSnapshot = await getDocs(
+      query(
+        collection(db, 'deliveryTargets'),
+        where('tenantId', '==', user.value.uid),
+        where('active', '==', true)
+      )
+    )
+    const activeTargets = targetsSnapshot.size
+
+    // Calculate overview stats
+    analyticsData.value.overview = {
+      totalReleases: releases.value.length,
+      totalDeliveries: deliveryAnalytics.value?.total || deliveries.value.length,
+      successRate: deliveryAnalytics.value?.successRate || calculateSuccessRate(),
+      avgDeliveryTime: deliveryAnalytics.value?.averageDeliveryTime || calculateAvgDeliveryTime(),
+      activeTargets,
+      totalTracks: releases.value.reduce((sum, r) => sum + (r.tracks?.length || 0), 0)
+    }
+
+    // Calculate trends
+    await calculateTrends()
+
+    // Calculate top performers
+    calculateTopPerformers()
+
+    // Calculate DSP performance
+    calculateDSPPerformance()
+
+    // Calculate territory distribution
+    calculateTerritories()
+
+    // Calculate release types
+    calculateReleaseTypes()
+
   } catch (error) {
     console.error('Error loading analytics:', error)
   } finally {
@@ -102,13 +140,263 @@ const loadAnalytics = async () => {
   }
 }
 
+const calculateSuccessRate = () => {
+  if (deliveries.value.length === 0) return 0
+  const completed = deliveries.value.filter(d => d.status === 'completed').length
+  return Math.round((completed / deliveries.value.length) * 100)
+}
+
+const calculateAvgDeliveryTime = () => {
+  const completedDeliveries = deliveries.value.filter(d => 
+    d.status === 'completed' && d.startedAt && d.completedAt
+  )
+  
+  if (completedDeliveries.length === 0) return 0
+  
+  const totalTime = completedDeliveries.reduce((sum, d) => {
+    const start = d.startedAt?.toDate ? d.startedAt.toDate() : new Date(d.startedAt)
+    const end = d.completedAt?.toDate ? d.completedAt.toDate() : new Date(d.completedAt)
+    return sum + (end - start)
+  }, 0)
+  
+  return Math.round(totalTime / completedDeliveries.length / 1000 / 60) // in minutes
+}
+
+const calculateTrends = async () => {
+  // Initialize trend data for last 6 months
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
+  const currentMonth = new Date().getMonth()
+  const trendMonths = []
+  
+  for (let i = 5; i >= 0; i--) {
+    const monthIndex = (currentMonth - i + 12) % 12
+    trendMonths.push(months[monthIndex])
+  }
+
+  // Calculate release trends
+  const releaseTrends = trendMonths.map(month => ({
+    month,
+    count: 0
+  }))
+
+  releases.value.forEach(release => {
+    const releaseDate = release.createdAt?.toDate ? release.createdAt.toDate() : new Date(release.createdAt)
+    const monthIndex = trendMonths.indexOf(months[releaseDate.getMonth()])
+    if (monthIndex >= 0) {
+      releaseTrends[monthIndex].count++
+    }
+  })
+
+  // Calculate delivery trends
+  const deliveryTrends = trendMonths.map(month => ({
+    month,
+    success: 0,
+    failed: 0
+  }))
+
+  deliveries.value.forEach(delivery => {
+    const deliveryDate = delivery.createdAt?.toDate ? delivery.createdAt.toDate() : new Date(delivery.createdAt)
+    const monthIndex = trendMonths.indexOf(months[deliveryDate.getMonth()])
+    if (monthIndex >= 0) {
+      if (delivery.status === 'completed') {
+        deliveryTrends[monthIndex].success++
+      } else if (delivery.status === 'failed') {
+        deliveryTrends[monthIndex].failed++
+      }
+    }
+  })
+
+  analyticsData.value.trends = {
+    releases: releaseTrends,
+    deliveries: deliveryTrends
+  }
+}
+
+const calculateTopPerformers = () => {
+  // Group deliveries by release
+  const releaseDeliveries = {}
+  
+  deliveries.value.forEach(delivery => {
+    const key = delivery.releaseId
+    if (!releaseDeliveries[key]) {
+      releaseDeliveries[key] = {
+        title: delivery.releaseTitle || 'Unknown',
+        artist: delivery.releaseArtist || 'Unknown Artist',
+        deliveries: 0,
+        successful: 0
+      }
+    }
+    releaseDeliveries[key].deliveries++
+    if (delivery.status === 'completed') {
+      releaseDeliveries[key].successful++
+    }
+  })
+
+  // Convert to array and calculate success rate
+  const performers = Object.values(releaseDeliveries).map(release => ({
+    ...release,
+    successRate: release.deliveries > 0 
+      ? Math.round((release.successful / release.deliveries) * 100)
+      : 0
+  }))
+
+  // Sort by number of deliveries and take top 5
+  performers.sort((a, b) => b.deliveries - a.deliveries)
+  analyticsData.value.topPerformers = performers.slice(0, 5)
+}
+
+const calculateDSPPerformance = () => {
+  if (!deliveryAnalytics.value?.byTarget) {
+    analyticsData.value.dspPerformance = []
+    return
+  }
+
+  const dspData = []
+  
+  for (const [targetName, data] of Object.entries(deliveryAnalytics.value.byTarget)) {
+    // Calculate average time for this target
+    const targetDeliveries = deliveries.value.filter(d => d.targetName === targetName)
+    let avgTime = 0
+    
+    const completedWithTime = targetDeliveries.filter(d => 
+      d.status === 'completed' && d.startedAt && d.completedAt
+    )
+    
+    if (completedWithTime.length > 0) {
+      const totalTime = completedWithTime.reduce((sum, d) => {
+        const start = d.startedAt?.toDate ? d.startedAt.toDate() : new Date(d.startedAt)
+        const end = d.completedAt?.toDate ? d.completedAt.toDate() : new Date(d.completedAt)
+        return sum + (end - start)
+      }, 0)
+      avgTime = Math.round(totalTime / completedWithTime.length / 1000 / 60) // in minutes
+    }
+
+    dspData.push({
+      name: targetName,
+      deliveries: data.total,
+      successRate: data.total > 0 
+        ? Math.round((data.completed / data.total) * 100)
+        : 0,
+      avgTime
+    })
+  }
+
+  // Sort by number of deliveries
+  dspData.sort((a, b) => b.deliveries - a.deliveries)
+  analyticsData.value.dspPerformance = dspData.slice(0, 5)
+}
+
+const calculateTerritories = () => {
+  // Get territory distribution from releases
+  const territoryCount = {}
+  let totalTerritories = 0
+
+  releases.value.forEach(release => {
+    if (release.territories?.mode === 'worldwide') {
+      territoryCount['Worldwide'] = (territoryCount['Worldwide'] || 0) + 1
+      totalTerritories++
+    } else if (release.territories?.included) {
+      release.territories.included.forEach(territory => {
+        territoryCount[territory] = (territoryCount[territory] || 0) + 1
+        totalTerritories++
+      })
+    }
+  })
+
+  // Convert to array with percentages
+  const territories = Object.entries(territoryCount)
+    .map(([code, count]) => ({
+      code: code.slice(0, 2).toUpperCase(),
+      name: getTerritoryName(code),
+      releases: count,
+      percentage: totalTerritories > 0 
+        ? Math.round((count / totalTerritories) * 100 * 10) / 10
+        : 0
+    }))
+    .sort((a, b) => b.releases - a.releases)
+    .slice(0, 6)
+
+  analyticsData.value.territories = territories
+}
+
+const calculateReleaseTypes = () => {
+  const types = {}
+  let total = 0
+
+  releases.value.forEach(release => {
+    const type = release.basic?.type || 'Album'
+    types[type] = (types[type] || 0) + 1
+    total++
+  })
+
+  analyticsData.value.releaseTypes = Object.entries(types).map(([type, count]) => ({
+    type,
+    count,
+    percentage: total > 0 ? Math.round((count / total) * 100 * 10) / 10 : 0
+  }))
+}
+
+const getTerritoryName = (code) => {
+  const territories = {
+    'US': 'United States',
+    'GB': 'United Kingdom',
+    'DE': 'Germany',
+    'FR': 'France',
+    'JP': 'Japan',
+    'CA': 'Canada',
+    'AU': 'Australia',
+    'Worldwide': 'Worldwide'
+  }
+  return territories[code] || code
+}
+
 const exportData = (format) => {
-  console.log(`Exporting analytics data as ${format}`)
-  // TODO: Implement export functionality
+  const data = {
+    period: periodLabel.value,
+    overview: analyticsData.value.overview,
+    trends: analyticsData.value.trends,
+    topPerformers: analyticsData.value.topPerformers,
+    dspPerformance: analyticsData.value.dspPerformance,
+    territories: analyticsData.value.territories,
+    releaseTypes: analyticsData.value.releaseTypes
+  }
+
+  if (format === 'json') {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `analytics_${new Date().toISOString().split('T')[0]}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } else if (format === 'csv') {
+    // Create CSV for overview data
+    let csv = 'Metric,Value\n'
+    csv += `Total Releases,${data.overview.totalReleases}\n`
+    csv += `Total Deliveries,${data.overview.totalDeliveries}\n`
+    csv += `Success Rate,${data.overview.successRate}%\n`
+    csv += `Avg Delivery Time,${data.overview.avgDeliveryTime} min\n`
+    csv += `Active Targets,${data.overview.activeTargets}\n`
+    csv += `Total Tracks,${data.overview.totalTracks}\n`
+
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `analytics_${new Date().toISOString().split('T')[0]}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } else {
+    console.log(`Export as ${format} not yet implemented`)
+  }
 }
 
 const getBarHeight = (value, max) => {
-  return `${(value / max) * 100}%`
+  return `${Math.max((value / max) * 100, 2)}%`
 }
 
 const getSuccessRateColor = (rate) => {
@@ -121,8 +409,28 @@ const formatNumber = (num) => {
   return new Intl.NumberFormat().format(num)
 }
 
+// Refresh data when period changes
+const onPeriodChange = () => {
+  loadAnalytics()
+}
+
+// Auto-refresh every 30 seconds
+let refreshInterval = null
+
 onMounted(() => {
   loadAnalytics()
+  
+  // Set up auto-refresh
+  refreshInterval = setInterval(() => {
+    loadAnalytics()
+  }, 30000)
+})
+
+onUnmounted(() => {
+  cleanup()
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
+  }
 })
 </script>
 
@@ -136,7 +444,7 @@ onMounted(() => {
           <p class="page-subtitle">Track your distribution performance and insights</p>
         </div>
         <div class="header-actions">
-          <select v-model="selectedPeriod" class="form-select">
+          <select v-model="selectedPeriod" @change="onPeriodChange" class="form-select">
             <option value="7days">Last 7 Days</option>
             <option value="30days">Last 30 Days</option>
             <option value="90days">Last 90 Days</option>
@@ -175,9 +483,9 @@ onMounted(() => {
               <div class="overview-content">
                 <div class="overview-value">{{ formatNumber(analyticsData.overview.totalReleases) }}</div>
                 <div class="overview-label">Total Releases</div>
-                <div class="overview-change positive">
+                <div class="overview-change positive" v-if="analyticsData.overview.totalReleases > 0">
                   <font-awesome-icon icon="arrow-up" />
-                  12% from last period
+                  Active catalog
                 </div>
               </div>
             </div>
@@ -191,9 +499,9 @@ onMounted(() => {
               <div class="overview-content">
                 <div class="overview-value">{{ formatNumber(analyticsData.overview.totalDeliveries) }}</div>
                 <div class="overview-label">Total Deliveries</div>
-                <div class="overview-change positive">
-                  <font-awesome-icon icon="arrow-up" />
-                  8% from last period
+                <div class="overview-change" :class="analyticsData.overview.totalDeliveries > 0 ? 'positive' : ''">
+                  <font-awesome-icon icon="arrow-up" v-if="analyticsData.overview.totalDeliveries > 0" />
+                  {{ analyticsData.overview.totalDeliveries > 0 ? 'Distributions sent' : 'No deliveries yet' }}
                 </div>
               </div>
             </div>
@@ -205,11 +513,11 @@ onMounted(() => {
                 <font-awesome-icon icon="check-circle" />
               </div>
               <div class="overview-content">
-                <div class="overview-value">{{ analyticsData.overview.successRate }}%</div>
+                <div class="overview-value">{{ analyticsData.overview.successRate || 0 }}%</div>
                 <div class="overview-label">Success Rate</div>
-                <div class="overview-change positive">
-                  <font-awesome-icon icon="arrow-up" />
-                  2.5% improvement
+                <div class="overview-change" :class="analyticsData.overview.successRate >= 90 ? 'positive' : 'negative'">
+                  <font-awesome-icon :icon="analyticsData.overview.successRate >= 90 ? 'arrow-up' : 'arrow-down'" />
+                  {{ analyticsData.overview.successRate >= 90 ? 'Excellent' : 'Needs attention' }}
                 </div>
               </div>
             </div>
@@ -221,11 +529,11 @@ onMounted(() => {
                 <font-awesome-icon icon="clock" />
               </div>
               <div class="overview-content">
-                <div class="overview-value">{{ analyticsData.overview.avgDeliveryTime }} min</div>
+                <div class="overview-value">{{ analyticsData.overview.avgDeliveryTime || 0 }} min</div>
                 <div class="overview-label">Avg Delivery Time</div>
-                <div class="overview-change negative">
-                  <font-awesome-icon icon="arrow-up" />
-                  0.3 min increase
+                <div class="overview-change" :class="analyticsData.overview.avgDeliveryTime < 5 ? 'positive' : 'negative'">
+                  <font-awesome-icon :icon="analyticsData.overview.avgDeliveryTime < 5 ? 'arrow-down' : 'arrow-up'" />
+                  {{ analyticsData.overview.avgDeliveryTime < 5 ? 'Fast delivery' : 'Slower than usual' }}
                 </div>
               </div>
             </div>
@@ -253,7 +561,7 @@ onMounted(() => {
                         class="bar bar-primary"
                         :style="{ height: getBarHeight(item.count, maxReleaseCount) }"
                       >
-                        <span class="bar-value">{{ item.count }}</span>
+                        <span class="bar-value" v-if="item.count > 0">{{ item.count }}</span>
                       </div>
                     </div>
                     <span class="bar-label">{{ item.month }}</span>
@@ -282,7 +590,7 @@ onMounted(() => {
                         class="bar bar-success"
                         :style="{ height: getBarHeight(item.success, maxDeliveryCount) }"
                       >
-                        <span class="bar-value">{{ item.success }}</span>
+                        <span class="bar-value" v-if="item.success > 0">{{ item.success }}</span>
                       </div>
                       <div 
                         class="bar bar-error"
@@ -317,7 +625,10 @@ onMounted(() => {
               <h2 class="section-title">Top Performing Releases</h2>
             </div>
             <div class="card-body">
-              <div class="performance-table">
+              <div v-if="analyticsData.topPerformers.length === 0" class="empty-table">
+                <p>No delivery data available yet</p>
+              </div>
+              <div v-else class="performance-table">
                 <div class="table-header">
                   <span>Release</span>
                   <span>Deliveries</span>
@@ -347,7 +658,10 @@ onMounted(() => {
               <h2 class="section-title">DSP Performance</h2>
             </div>
             <div class="card-body">
-              <div class="performance-table">
+              <div v-if="analyticsData.dspPerformance.length === 0" class="empty-table">
+                <p>No DSP delivery data available yet</p>
+              </div>
+              <div v-else class="performance-table">
                 <div class="table-header">
                   <span>Platform</span>
                   <span>Deliveries</span>
@@ -360,7 +674,7 @@ onMounted(() => {
                   class="table-row"
                 >
                   <span class="dsp-name">
-                    <font-awesome-icon :icon="['fab', 'spotify']" />
+                    <font-awesome-icon icon="truck" />
                     {{ dsp.name }}
                   </span>
                   <span class="table-value">{{ dsp.deliveries }}</span>
@@ -382,7 +696,10 @@ onMounted(() => {
               <h2 class="section-title">Territory Distribution</h2>
             </div>
             <div class="card-body">
-              <div class="territory-list">
+              <div v-if="analyticsData.territories.length === 0" class="empty-table">
+                <p>No territory data available</p>
+              </div>
+              <div v-else class="territory-list">
                 <div 
                   v-for="territory in analyticsData.territories" 
                   :key="territory.code"
@@ -421,10 +738,17 @@ onMounted(() => {
                   </div>
                   <!-- Mock donut chart segments -->
                   <svg class="donut-svg" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="40" fill="none" stroke="var(--color-primary)" stroke-width="15" stroke-dasharray="141.3 251.3" transform="rotate(-90 50 50)" />
-                    <circle cx="50" cy="50" r="40" fill="none" stroke="var(--color-secondary)" stroke-width="15" stroke-dasharray="102.8 251.3" stroke-dashoffset="-141.3" transform="rotate(-90 50 50)" />
-                    <circle cx="50" cy="50" r="40" fill="none" stroke="var(--color-warning)" stroke-width="15" stroke-dasharray="55.3 251.3" stroke-dashoffset="-244.1" transform="rotate(-90 50 50)" />
-                    <circle cx="50" cy="50" r="40" fill="none" stroke="var(--color-info)" stroke-width="15" stroke-dasharray="4 251.3" stroke-dashoffset="-299.4" transform="rotate(-90 50 50)" />
+                    <circle 
+                      v-for="(type, index) in analyticsData.releaseTypes"
+                      :key="type.type"
+                      cx="50" cy="50" r="40" 
+                      fill="none" 
+                      :stroke="['var(--color-primary)', 'var(--color-secondary)', 'var(--color-warning)', 'var(--color-info)'][index]"
+                      stroke-width="15" 
+                      :stroke-dasharray="`${type.percentage * 2.51} 251.3`"
+                      :stroke-dashoffset="index > 0 ? `-${analyticsData.releaseTypes.slice(0, index).reduce((sum, t) => sum + t.percentage * 2.51, 0)}` : '0'"
+                      transform="rotate(-90 50 50)" 
+                    />
                   </svg>
                 </div>
                 <div class="type-legend">
@@ -464,14 +788,19 @@ onMounted(() => {
               <div class="stat-item">
                 <font-awesome-icon icon="calendar" class="stat-icon" />
                 <div class="stat-content">
-                  <div class="stat-value">18</div>
+                  <div class="stat-value">{{ releases.filter(r => {
+                    const created = r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt)
+                    const weekAgo = new Date()
+                    weekAgo.setDate(weekAgo.getDate() - 7)
+                    return created > weekAgo
+                  }).length }}</div>
                   <div class="stat-label">Releases This Week</div>
                 </div>
               </div>
               <div class="stat-item">
                 <font-awesome-icon icon="globe" class="stat-icon" />
                 <div class="stat-content">
-                  <div class="stat-value">45</div>
+                  <div class="stat-value">{{ analyticsData.territories.length }}</div>
                   <div class="stat-label">Countries Reached</div>
                 </div>
               </div>
@@ -484,6 +813,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* All existing styles remain the same */
 .analytics {
   padding: var(--space-xl) 0;
   min-height: calc(100vh - 64px);
@@ -861,6 +1191,12 @@ onMounted(() => {
 
 .text-error {
   color: var(--color-error);
+}
+
+.empty-table {
+  padding: var(--space-xl);
+  text-align: center;
+  color: var(--color-text-secondary);
 }
 
 /* Insights Grid */

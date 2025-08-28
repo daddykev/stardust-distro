@@ -8,11 +8,17 @@ import {
   GoogleAuthProvider,
   updateProfile 
 } from 'firebase/auth'
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { 
+  doc, 
+  setDoc, 
+  serverTimestamp, 
+  getDoc
+} from 'firebase/firestore'
 
 const router = useRouter()
 
 const formData = ref({
+  inviteCode: '',
   organizationName: '',
   email: '',
   password: '',
@@ -22,6 +28,25 @@ const formData = ref({
 
 const errorMessage = ref('')
 const isLoading = ref(false)
+const isValidatingCode = ref(false)
+const codeValidated = ref(false)
+
+// Validate invite code (simplified)
+const validateInviteCode = async (code) => {
+  if (!code) {
+    throw new Error('Invite code is required')
+  }
+
+  // Check if invite code exists
+  const codeRef = doc(db, 'inviteCodes', code.toUpperCase())
+  const codeDoc = await getDoc(codeRef)
+  
+  if (!codeDoc.exists()) {
+    throw new Error('Invalid invite code')
+  }
+  
+  return true
+}
 
 // Create user profile in Firestore
 const createUserProfile = async (user, additionalData = {}) => {
@@ -33,6 +58,7 @@ const createUserProfile = async (user, additionalData = {}) => {
       displayName: user.displayName || formData.value.organizationName,
       organizationName: formData.value.organizationName || user.displayName,
       photoURL: user.photoURL || null,
+      inviteCode: formData.value.inviteCode.toUpperCase(),
       role: 'admin', // First user is admin
       plan: 'free',
       createdAt: serverTimestamp(),
@@ -45,8 +71,35 @@ const createUserProfile = async (user, additionalData = {}) => {
   }
 }
 
+// Validate code on blur or when user stops typing
+const handleCodeValidation = async () => {
+  if (!formData.value.inviteCode) {
+    codeValidated.value = false
+    return
+  }
+  
+  errorMessage.value = ''
+  isValidatingCode.value = true
+  
+  try {
+    await validateInviteCode(formData.value.inviteCode)
+    codeValidated.value = true
+  } catch (error) {
+    codeValidated.value = false
+    errorMessage.value = error.message
+  } finally {
+    isValidatingCode.value = false
+  }
+}
+
 const handleSignup = async () => {
   errorMessage.value = ''
+  
+  // Validate invite code first
+  if (!formData.value.inviteCode) {
+    errorMessage.value = 'Invite code is required'
+    return
+  }
   
   // Validate passwords match
   if (formData.value.password !== formData.value.confirmPassword) {
@@ -69,6 +122,9 @@ const handleSignup = async () => {
   isLoading.value = true
   
   try {
+    // Validate invite code again right before signup
+    await validateInviteCode(formData.value.inviteCode)
+    
     // Create Firebase Auth account
     const userCredential = await createUserWithEmailAndPassword(
       auth,
@@ -102,7 +158,7 @@ const handleSignup = async () => {
         errorMessage.value = 'Network error. Please check your connection and try again.'
         break
       default:
-        errorMessage.value = 'Failed to create account. Please try again.'
+        errorMessage.value = error.message || 'Failed to create account. Please try again.'
         console.error('Signup error:', error)
     }
   } finally {
@@ -112,9 +168,19 @@ const handleSignup = async () => {
 
 const handleGoogleSignup = async () => {
   errorMessage.value = ''
+  
+  // Validate invite code first
+  if (!formData.value.inviteCode) {
+    errorMessage.value = 'Invite code is required'
+    return
+  }
+  
   isLoading.value = true
   
   try {
+    // Validate invite code
+    await validateInviteCode(formData.value.inviteCode)
+    
     const provider = new GoogleAuthProvider()
     provider.setCustomParameters({
       prompt: 'select_account'
@@ -150,7 +216,7 @@ const handleGoogleSignup = async () => {
         errorMessage.value = 'Network error. Please check your connection and try again.'
         break
       default:
-        errorMessage.value = 'Failed to sign up with Google. Please try again.'
+        errorMessage.value = error.message || 'Failed to sign up with Google. Please try again.'
         console.error('Google signup error:', error)
     }
   } finally {
@@ -173,71 +239,104 @@ const handleGoogleSignup = async () => {
           </div>
 
           <form @submit.prevent="handleSignup" class="auth-form">
+            <!-- Invite Code Field (First) -->
             <div class="form-group">
-              <label class="form-label">Organization Name</label>
-              <input 
-                v-model="formData.organizationName"
-                type="text" 
-                class="form-input"
-                placeholder="My Record Label"
-                required
-                :disabled="isLoading"
-              />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Email Address</label>
-              <input 
-                v-model="formData.email"
-                type="email" 
-                class="form-input"
-                placeholder="you@example.com"
-                required
-                :disabled="isLoading"
-              />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Password</label>
-              <input 
-                v-model="formData.password"
-                type="password" 
-                class="form-input"
-                placeholder="Create a strong password"
-                required
-                minlength="8"
-                :disabled="isLoading"
-              />
-              <div class="form-hint">Minimum 8 characters</div>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Confirm Password</label>
-              <input 
-                v-model="formData.confirmPassword"
-                type="password" 
-                class="form-input"
-                placeholder="Confirm your password"
-                required
-                :disabled="isLoading"
-              />
-            </div>
-
-            <div class="form-group">
-              <label class="form-checkbox">
+              <label class="form-label">
+                Invite Code
+                <span class="required">*</span>
+              </label>
+              <div class="invite-code-wrapper">
                 <input 
-                  v-model="formData.acceptTerms"
-                  type="checkbox"
+                  v-model="formData.inviteCode"
+                  type="text" 
+                  class="form-input"
+                  :class="{ 'validated': codeValidated && !isValidatingCode }"
+                  placeholder="Enter your invite code"
+                  required
+                  :disabled="isLoading"
+                  @blur="handleCodeValidation"
+                  @input="formData.inviteCode = formData.inviteCode.toUpperCase()"
+                />
+                <div v-if="isValidatingCode" class="code-status">
+                  <font-awesome-icon icon="spinner" spin />
+                </div>
+                <div v-else-if="codeValidated" class="code-status validated">
+                  <font-awesome-icon icon="check-circle" />
+                </div>
+              </div>
+              <div class="form-hint">
+                Contact an existing member to get an invite code
+              </div>
+            </div>
+
+            <!-- Only show other fields if code is validated -->
+            <template v-if="codeValidated">
+              <div class="form-group">
+                <label class="form-label">Organization Name</label>
+                <input 
+                  v-model="formData.organizationName"
+                  type="text" 
+                  class="form-input"
+                  placeholder="My Record Label"
+                  required
                   :disabled="isLoading"
                 />
-                <span>
-                  I agree to the 
-                  <a href="/terms" target="_blank" class="auth-link">Terms of Service</a>
-                  and 
-                  <a href="/privacy" target="_blank" class="auth-link">Privacy Policy</a>
-                </span>
-              </label>
-            </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Email Address</label>
+                <input 
+                  v-model="formData.email"
+                  type="email" 
+                  class="form-input"
+                  placeholder="you@example.com"
+                  required
+                  :disabled="isLoading"
+                />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Password</label>
+                <input 
+                  v-model="formData.password"
+                  type="password" 
+                  class="form-input"
+                  placeholder="Create a strong password"
+                  required
+                  minlength="8"
+                  :disabled="isLoading"
+                />
+                <div class="form-hint">Minimum 8 characters</div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Confirm Password</label>
+                <input 
+                  v-model="formData.confirmPassword"
+                  type="password" 
+                  class="form-input"
+                  placeholder="Confirm your password"
+                  required
+                  :disabled="isLoading"
+                />
+              </div>
+
+              <div class="form-group">
+                <label class="form-checkbox">
+                  <input 
+                    v-model="formData.acceptTerms"
+                    type="checkbox"
+                    :disabled="isLoading"
+                  />
+                  <span>
+                    I agree to the 
+                    <a href="/terms" target="_blank" class="auth-link">Terms of Service</a>
+                    and 
+                    <a href="/privacy" target="_blank" class="auth-link">Privacy Policy</a>
+                  </span>
+                </label>
+              </div>
+            </template>
 
             <div v-if="errorMessage" class="form-error">
               <font-awesome-icon icon="times" />
@@ -247,16 +346,17 @@ const handleGoogleSignup = async () => {
             <button 
               type="submit" 
               class="btn btn-primary btn-block"
-              :disabled="isLoading"
+              :disabled="isLoading || !codeValidated"
             >
               {{ isLoading ? 'Creating account...' : 'Create Account' }}
             </button>
 
-            <div class="auth-divider">
+            <div v-if="codeValidated" class="auth-divider">
               <span>or</span>
             </div>
 
             <button 
+              v-if="codeValidated"
               type="button"
               @click="handleGoogleSignup"
               class="btn btn-secondary btn-block"
@@ -282,7 +382,7 @@ const handleGoogleSignup = async () => {
 </template>
 
 <style scoped>
-/* Keep all existing styles - they're already perfect */
+/* Keep all existing styles and add new ones */
 .auth-page {
   min-height: calc(100vh - 64px);
   display: flex;
@@ -413,5 +513,37 @@ const handleGoogleSignup = async () => {
 
 .auth-link:hover {
   text-decoration: underline;
+}
+
+/* New styles for invite code */
+.required {
+  color: var(--color-error);
+  margin-left: var(--space-xs);
+}
+
+.invite-code-wrapper {
+  position: relative;
+}
+
+.code-status {
+  position: absolute;
+  right: var(--space-md);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-tertiary);
+}
+
+.code-status.validated {
+  color: var(--color-success);
+}
+
+.form-input.validated {
+  border-color: var(--color-success);
+  padding-right: calc(var(--space-md) * 3);
+}
+
+.form-input.validated:focus {
+  border-color: var(--color-success);
+  box-shadow: 0 0 0 3px rgba(52, 168, 83, 0.2);
 }
 </style>
