@@ -1,6 +1,6 @@
 {
   "name": "@stardust-distro/cli",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "CLI for creating and managing Stardust Distro music distribution platforms",
   "type": "module",
   "main": "bin/stardust-distro.js",

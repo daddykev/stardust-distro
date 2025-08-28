@@ -33,7 +33,7 @@ A complete, production-ready distribution platform that includes:
 
 ## 🚀 Current Development Status
 
-**Release Candidate - v0.9.5** (August 2025)
+**Release Candidate - v0.9.6** (August 2025)
 
 ### 🎉 Phase 6: Production Launch Essentials - COMPLETE
 
@@ -90,7 +90,7 @@ We're excited to announce that **Phase 6 is now complete**, bringing the platfor
 
 ### 🚧 Remaining Pre-Launch Tasks
 - [x] Security audit checklist ✅ COMPLETE (August 27, 2025)
-- [ ] NPM package publication
+- [x] NPM package publication
 - [ ] GitHub release preparation
 - [ ] Launch announcement
 

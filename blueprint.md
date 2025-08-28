@@ -25,7 +25,7 @@ Democratize music distribution by providing a complete, DDEX-compliant distribut
 
 ## Development Status
 
-**Release Candidate - v0.9.5** (August 2025)
+**Release Candidate - v0.9.6** (August 2025)
 
 ### ✅ Phase 1: Foundation - COMPLETE
 - Full Vue 3 application with routing and views
@@ -106,7 +106,7 @@ Democratize music distribution by providing a complete, DDEX-compliant distribut
 
 ### 🚧 Pre-Launch Tasks
 - [x] **Security audit checklist** ✅ COMPLETE (August 27, 2025)
-- [ ] NPM package publication
+- [x] NPM package publication (v0.9.6)
 - [ ] GitHub release preparation
 - [ ] Launch announcement
 
