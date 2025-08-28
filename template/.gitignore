@@ -36,6 +36,21 @@ jspm_packages/
 .env.development
 !.env.example
 
+# Firebase service accounts - CRITICAL SECURITY
+*.serviceaccount.json
+*-service-account.json
+serviceAccountKey.json
+firebase-adminsdk-*.json
+service-account-*.json
+functions/*.serviceaccount.json
+functions/serviceAccountKey.json
+
+# Functions specific
+functions/.env
+functions/.env.*
+functions/lib/
+functions/node_modules/
+
 # Firebase
 .firebase/
 firebase-debug.log*

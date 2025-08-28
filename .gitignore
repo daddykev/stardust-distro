@@ -67,6 +67,17 @@ jspm_packages/
 .env.*.local
 .env.production
 .env.development
+!.env.example
+
+# Firebase service accounts - CRITICAL SECURITY
+*.serviceaccount.json
+*-service-account.json
+serviceAccountKey.json
+firebase-adminsdk-*.json
+service-account-*.json
+template/*.serviceaccount.json
+template/functions/*.serviceaccount.json
+cli/*.serviceaccount.json
 
 # Build directories - CRITICAL
 dist/
@@ -133,10 +144,11 @@ cypress/screenshots/
 test-results/
 playwright-report/
 
-# Package manager files
-pnpm-lock.yaml
-package-lock.json
-yarn.lock
+# Package manager files (if you want consistency)
+# Uncomment the ones you DON'T use:
+# pnpm-lock.yaml
+# package-lock.json
+# yarn.lock
 
 # Lerna
 lerna-debug.log
@@ -147,6 +159,8 @@ lerna-debug.log
 *.crt
 *.p12
 *.pfx
+private/
+certificates/
 
 # Sensitive configuration
 config.local.js
