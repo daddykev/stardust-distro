@@ -383,7 +383,39 @@ stardust-distro/
 │           └── (full Vue app)     # Complete template structure ✅
 ├── node_modules/                  # Dependencies (git-ignored)
 ├── template/                      # Default project template
+│   ├── dist/                      # Build output (git-ignored)
+│   ├── docs/                      # Documentation
+│   │   ├── api-reference.md       # API reference guide ✅
+│   │   ├── catalog-import.md      # Catalog migration guide ✅
+│   │   ├── configuration.md       # Configuration guide ✅
+│   │   ├── DDEX.md                # DDEX standards implementation ✅
+│   │   ├── delivery-setup.md      # Delivery target setup ✅
+│   │   ├── genre-mapping.md       # Genre mapping guide ✅
+│   │   ├── getting-started.md     # Quick start guide ✅
+│   │   ├── release-creation.md    # Release creation guide ✅
+│   │   ├── testing-guide.md       # Testing component guide ✅
+│   │   └── troubleshooting.md     # Troubleshooting guide ✅
+│   ├── functions/                 # Cloud Functions
+│   │   ├── api/                   # App API
+│   │   │   └── deezer.js          # Deezer API functions ✅
+│   │   ├── middleware/            # Middleware functions
+│   │   │   ├── auth.js            # To verify authentication ✅
+│   │   │   └── validation.js      # Factory for request validation ✅
+│   │   ├── node_modules/          # Dependencies (git-ignored)
+│   │   ├── utils/                 # Middleware functions
+│   │   │   └── validation.js      # Validation schemas for cloud functions ✅
+│   │   ├── encryption.js          # Server-side encrypt-decrypt ✅
+│   │   ├── index.js               # Main functions and exports (v2) ✅
+│   │   ├── package.json           # Dependencies (v2) ✅
+│   │   └── package-lock.json      # Locked dependencies ✅
+│   ├── public/                    # Static assets
+│   │   └── index.html             # HTML template ✅
 │   ├── src/                       # Vue application
+│   │   ├── assets/                # Design system CSS architecture
+│   │   │   ├── base.css           # CSS reset, normalization, base typography ✅
+│   │   │   ├── components.css     # Reusable component & utility classes ✅
+│   │   │   ├── main.css           # Entry point importing all stylesheets ✅
+│   │   │   └── themes.css         # CSS custom properties, light/dark themes ✅
 │   │   ├── components/            # UI components
 │   │   │   ├── delivery/          # Delivery management
 │   │   │   │   └── DeliveryTargetForm.vue  # Target configuration ✅
@@ -392,51 +424,10 @@ stardust-distro/
 │   │   │   ├── MigrationStatus.vue  # Catalog import modal ✅
 │   │   │   ├── NavBar.vue         # Navigation bar component ✅
 │   │   │   └── ReconciliationDashboard.vue  # Delivery receipts ✅
-│   │   ├── views/                 # Page views
-│   │   │   ├── Analytics.vue      # Usage analytics ✅
-│   │   │   ├── Catalog.vue        # Catalog management ✅
-│   │   │   ├── Dashboard.vue      # Main dashboard ✅
-│   │   │   ├── Deliveries.vue     # Delivery management ✅
-│   │   │   ├── EditRelease.vue    # Release editor ✅
-│   │   │   ├── GenreMaps.vue      # Genre map management ✅
-│   │   │   ├── Login.vue          # Authentication page ✅
-│   │   │   ├── Migration.vue      # Catalog migration manager ✅
-│   │   │   ├── NewDelivery.vue    # Create delivery ✅
-│   │   │   ├── NewRelease.vue     # Create release wizard ✅
-│   │   │   ├── NotFound.vue       # 404 page ✅
-│   │   │   ├── ReleaseDetail.vue  # Release details page ✅
-│   │   │   ├── Settings.vue       # Platform settings ✅
-│   │   │   ├── Signup.vue         # Account creation page ✅
-│   │   │   ├── SplashPage.vue     # Landing/marketing page ✅
-│   │   │   └── Testing.vue        # Comprehensive testing suite ✅
 │   │   ├── composables/           # Vue composables
 │   │   │   ├── useAuth.js         # Authentication composable ✅
 │   │   │   ├── useCatalog.js      # Catalog operations ✅
 │   │   │   └── useDelivery.js     # Delivery operations ✅
-│   │   ├── services/              # API services
-│   │   │   ├── apple.js           # Apple Music XML generation ✅
-│   │   │   ├── apple/             # Apple versions
-│   │   │   │   ├── apple-5323.js  # Apple 5.3.23 builder ✅
-│   │   │   ├── assets.js          # Asset management ✅
-│   │   │   ├── catalog.js         # Catalog operations ✅
-│   │   │   ├── delivery.js        # Delivery operations ✅
-│   │   │   ├── deliveryHistory.js # Logger for delivery history ✅
-│   │   │   ├── deliveryTargets.js # Target management ✅
-│   │   │   ├── ern.js             # ERN XML generation ✅
-│   │   │   ├── ern/               # ERN versions
-│   │   │   │   ├── ern-42.js      # ERN 4.2 builder ✅
-│   │   │   │   ├── ern-43.js      # ERN 4.3 builder ✅
-│   │   │   │   └── ern-382.js     # ERN 3.8.2 builder ✅
-│   │   │   ├── fingerprints.js    # Fingerprint service with cloud functions ✅
-│   │   │   ├── genreMappings.js   # Genre map Firestore service ✅
-│   │   │   ├── import.js          # Catalog migration service ✅
-│   │   │   ├── receipts.js        # Enhanced delivery receipts ✅
-│   │   │   └── testTargets.js     # Test DSP targets ✅
-│   │   ├── utils/                 # Utils
-│   │   │   ├── releaseClassifier.js  # Classify release by DDEX standards ✅
-│   │   │   ├── santizer.js        # Frontend Sanitizer Utility ✅
-│   │   │   ├── urlUtils.js        # Escapes URLs for safe XML ✅
-│   │   │   └── validation.js      # Frontend Validation Schemas ✅
 │   │   ├── dictionaries/          # Centralized data dictionaries
 │   │   │   ├── contributors/      # Contributor roles
 │   │   │   │   ├── composer-lyricist.js  # Composer-lyricist roles ✅
@@ -461,35 +452,50 @@ stardust-distro/
 │   │   │       └── index.js       # Based on ISO 3166-1 ✅
 │   │   ├── router/                # Vue Router
 │   │   │   └── index.js           # Route definitions ✅
-│   │   ├── assets/                # Design system CSS architecture
-│   │   │   ├── base.css           # CSS reset, normalization, base typography ✅
-│   │   │   ├── components.css     # Reusable component & utility classes ✅
-│   │   │   ├── main.css           # Entry point importing all stylesheets ✅
-│   │   │   └── themes.css         # CSS custom properties, light/dark themes ✅
+│   │   ├── services/              # API services
+│   │   │   ├── apple.js           # Apple Music XML generation ✅
+│   │   │   ├── apple/             # Apple versions
+│   │   │   │   ├── apple-5323.js  # Apple 5.3.23 builder ✅
+│   │   │   ├── assets.js          # Asset management ✅
+│   │   │   ├── catalog.js         # Catalog operations ✅
+│   │   │   ├── delivery.js        # Delivery operations ✅
+│   │   │   ├── deliveryHistory.js # Logger for delivery history ✅
+│   │   │   ├── deliveryTargets.js # Target management ✅
+│   │   │   ├── ern.js             # ERN XML generation ✅
+│   │   │   ├── ern/               # ERN versions
+│   │   │   │   ├── ern-42.js      # ERN 4.2 builder ✅
+│   │   │   │   ├── ern-43.js      # ERN 4.3 builder ✅
+│   │   │   │   └── ern-382.js     # ERN 3.8.2 builder ✅
+│   │   │   ├── fingerprints.js    # Fingerprint service with cloud functions ✅
+│   │   │   ├── genreMappings.js   # Genre map Firestore service ✅
+│   │   │   ├── import.js          # Catalog migration service ✅
+│   │   │   ├── receipts.js        # Enhanced delivery receipts ✅
+│   │   │   └── testTargets.js     # Test DSP targets ✅
+│   │   ├── utils/                 # Utils
+│   │   │   ├── releaseClassifier.js  # Classify release by DDEX standards ✅
+│   │   │   ├── santizer.js        # Frontend Sanitizer Utility ✅
+│   │   │   ├── urlUtils.js        # Escapes URLs for safe XML ✅
+│   │   │   └── validation.js      # Frontend Validation Schemas ✅
+│   │   ├── views/                 # Page views
+│   │   │   ├── Analytics.vue      # Usage analytics ✅
+│   │   │   ├── Catalog.vue        # Catalog management ✅
+│   │   │   ├── Dashboard.vue      # Main dashboard ✅
+│   │   │   ├── Deliveries.vue     # Delivery management ✅
+│   │   │   ├── EditRelease.vue    # Release editor ✅
+│   │   │   ├── GenreMaps.vue      # Genre map management ✅
+│   │   │   ├── Login.vue          # Authentication page ✅
+│   │   │   ├── Migration.vue      # Catalog migration manager ✅
+│   │   │   ├── NewDelivery.vue    # Create delivery ✅
+│   │   │   ├── NewRelease.vue     # Create release wizard ✅
+│   │   │   ├── NotFound.vue       # 404 page ✅
+│   │   │   ├── ReleaseDetail.vue  # Release details page ✅
+│   │   │   ├── Settings.vue       # Platform settings ✅
+│   │   │   ├── Signup.vue         # Account creation page ✅
+│   │   │   ├── SplashPage.vue     # Landing/marketing page ✅
+│   │   │   └── Testing.vue        # Comprehensive testing suite ✅
 │   │   ├── firebase.js            # Firebase initialization ✅
 │   │   ├── App.vue                # Root component with theme management ✅
 │   │   └── main.js                # Entry point with FontAwesome setup ✅
-│   ├── dist/                      # Build output (git-ignored)
-│   ├── docs/                      # Documentation
-│   │   ├── api-reference.md       # API reference guide ✅
-│   │   ├── catalog-import.md      # Catalog migration guide ✅
-│   │   ├── configuration.md       # Configuration guide ✅
-│   │   ├── DDEX.md                # DDEX standards implementation ✅
-│   │   ├── delivery-setup.md      # Delivery target setup ✅
-│   │   ├── genre-mapping.md       # Genre mapping guide ✅
-│   │   ├── getting-started.md     # Quick start guide ✅
-│   │   ├── release-creation.md    # Release creation guide ✅
-│   │   ├── testing-guide.md       # Testing component guide ✅
-│   │   └── troubleshooting.md     # Troubleshooting guide ✅
-│   ├── functions/                 # Cloud Functions
-│   │   ├── api/                   # App API
-│   │   │   └── deezer.js          # Deezer Public API functions ✅
-│   │   ├── index.js               # Function exports (v2 implementation) ✅
-│   │   ├── package.json           # Dependencies (v2) ✅
-│   │   ├── package-lock.json      # Locked dependencies ✅
-│   │   └── node_modules/          # Dependencies (git-ignored) ✅
-│   ├── public/                    # Static assets
-│   │   └── index.html             # HTML template ✅
 │   ├── .env                       # Environment variables (git-ignored) ✅
 │   ├── .env.example               # Environment template ✅
 │   ├── .gitignore                 # Git ignore ✅
