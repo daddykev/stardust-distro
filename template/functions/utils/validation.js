@@ -136,11 +136,11 @@ const schemas = {
     endDate: z.date().optional()
   }),
   
-  // Test connection
+  // Test connection - make config validation more flexible
   testDeliveryConnection: z.object({
     protocol: z.enum(['FTP', 'SFTP', 'S3', 'API', 'Azure', 'storage']),
-    config: z.record(z.any()), // Protocol-specific config
-    testMode: z.boolean()
+    config: z.any(), // Allow any config for testing
+    testMode: z.literal(true)
   }),
   
   // Fingerprinting

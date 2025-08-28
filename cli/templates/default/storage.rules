@@ -1,0 +1,36 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    // Audio files
+    match /audio/{tenantId}/{releaseId}/{filename} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.resource.size < 500 * 1024 * 1024;
+    }
+    
+    // Image files
+    match /images/{tenantId}/{releaseId}/{filename} {
+      allow read: if true; // Public images
+      allow write: if isAuthenticated() && request.resource.size < 10 * 1024 * 1024;
+    }
+    
+    // Documents
+    match /documents/{tenantId}/{filename} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.resource.size < 50 * 1024 * 1024;
+    }
+    
+    // User uploads (temporary)
+    match /temp/{userId}/{filename} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}

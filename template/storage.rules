@@ -1,0 +1,76 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+    
+    function isValidAudioFile() {
+      return request.resource.contentType.matches('audio/(wav|flac|mpeg|mp3)') &&
+             request.resource.size < 500 * 1024 * 1024; // 500MB limit
+    }
+    
+    function isValidImageFile() {
+      return request.resource.contentType.matches('image/(jpeg|jpg|png)') &&
+             request.resource.size < 10 * 1024 * 1024; // 10MB limit
+    }
+    
+    function isValidERNFile() {
+      return request.resource.contentType == 'text/xml' &&
+             request.resource.size < 5 * 1024 * 1024; // 5MB limit
+    }
+    
+    // Test paths - allow authenticated users to test
+    match /test/{allPaths=**} {
+      allow read, write: if isAuthenticated() && 
+        request.resource.size < 10 * 1024 * 1024; // 10MB limit for test files
+    }
+    
+    // User-scoped paths only
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && 
+        (isValidAudioFile() || isValidImageFile() || isValidERNFile());
+    }
+    
+    // Release assets - tenant-scoped
+    match /releases/{releaseId}/{allPaths=**} {
+      allow read: if isAuthenticated(); // Check release ownership in app
+      allow create: if isAuthenticated() && 
+        (isValidAudioFile() || isValidImageFile());
+      allow update: if false; // Immutable
+      allow delete: if isAuthenticated(); // Check ownership in app
+    }
+    
+    // Delivery packages - read-only after creation
+    match /deliveries/{deliveryId}/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if false; // Immutable
+      allow delete: if false; // Keep for audit
+    }
+    
+    // Temporary uploads - auto-cleanup after 24h
+    match /temp/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && 
+        request.time < resource.timeCreated + duration.value(24, 'h');
+    }
+    
+    // Public assets (if needed)
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if false; // Admin SDK only
+    }
+    
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

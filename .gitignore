@@ -88,7 +88,6 @@ firestore-debug.log
 pubsub-debug.log
 ui-debug.log
 database-debug.log
-storage.rules
 
 # IDE - VSCode
 .vscode/*
