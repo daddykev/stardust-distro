@@ -1662,18 +1662,18 @@ const toggleAutoScroll = () => {
 </script>
 
 <template>
-  <div class="testing">
+  <div class="testing section">
     <div class="container">
       <!-- Page Header -->
-      <div class="page-header">
+      <div class="page-header mb-xl">
         <div>
-          <h1 class="page-title">Production Testing Suite</h1>
-          <p class="page-subtitle">Test DDEX compliance, delivery protocols, and system health</p>
-          <div v-if="isProduction" class="production-badge">
+          <h1 class="text-3xl font-bold mb-xs">Production Testing Suite</h1>
+          <p class="text-lg text-secondary">Test DDEX compliance, delivery protocols, and system health</p>
+          <div v-if="isProduction" class="production-badge mt-sm">
             <font-awesome-icon icon="check-circle" /> Production Environment
           </div>
         </div>
-        <div class="header-actions">
+        <div class="header-actions flex gap-md">
           <button @click="exportResults" class="btn btn-secondary" :disabled="!hasResults">
             <font-awesome-icon icon="download" />
             Export Results
@@ -1686,68 +1686,72 @@ const toggleAutoScroll = () => {
       </div>
 
       <!-- Health Score Card -->
-      <div class="health-score-card" :class="healthScoreClass">
-        <div class="health-score-content">
-          <div class="health-score-main">
-            <div class="health-label">System Health Score</div>
-            <div class="health-value">
-              <span class="health-number">{{ savedHealthScore !== null ? savedHealthScore : (hasResults ? healthScore : '—') }}</span>
-              <span class="health-percent">{{ savedHealthScore !== null || hasResults ? '%' : '' }}</span>
+      <div class="health-score-card card mb-xl" :class="healthScoreClass">
+        <div class="card-body">
+          <div class="health-score-content">
+            <div class="health-score-main">
+              <div class="health-label">System Health Score</div>
+              <div class="health-value">
+                <span class="health-number">{{ savedHealthScore !== null ? savedHealthScore : (hasResults ? healthScore : '—') }}</span>
+                <span class="health-percent">{{ savedHealthScore !== null || hasResults ? '%' : '' }}</span>
+              </div>
+              <div class="health-status">
+                <span v-if="savedHealthScore !== null || hasResults">
+                  {{ savedHealthScore >= 90 || healthScore >= 90 ? 'Excellent' : 
+                     savedHealthScore >= 70 || healthScore >= 70 ? 'Good' : 'Needs Attention' }}
+                </span>
+                <span v-else>No tests run yet</span>
+              </div>
             </div>
-            <div class="health-status">
-              <span v-if="savedHealthScore !== null || hasResults">
-                {{ savedHealthScore >= 90 || healthScore >= 90 ? 'Excellent' : 
-                   savedHealthScore >= 70 || healthScore >= 70 ? 'Good' : 'Needs Attention' }}
-              </span>
-              <span v-else>No tests run yet</span>
-            </div>
-          </div>
-          <div class="health-score-details">
-            <div class="health-detail-item">
-              <font-awesome-icon icon="clock" />
-              <span>Last Full Test: {{ formatDateTime(lastFullTestTime) }}</span>
-            </div>
-            <div v-if="lastFullTestTime" class="health-detail-item">
-              <font-awesome-icon icon="user" />
-              <span>Run by: {{ user?.email?.split('@')[0] || 'Unknown' }}</span>
-            </div>
-            <div v-if="hasResults" class="health-detail-item">
-              <font-awesome-icon icon="chart-bar" />
-              <span>{{ passedTests }}/{{ totalTests }} tests passing</span>
+            <div class="health-score-details">
+              <div class="health-detail-item">
+                <font-awesome-icon icon="clock" />
+                <span>Last Full Test: {{ formatDateTime(lastFullTestTime) }}</span>
+              </div>
+              <div v-if="lastFullTestTime" class="health-detail-item">
+                <font-awesome-icon icon="user" />
+                <span>Run by: {{ user?.email?.split('@')[0] || 'Unknown' }}</span>
+              </div>
+              <div v-if="hasResults" class="health-detail-item">
+                <font-awesome-icon icon="chart-bar" />
+                <span>{{ passedTests }}/{{ totalTests }} tests passing</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Test Results Summary -->
-      <div v-if="hasResults" class="test-summary">
-        <div class="summary-grid">
-          <div class="summary-card" :class="{ success: passedTests === totalTests }">
-            <div class="summary-value">{{ passedTests }}/{{ totalTests }}</div>
-            <div class="summary-label">Tests Passed</div>
-          </div>
-          <div class="summary-card">
-            <div class="summary-value">{{ Math.round(testDuration / 1000) }}s</div>
-            <div class="summary-label">Total Duration</div>
-          </div>
-          <div class="summary-card" :class="{ success: healthScore >= 90, warning: healthScore >= 70 && healthScore < 90, error: healthScore < 70 }">
-            <div class="summary-value">{{ healthScore }}%</div>
-            <div class="summary-label">Current Run Score</div>
-          </div>
-          <div class="summary-card">
-            <div class="summary-value">{{ lastTestTime }}</div>
-            <div class="summary-label">Last Run</div>
+      <div v-if="hasResults" class="test-summary card mb-xl">
+        <div class="card-body">
+          <div class="summary-grid">
+            <div class="summary-card" :class="{ success: passedTests === totalTests }">
+              <div class="summary-value">{{ passedTests }}/{{ totalTests }}</div>
+              <div class="summary-label">Tests Passed</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-value">{{ Math.round(testDuration / 1000) }}s</div>
+              <div class="summary-label">Total Duration</div>
+            </div>
+            <div class="summary-card" :class="{ success: healthScore >= 90, warning: healthScore >= 70 && healthScore < 90, error: healthScore < 70 }">
+              <div class="summary-value">{{ healthScore }}%</div>
+              <div class="summary-label">Current Run Score</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-value">{{ lastTestTime }}</div>
+              <div class="summary-label">Last Run</div>
+            </div>
           </div>
         </div>
       </div>
 
       <!-- Test Categories -->
-      <div class="test-grid">
+      <div class="test-grid mb-xl">
         
         <!-- System Health Tests -->
-        <div class="test-category">
-          <div class="category-header">
-            <h3>
+        <div class="test-category card">
+          <div class="card-header category-header">
+            <h3 class="m-0">
               <font-awesome-icon icon="heartbeat" />
               System Health
             </h3>
@@ -1759,28 +1763,30 @@ const toggleAutoScroll = () => {
               Run Tests
             </button>
           </div>
-          <div class="test-list">
-            <div 
-              v-for="test in systemTests" 
-              :key="test.id"
-              class="test-item"
-              :class="getTestClass(test)"
-            >
-              <div class="test-info">
-                <div class="test-name">{{ test.name }}</div>
-                <div class="test-description">{{ test.description }}</div>
-              </div>
-              <div class="test-status">
-                <TestStatus :status="test.status" :duration="test.duration" />
+          <div class="card-body p-sm">
+            <div class="test-list">
+              <div 
+                v-for="test in systemTests" 
+                :key="test.id"
+                class="test-item"
+                :class="getTestClass(test)"
+              >
+                <div class="test-info">
+                  <div class="test-name">{{ test.name }}</div>
+                  <div class="test-description">{{ test.description }}</div>
+                </div>
+                <div class="test-status">
+                  <TestStatus :status="test.status" :duration="test.duration" />
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         <!-- DDEX Compliance Tests -->
-        <div class="test-category">
-          <div class="category-header">
-            <h3>
+        <div class="test-category card">
+          <div class="card-header category-header">
+            <h3 class="m-0">
               <font-awesome-icon icon="file-code" />
               DDEX Compliance
             </h3>
@@ -1792,28 +1798,30 @@ const toggleAutoScroll = () => {
               Run Tests
             </button>
           </div>
-          <div class="test-list">
-            <div 
-              v-for="test in ddexTests" 
-              :key="test.id"
-              class="test-item"
-              :class="getTestClass(test)"
-            >
-              <div class="test-info">
-                <div class="test-name">{{ test.name }}</div>
-                <div class="test-description">{{ test.description }}</div>
-              </div>
-              <div class="test-status">
-                <TestStatus :status="test.status" :duration="test.duration" :details="test.details" />
+          <div class="card-body p-sm">
+            <div class="test-list">
+              <div 
+                v-for="test in ddexTests" 
+                :key="test.id"
+                class="test-item"
+                :class="getTestClass(test)"
+              >
+                <div class="test-info">
+                  <div class="test-name">{{ test.name }}</div>
+                  <div class="test-description">{{ test.description }}</div>
+                </div>
+                <div class="test-status">
+                  <TestStatus :status="test.status" :duration="test.duration" :details="test.details" />
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         <!-- Delivery Protocol Tests -->
-        <div class="test-category">
-          <div class="category-header">
-            <h3>
+        <div class="test-category card">
+          <div class="card-header category-header">
+            <h3 class="m-0">
               <font-awesome-icon icon="paper-plane" />
               Delivery Protocols
             </h3>
@@ -1825,32 +1833,34 @@ const toggleAutoScroll = () => {
               Run Tests
             </button>
           </div>
-          <div class="test-list">
-            <div 
-              v-for="test in deliveryTests" 
-              :key="test.id"
-              class="test-item"
-              :class="getTestClass(test)"
-            >
-              <div class="test-info">
-                <div class="test-name">{{ test.name }}</div>
-                <div class="test-description">{{ test.description }}</div>
-                <div v-if="test.target" class="test-target">
-                  <font-awesome-icon icon="server" />
-                  {{ test.target }}
+          <div class="card-body p-sm">
+            <div class="test-list">
+              <div 
+                v-for="test in deliveryTests" 
+                :key="test.id"
+                class="test-item"
+                :class="getTestClass(test)"
+              >
+                <div class="test-info">
+                  <div class="test-name">{{ test.name }}</div>
+                  <div class="test-description">{{ test.description }}</div>
+                  <div v-if="test.target" class="test-target">
+                    <font-awesome-icon icon="server" />
+                    {{ test.target }}
+                  </div>
                 </div>
-              </div>
-              <div class="test-status">
-                <TestStatus :status="test.status" :duration="test.duration" :error="test.error" />
+                <div class="test-status">
+                  <TestStatus :status="test.status" :duration="test.duration" :error="test.error" />
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         <!-- Performance Tests -->
-        <div class="test-category">
-          <div class="category-header">
-            <h3>
+        <div class="test-category card">
+          <div class="card-header category-header">
+            <h3 class="m-0">
               <font-awesome-icon icon="tachometer-alt" />
               Performance
             </h3>
@@ -1862,25 +1872,27 @@ const toggleAutoScroll = () => {
               Run Tests
             </button>
           </div>
-          <div class="test-list">
-            <div 
-              v-for="test in performanceTests" 
-              :key="test.id"
-              class="test-item"
-              :class="getTestClass(test)"
-            >
-              <div class="test-info">
-                <div class="test-name">{{ test.name }}</div>
-                <div class="test-description">{{ test.description }}</div>
-              </div>
-              <div class="test-status">
-                <div v-if="test.result" class="perf-result">
-                  <span class="perf-value">{{ test.result.value }}{{ test.result.unit }}</span>
-                  <span class="perf-target" :class="{ good: test.result.passed }">
-                    Target: {{ test.result.target }}{{ test.result.unit }}
-                  </span>
+          <div class="card-body p-sm">
+            <div class="test-list">
+              <div 
+                v-for="test in performanceTests" 
+                :key="test.id"
+                class="test-item"
+                :class="getTestClass(test)"
+              >
+                <div class="test-info">
+                  <div class="test-name">{{ test.name }}</div>
+                  <div class="test-description">{{ test.description }}</div>
                 </div>
-                <span v-else class="test-pending">—</span>
+                <div class="test-status">
+                  <div v-if="test.result" class="perf-result">
+                    <span class="perf-value">{{ test.result.value }}{{ test.result.unit }}</span>
+                    <span class="perf-target" :class="{ good: test.result.passed }">
+                      Target: {{ test.result.target }}{{ test.result.unit }}
+                    </span>
+                  </div>
+                  <span v-else class="test-pending">—</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1888,37 +1900,43 @@ const toggleAutoScroll = () => {
       </div>
 
       <!-- Test Log -->
-      <div v-if="showLog" class="test-log">
-        <div class="log-header">
-          <h3>Test Execution Log</h3>
-          <div class="log-controls">
-            <button @click="clearLog" class="btn btn-sm">Clear</button>
-            <button @click="toggleAutoScroll" class="btn btn-sm">
+      <div v-if="showLog" class="test-log card">
+        <div class="card-header log-header">
+          <h3 class="m-0">Test Execution Log</h3>
+          <div class="log-controls flex gap-sm">
+            <button @click="clearLog" class="btn btn-sm btn-secondary">Clear</button>
+            <button @click="toggleAutoScroll" class="btn btn-sm btn-secondary">
               {{ autoScroll ? 'Auto-scroll On' : 'Auto-scroll Off' }}
             </button>
           </div>
         </div>
-        <div class="log-entries" ref="logContainer">
-          <div 
-            v-for="(entry, index) in testLog" 
-            :key="index"
-            class="log-entry"
-            :class="`log-${entry.level}`"
-          >
-            <span class="log-time">{{ formatTime(entry.timestamp) }}</span>
-            <span class="log-level">{{ entry.level }}</span>
-            <span class="log-message">{{ entry.message }}</span>
+        <div class="card-body p-0">
+          <div class="log-entries" ref="logContainer">
+            <div 
+              v-for="(entry, index) in testLog" 
+              :key="index"
+              class="log-entry"
+              :class="`log-${entry.level}`"
+            >
+              <span class="log-time">{{ formatTime(entry.timestamp) }}</span>
+              <span class="log-level">{{ entry.level }}</span>
+              <span class="log-message">{{ entry.message }}</span>
+            </div>
           </div>
         </div>
       </div>
 
       <!-- Failed Tests Details -->
-      <div v-if="failedTests.length > 0" class="failed-tests">
-        <h3>Failed Tests</h3>
-        <div class="failed-list">
-          <div v-for="test in failedTests" :key="test.id" class="failed-item">
-            <div class="failed-name">{{ test.name }}</div>
-            <div class="failed-error">{{ test.error || 'Test failed' }}</div>
+      <div v-if="failedTests.length > 0" class="failed-tests card">
+        <div class="card-header">
+          <h3 class="text-error m-0">Failed Tests</h3>
+        </div>
+        <div class="card-body">
+          <div class="failed-list">
+            <div v-for="test in failedTests" :key="test.id" class="failed-item">
+              <div class="failed-name">{{ test.name }}</div>
+              <div class="failed-error">{{ test.error || 'Test failed' }}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1927,50 +1945,13 @@ const toggleAutoScroll = () => {
 </template>
 
 <style scoped>
-.testing {
-  padding: var(--space-xl) 0;
-  min-height: 100vh;
-  background: var(--color-background);
-}
-
-.container {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 0 var(--space-lg);
-}
-
-/* Header */
+/* Main container follows the pattern */
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: var(--space-xl);
   flex-wrap: wrap;
   gap: var(--space-md);
-}
-
-.page-title {
-  font-size: var(--text-2xl);
-  font-weight: var(--font-bold);
-  color: var(--color-heading);
-  margin-bottom: var(--space-xs);
-}
-
-.page-subtitle {
-  color: var(--color-text-secondary);
-}
-
-.production-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  margin-top: var(--space-sm);
-  padding: var(--space-xs) var(--space-sm);
-  background: var(--color-success-light);
-  color: var(--color-success);
-  border-radius: var(--radius-full);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
 }
 
 .header-actions {
@@ -1978,42 +1959,38 @@ const toggleAutoScroll = () => {
   gap: var(--space-md);
 }
 
+/* Production Badge */
+.production-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--color-success);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
 /* Health Score Card */
 .health-score-card {
-  margin-bottom: var(--space-xl);
-  padding: var(--space-xl);
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
   border: 3px solid transparent;
   transition: all 0.3s ease;
 }
 
 .health-score-card.health-excellent {
-  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-  border-color: #22c55e;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(34, 197, 94, 0.1) 100%);
+  border-color: var(--color-success);
 }
 
 .health-score-card.health-good {
-  background: linear-gradient(135deg, #fefce8 0%, #fef3c7 100%);
-  border-color: #f59e0b;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, rgba(245, 158, 11, 0.1) 100%);
+  border-color: var(--color-warning);
 }
 
 .health-score-card.health-poor {
-  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
-  border-color: #ef4444;
-}
-
-[data-theme="dark"] .health-score-card.health-excellent {
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(34, 197, 94, 0.2) 100%);
-}
-
-[data-theme="dark"] .health-score-card.health-good {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.2) 100%);
-}
-
-[data-theme="dark"] .health-score-card.health-poor {
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.2) 100%);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.05) 0%, rgba(239, 68, 68, 0.1) 100%);
+  border-color: var(--color-error);
 }
 
 .health-score-content {
@@ -2021,6 +1998,7 @@ const toggleAutoScroll = () => {
   justify-content: space-between;
   align-items: center;
   gap: var(--space-xl);
+  flex-wrap: wrap;
 }
 
 .health-score-main {
@@ -2045,14 +2023,14 @@ const toggleAutoScroll = () => {
 }
 
 .health-number {
-  font-size: 4rem;
+  font-size: 3rem;
   font-weight: var(--font-bold);
   color: var(--color-heading);
   line-height: 1;
 }
 
 .health-percent {
-  font-size: 2rem;
+  font-size: 1.5rem;
   font-weight: var(--font-semibold);
   color: var(--color-text-secondary);
 }
@@ -2063,49 +2041,25 @@ const toggleAutoScroll = () => {
   font-weight: var(--font-semibold);
 }
 
-.health-excellent .health-status {
-  color: #22c55e;
-}
-
-.health-good .health-status {
-  color: #f59e0b;
-}
-
-.health-poor .health-status {
-  color: #ef4444;
-}
+.health-excellent .health-status { color: var(--color-success); }
+.health-good .health-status { color: var(--color-warning); }
+.health-poor .health-status { color: var(--color-error); }
 
 .health-score-details {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
-  padding-left: var(--space-xl);
-  border-left: 2px solid var(--color-border);
 }
 
 .health-detail-item {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  font-size: var(--text-base);
   color: var(--color-text-secondary);
 }
 
-.health-detail-item svg {
-  color: var(--color-text-tertiary);
-  width: 16px;
-}
-
-/* Summary */
-.test-summary {
-  margin-bottom: var(--space-xl);
-  padding: var(--space-lg);
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-}
-
+/* Summary Grid */
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -2115,24 +2069,14 @@ const toggleAutoScroll = () => {
 .summary-card {
   text-align: center;
   padding: var(--space-md);
-  background: var(--color-background);
+  background: var(--color-bg-secondary);
   border-radius: var(--radius-md);
   border: 2px solid transparent;
-  transition: all 0.3s ease;
 }
 
-.summary-card.success {
-  border-color: var(--color-success);
-  background: linear-gradient(135deg, var(--color-background) 0%, rgba(34, 197, 94, 0.05) 100%);
-}
-
-.summary-card.warning {
-  border-color: var(--color-warning);
-}
-
-.summary-card.error {
-  border-color: var(--color-error);
-}
+.summary-card.success { border-color: var(--color-success); }
+.summary-card.warning { border-color: var(--color-warning); }
+.summary-card.error { border-color: var(--color-error); }
 
 .summary-value {
   font-size: var(--text-2xl);
@@ -2151,38 +2095,22 @@ const toggleAutoScroll = () => {
 /* Test Grid */
 .test-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: var(--space-lg);
-  margin-bottom: var(--space-xl);
 }
 
-.test-category {
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
-}
-
+/* Category header simplified - uses card-header */
 .category-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-md);
-  background: var(--color-background);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.category-header h3 {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  font-size: var(--text-lg);
-  margin: 0;
 }
 
 /* Test Items */
 .test-list {
-  padding: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
 }
 
 .test-item {
@@ -2192,11 +2120,11 @@ const toggleAutoScroll = () => {
   padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-md);
   transition: all 0.2s ease;
-  margin-bottom: var(--space-xs);
+  gap: var(--space-md);
 }
 
 .test-item:hover {
-  background: var(--color-background);
+  background: var(--color-bg-secondary);
 }
 
 .test-item.test-passed {
@@ -2215,12 +2143,13 @@ const toggleAutoScroll = () => {
 }
 
 .test-item.test-running {
-  background: rgba(59, 130, 246, 0.05);
+  background: rgba(66, 133, 244, 0.05);
   border-left: 3px solid var(--color-info);
 }
 
 .test-info {
   flex: 1;
+  min-width: 0;
 }
 
 .test-name {
@@ -2248,39 +2177,25 @@ const toggleAutoScroll = () => {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  flex-shrink: 0;
 }
 
 .status-icon {
   font-size: 20px;
 }
 
-.status-icon.passed {
-  color: var(--color-success);
-}
-
-.status-icon.failed {
-  color: var(--color-error);
-}
-
-.status-icon.warning {
-  color: var(--color-warning);
-}
-
-.status-icon.running {
-  color: var(--color-info);
-}
-
-.status-icon.pending {
+.status-icon.passed { color: var(--color-success); }
+.status-icon.failed { color: var(--color-error); }
+.status-icon.warning { color: var(--color-warning); }
+.status-icon.running { color: var(--color-info); }
+.status-icon.pending { 
   color: var(--color-text-tertiary);
   opacity: 0.5;
 }
 
-.test-duration {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.test-details {
+.test-duration,
+.test-details,
+.test-pending {
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
 }
@@ -2288,10 +2203,6 @@ const toggleAutoScroll = () => {
 .test-error {
   font-size: var(--text-sm);
   color: var(--color-error);
-}
-
-.test-pending {
-  color: var(--color-text-tertiary);
 }
 
 /* Performance Results */
@@ -2319,26 +2230,14 @@ const toggleAutoScroll = () => {
   color: var(--color-success);
 }
 
-/* Test Log */
-.test-log {
-  margin-top: var(--space-xl);
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
-}
-
+/* Log header - custom style for unique color */
 .log-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-md);
   background: var(--color-primary);
   color: white;
 }
 
 .log-header h3 {
-  margin: 0;
+  color: white;
 }
 
 .log-controls {
@@ -2346,13 +2245,28 @@ const toggleAutoScroll = () => {
   gap: var(--space-sm);
 }
 
+.log-controls .btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.log-controls .btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .log-entries {
   max-height: 400px;
   overflow-y: auto;
   padding: var(--space-md);
-  background: #1a1a1a;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+}
+
+[data-theme="dark"] .log-entries {
+  background: #1a1a1a;
 }
 
 .log-entry {
@@ -2360,11 +2274,11 @@ const toggleAutoScroll = () => {
   gap: var(--space-sm);
   margin-bottom: var(--space-xs);
   padding: var(--space-xs) 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .log-time {
-  color: #666;
+  color: var(--color-text-tertiary);
   white-space: nowrap;
 }
 
@@ -2376,28 +2290,15 @@ const toggleAutoScroll = () => {
 
 .log-message {
   flex: 1;
-  color: #e0e0e0;
+  color: var(--color-text);
 }
 
-.log-info .log-level { color: #3b82f6; }
-.log-success .log-level { color: #22c55e; }
-.log-warning .log-level { color: #f59e0b; }
-.log-error .log-level { color: #ef4444; }
+.log-info .log-level { color: var(--color-info); }
+.log-success .log-level { color: var(--color-success); }
+.log-warning .log-level { color: var(--color-warning); }
+.log-error .log-level { color: var(--color-error); }
 
 /* Failed Tests */
-.failed-tests {
-  margin-top: var(--space-xl);
-  padding: var(--space-lg);
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-error);
-}
-
-.failed-tests h3 {
-  color: var(--color-error);
-  margin-bottom: var(--space-md);
-}
-
 .failed-list {
   display: flex;
   flex-direction: column;
@@ -2421,50 +2322,6 @@ const toggleAutoScroll = () => {
   color: var(--color-text-secondary);
 }
 
-/* Buttons */
-.btn {
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md);
-  font-weight: var(--font-medium);
-  transition: all 0.2s ease;
-  border: none;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: var(--color-primary);
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--color-primary-dark);
-  transform: translateY(-1px);
-}
-
-.btn-secondary {
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: var(--color-background);
-  border-color: var(--color-primary);
-}
-
-.btn-sm {
-  padding: var(--space-xs) var(--space-sm);
-  font-size: var(--text-sm);
-}
-
 /* Responsive */
 @media (max-width: 768px) {
   .test-grid {
@@ -2475,36 +2332,16 @@ const toggleAutoScroll = () => {
     grid-template-columns: repeat(2, 1fr);
   }
   
-  .page-header {
-    flex-direction: column;
-  }
-  
-  .header-actions {
-    width: 100%;
-  }
-  
-  .header-actions .btn {
-    flex: 1;
-  }
-  
   .health-score-content {
     flex-direction: column;
   }
   
   .health-score-details {
-    padding-left: 0;
-    padding-top: var(--space-lg);
-    border-left: none;
-    border-top: 2px solid var(--color-border);
     width: 100%;
   }
   
   .health-number {
-    font-size: 3rem;
-  }
-  
-  .health-percent {
-    font-size: 1.5rem;
+    font-size: 2.5rem;
   }
 }
 </style>
