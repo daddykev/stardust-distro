@@ -25,10 +25,9 @@ service firebase.storage {
              request.resource.size < 5 * 1024 * 1024; // 5MB limit
     }
     
-    // Test paths - allow authenticated users to test
+    // Test paths - simplified for testing (just require authentication)
     match /test/{allPaths=**} {
-      allow read, write: if isAuthenticated() && 
-        request.resource.size < 10 * 1024 * 1024; // 10MB limit for test files
+      allow read, write: if isAuthenticated();
     }
     
     // User-scoped paths only
