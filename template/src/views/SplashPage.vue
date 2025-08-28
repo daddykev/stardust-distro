@@ -152,6 +152,8 @@ const postLaunchFeatures = [
   }
 ]
 
+const npmInstallCommand = 'npm install -g @stardust-distro/cli'
+
 const codeExample = ref(`# Install from npm
 npm install -g @stardust-distro/cli
 
@@ -184,6 +186,10 @@ const handleContribute = () => {
 
 const copyCode = () => {
   navigator.clipboard.writeText(codeExample.value)
+}
+
+const copyNpmCommand = () => {
+  navigator.clipboard.writeText(npmInstallCommand)
 }
 </script>
 
@@ -219,7 +225,7 @@ const copyCode = () => {
               <div class="status-progress" style="width: 86%"></div>
             </div>
             <p class="status-text">
-              <strong>Development Progress:</strong> Phase 6 Complete • Ready for Production
+              <strong>Development Progress:</strong> Phase 6 Complete
             </p>
           </div>
           
@@ -239,8 +245,8 @@ const copyCode = () => {
           </div>
 
           <div class="npm-install">
-            <code>npm install -g @stardust-distro/cli</code>
-            <button class="copy-btn-inline" @click="copyCode" title="Copy command">
+            <code>{{ npmInstallCommand }}</code>
+            <button class="copy-btn-inline" @click="copyNpmCommand" title="Copy command">
               <font-awesome-icon icon="copy" />
             </button>
           </div>
