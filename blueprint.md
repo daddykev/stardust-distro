@@ -364,6 +364,7 @@ stardust-distro/
 │   │   │   ├── fingerprints.js    # Fingerprint service with cloud functions ✅
 │   │   │   ├── genreMappings.js   # Genre map Firestore service ✅
 │   │   │   ├── import.js          # Catalog migration service ✅
+│   │   │   ├── mead.js            # MEAD XML builder ✅
 │   │   │   ├── receipts.js        # Enhanced delivery receipts ✅
 │   │   │   └── testTargets.js     # Test DSP targets ✅
 │   │   ├── utils/                 # Utils
