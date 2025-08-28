@@ -180,10 +180,6 @@ const handleViewGithub = () => {
   window.open('https://github.com/daddykev/stardust-distro', '_blank')
 }
 
-const handleContribute = () => {
-  window.open('https://github.com/daddykev/stardust-distro/blob/main/CONTRIBUTING.md', '_blank')
-}
-
 const copyCode = () => {
   navigator.clipboard.writeText(codeExample.value)
 }
@@ -504,51 +500,6 @@ const copyNpmCommand = () => {
               <font-awesome-icon :icon="['fab', 'github']" />
               <span>GitHub repo</span>
             </a>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Contribution CTA -->
-    <section class="section bg-secondary">
-      <div class="container">
-        <div class="cta-section">
-          <h2 class="cta-title">Join the Open Source Revolution</h2>
-          <p class="cta-description">
-            Help us refine v1.0 and plan Phase 7 features
-          </p>
-          
-          <div class="contribution-options">
-            <div class="contribution-card">
-              <font-awesome-icon icon="shield-alt" />
-              <h3>Security Testing</h3>
-              <p>Help test our security features</p>
-            </div>
-            <div class="contribution-card">
-              <font-awesome-icon icon="bug" />
-              <h3>Bug Hunting</h3>
-              <p>Find and report issues</p>
-            </div>
-            <div class="contribution-card">
-              <font-awesome-icon icon="language" />
-              <h3>Translations</h3>
-              <p>Help internationalize the platform</p>
-            </div>
-            <div class="contribution-card">
-              <font-awesome-icon icon="book" />
-              <h3>Documentation</h3>
-              <p>Improve guides and tutorials</p>
-            </div>
-          </div>
-          
-          <div class="cta-actions">
-            <button @click="handleContribute" class="btn btn-primary btn-lg">
-              Start Contributing
-            </button>
-            <button @click="handleViewGithub" class="btn btn-secondary btn-lg">
-              <font-awesome-icon icon="star" />
-              Star on GitHub
-            </button>
           </div>
         </div>
       </div>
@@ -1194,63 +1145,6 @@ const copyNpmCommand = () => {
 
 .package-link svg {
   font-size: 1.2em;
-}
-
-/* Contribution Section */
-.cta-section {
-  text-align: center;
-}
-
-.cta-title {
-  font-size: var(--text-3xl);
-  font-weight: var(--font-bold);
-  margin-bottom: var(--space-md);
-  color: var(--color-heading);
-}
-
-.cta-description {
-  font-size: var(--text-lg);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-2xl);
-}
-
-.contribution-options {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-lg);
-  margin-bottom: var(--space-2xl);
-}
-
-.contribution-card {
-  padding: var(--space-lg);
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  text-align: center;
-}
-
-.contribution-card svg {
-  font-size: 2rem;
-  color: var(--color-primary);
-  margin-bottom: var(--space-md);
-}
-
-.contribution-card h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-xs);
-  color: var(--color-heading);
-}
-
-.contribution-card p {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.cta-actions {
-  display: flex;
-  gap: var(--space-md);
-  justify-content: center;
-  flex-wrap: wrap;
 }
 
 /* Footer */
