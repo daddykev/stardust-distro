@@ -5,7 +5,7 @@
 Stardust Distro is an open-source, npm-installable music distribution platform that enables labels and artists to manage their catalog, generate DDEX-compliant ERN messages, and deliver releases to Digital Service Providers (DSPs).
 
 ### Vision
-Democratize music distribution by providing a complete, DDEX-compliant distribution platform that's truly free and open, with an optional marketplace for specialized plugins from both our team and third-party developers.
+Democratize music distribution by providing a complete, DDEX-compliant distribution platform that's truly free and open.
 
 ### Core Value Propositions
 - **Instant Distribution Platform**: Deploy a functional distribution system with one command
@@ -218,8 +218,6 @@ See [Security Audit Report](template/docs/security.md) for details.
 - **Delivery**: Node.js workers for file transfer
 - **Validation**: DDEX Workbench API integration
 - **CLI**: Node.js CLI for project scaffolding
-- **Package Manager**: npm/yarn for distribution
-- **Plugin System**: Dynamic plugin loading architecture
 
 ### Deployment Model
 ```bash
@@ -901,11 +899,6 @@ interface Tenant {
     autoDeliver: boolean;
   };
   
-  plugins: {
-    installed: string[]; // Plugin IDs
-    licenses: Map<string, PluginLicense>;
-  };
-  
   users: string[]; // User IDs with access
   owner: string;
   created: Timestamp;
@@ -1099,13 +1092,6 @@ POST   /api/tenant/invite            // Invite user to tenant
 GET    /api/users/me                 // Get current user
 PUT    /api/users/me                 // Update user profile
 GET    /api/users                    // List tenant users (admin only)
-
-// Plugin Management
-GET    /api/plugins                  // List available plugins
-POST   /api/plugins/install          // Install plugin
-DELETE /api/plugins/:id              // Uninstall plugin
-GET    /api/plugins/:id/config       // Get plugin configuration
-PUT    /api/plugins/:id/config       // Update plugin configuration
 ```
 
 ### External Integration APIs
@@ -1140,179 +1126,6 @@ class DSPTestClient {
         'Authorization': `Bearer ${targetDSP.apiKey}`
       },
       body: formData // ERN + assets
-    });
-  }
-}
-```
-
-## Plugin Architecture
-
-### Plugin System Design
-
-```javascript
-// Base plugin interface
-class StardustPlugin {
-  static metadata = {
-    name: 'plugin-name',
-    version: '1.0.0',
-    author: 'Developer Name',
-    requires: ['@stardust-distro/core@^2.0.0'],
-    hooks: ['beforeRelease', 'afterRelease', 'beforeDelivery']
-  };
-  
-  install(app) {
-    // Plugin installation logic
-    this.registerHooks(app);
-    this.extendModels(app);
-    this.addUIComponents(app);
-  }
-  
-  uninstall(app) {
-    // Cleanup logic
-    this.removeHooks(app);
-    this.cleanupData(app);
-  }
-}
-
-// Plugin loader
-class PluginLoader {
-  constructor() {
-    this.plugins = new Map();
-    this.hooks = new Map();
-  }
-  
-  async loadPlugin(name) {
-    const plugin = await import(`@stardust-plugins/${name}`);
-    
-    // Validate plugin compatibility
-    if (!this.validateRequirements(plugin.metadata.requires)) {
-      throw new Error(`Plugin ${name} requirements not met`);
-    }
-    
-    // Install plugin
-    plugin.install(this.app);
-    this.plugins.set(name, plugin);
-    
-    return plugin;
-  }
-  
-  async executeHook(hookName, data) {
-    const hooks = this.hooks.get(hookName) || [];
-    
-    for (const hook of hooks) {
-      data = await hook(data);
-    }
-    
-    return data;
-  }
-}
-```
-
-### Example Plugin Development
-
-```javascript
-// Example: Dolby Atmos Plugin (third-party or core team)
-export class DolbyAtmosPlugin extends StardustPlugin {
-  static metadata = {
-    name: 'dolby-atmos',
-    version: '1.0.0',
-    author: 'Audio Processing Inc.',
-    requires: ['@stardust-distro/core@^2.0.0'],
-    hooks: ['beforeAssetProcess', 'afterAssetProcess', 'beforeDelivery']
-  };
-  
-  install(app) {
-    // Extend audio processor
-    app.audioProcessor.addFormat('DolbyAtmos', this.processDolbyAtmos);
-    app.audioProcessor.addFormat('BinauraL', this.processBinaural);
-    
-    // Add UI components
-    app.ui.register('track-editor', AtmosAudioPanel);
-    
-    // Register hooks
-    app.hooks.register('beforeAssetProcess', this.validateAtmosFile);
-    app.hooks.register('beforeDelivery', this.prepareAtmosDelivery);
-  }
-  
-  async processDolbyAtmos(file) {
-    // Validate Atmos file
-    const validation = await this.validateAtmosFile(file);
-    
-    if (!validation.valid) {
-      throw new Error(`Invalid Atmos file: ${validation.errors.join(', ')}`);
-    }
-    
-    // Extract metadata
-    const metadata = await this.extractAtmosMetadata(file);
-    
-    // Generate deliverables
-    const deliverables = await this.generateAtmosDeliverables(file, metadata);
-    
-    return {
-      format: 'DolbyAtmos',
-      metadata,
-      deliverables
-    };
-  }
-  
-  async generateAtmosDeliverables(source, metadata) {
-    return {
-      master: source,
-      binaural: await this.generateBinauralMix(source),
-      stereoDownmix: await this.generateStereoDownmix(source),
-      mp4: await this.generateAtmosMP4(source),
-      metadata: await this.generateAtmosXML(metadata)
-    };
-  }
-}
-```
-
-### Plugin Marketplace Infrastructure
-
-```javascript
-// Plugin marketplace API
-class PluginMarketplace {
-  constructor() {
-    this.registry = new PluginRegistry();
-    this.licensing = new LicensingService();
-  }
-  
-  async searchPlugins(query) {
-    return this.registry.search({
-      query,
-      filters: {
-        category: query.category,
-        author: query.author,
-        license: query.license // 'free', 'paid', 'freemium'
-      }
-    });
-  }
-  
-  async installPlugin(pluginId, tenantId) {
-    const plugin = await this.registry.get(pluginId);
-    
-    // Check licensing
-    if (plugin.license !== 'free') {
-      const hasLicense = await this.licensing.verify(pluginId, tenantId);
-      if (!hasLicense) {
-        throw new Error('Valid license required');
-      }
-    }
-    
-    // Download and install
-    const package = await this.downloadPlugin(plugin);
-    return this.loader.install(package);
-  }
-  
-  async publishPlugin(plugin, developer) {
-    // Validate plugin
-    await this.validatePlugin(plugin);
-    
-    // Register in marketplace
-    return this.registry.publish({
-      ...plugin,
-      author: developer,
-      publishedAt: new Date()
     });
   }
 }
@@ -1360,13 +1173,6 @@ stardust-distro dev              # Start local development
 stardust-distro build            # Build for production
 stardust-distro emulators        # Start Firebase emulators
 stardust-distro test             # Run test suite
-
-# Plugin Management
-stardust-distro plugin search    # Search marketplace
-stardust-distro plugin install   # Install plugin
-stardust-distro plugin remove    # Remove plugin
-stardust-distro plugin list      # List installed plugins
-stardust-distro plugin develop   # Create new plugin
 
 # Migration & Backup
 stardust-distro import           # Import existing catalog
@@ -1560,68 +1366,6 @@ if (validation.valid) {
     await delivery.deliver(stardustRelease, target);
   }
 }
-```
-
-### Plugin-Enhanced Workflow
-
-```javascript
-// Using plugins for specialized features
-import { ReleaseCreator, DeliveryManager } from '@stardust-distro/core';
-import { PluginLoader } from '@stardust-distro/plugin-system';
-
-// Load plugins (if licensed)
-const plugins = new PluginLoader();
-await plugins.load('dolby-atmos');
-await plugins.load('delivery-orchestrator');
-
-// Create release with plugin features
-const release = {
-  title: "Cinematic Experience",
-  artist: "Orchestra Supreme",
-  label: "Major Records",
-  
-  tracks: [
-    {
-      title: "Epic Journey",
-      artist: "Orchestra Supreme",
-      producer: "Alex Producer",
-      writer: ["Sarah Composer"],
-      
-      // Plugin-enhanced: Dolby Atmos
-      audioFiles: {
-        stereo: "epic-journey-stereo.wav",  // Core feature
-        atmos: "epic-journey.atmos"          // Plugin feature
-      }
-    }
-  ],
-  
-  // Plugin-enhanced: Delivery orchestration
-  delivery: {
-    orchestration: {
-      type: "parallel",
-      rules: [
-        {
-          condition: "spotify.success",
-          action: "notify",
-          target: "marketing-team"
-        }
-      ]
-    },
-    targets: [
-      { name: "Spotify", protocol: "API" },
-      { name: "Apple", protocol: "S3" },
-      { name: "Amazon", protocol: "API" }
-    ]
-  }
-};
-
-// Process with plugins
-const creator = new ReleaseCreator({ plugins });
-const stardustRelease = await creator.createRelease(release);
-
-// Deliver with orchestration
-const delivery = new DeliveryManager({ plugins });
-const results = await delivery.deliver(stardustRelease);
 ```
 
 ## Implementation Roadmap
@@ -2555,7 +2299,6 @@ timer.end({ releaseId, trackCount: release.tracks.length });
 
 ### License Structure
 - **Core Platform**: MIT License (100% open source)
-- **Plugins**: Individual licenses (MIT, GPL, Commercial, etc.)
 - **Documentation**: Creative Commons
 - **Examples**: MIT License
 
@@ -2595,34 +2338,11 @@ npm run deploy
 # Visit: https://my-distro.web.app
 ```
 
-### Plugin Development
-```bash
-# Create new plugin project
-stardust-distro plugin create my-plugin
-
-# Navigate to plugin directory
-cd my-plugin
-
-# Develop your plugin
-npm run dev
-
-# Test with local Stardust Distro instance
-npm run test
-
-# Publish to marketplace
-stardust-distro plugin publish
-```
-
 ### Next Steps
 1. Configure delivery targets
 2. Customize branding
 3. Create first release
 4. Test with Stardust DSP
 5. Go live with real deliveries
-6. Browse plugin marketplace for enhancements
-
-## Conclusion
-
-Stardust Distro's 100% open-source model with an optional plugin marketplace provides the perfect balance of accessibility and extensibility. The core platform delivers everything needed for professional music distribution without any limitations or fees, while the open plugin marketplace enables specialized features and creates opportunities for developers to innovate and monetize their expertise. This approach ensures:
 
 *The future of music distribution is open, compliant, and accessible to all.*
