@@ -87,8 +87,8 @@ const launchFeatures = [
 // Security features
 const securityFeatures = [
   {
-    icon: 'shield-alt',
-    title: 'Enterprise Security',
+    icon: 'code',
+    title: 'Application Security',
     score: '85/100',
     description: 'Production-ready security with comprehensive protection',
     items: [
@@ -100,9 +100,9 @@ const securityFeatures = [
   },
   {
     icon: 'lock',
-    title: 'Authentication & Access',
+    title: 'Modern Authentication',
     score: '100%',
-    description: 'Complete auth protection across the platform',
+    description: 'Complete auth protection across the entire platform infrastructure',
     items: [
       'Firebase Auth with RBAC',
       'Protected Cloud Functions',
@@ -114,7 +114,7 @@ const securityFeatures = [
     icon: 'key',
     title: 'Data Protection',
     score: '100%',
-    description: 'Sensitive data encrypted at all levels',
+    description: 'Sensitive data encrypted at rest, in transit, and during processing',
     items: [
       'Cloud KMS encryption',
       'Encrypted API credentials',
@@ -234,7 +234,7 @@ const copyCode = () => {
             </button>
             <button @click="handleViewGithub" class="btn btn-secondary btn-lg">
               <font-awesome-icon :icon="['fab', 'github']" class="btn-icon" />
-              GitHub
+              GitHub repo
             </button>
           </div>
 
