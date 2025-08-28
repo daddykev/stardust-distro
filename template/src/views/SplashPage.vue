@@ -95,11 +95,11 @@ const pluginExamples = [
 ]
 
 const codeExample = ref(`# Install and deploy your distribution platform
-npx stardust-distro create my-distro  # Coming Soon!
+npx @stardust-distro/cli create my-distro
 cd my-distro
 npm run deploy
 
-# Clone the repo and explore the platform (available now)
+# Clone the repo and explore the platform
 git clone https://github.com/daddykev/stardust-distro.git
 cd stardust-distro/template
 npm install
