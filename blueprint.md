@@ -224,8 +224,8 @@ See [Security Audit Report](template/docs/security.md) for details.
 ### Deployment Model
 ```bash
 # One-command deployment
-npx create-stardust-distro my-label-distro
-cd my-label-distro
+npx @stardust-distro/cli create my-platform
+cd my-platform
 npm run deploy
 ```
 

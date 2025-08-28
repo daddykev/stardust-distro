@@ -193,7 +193,7 @@ Our comprehensive documentation covers every aspect of the platform:
 
 ```bash
 # Create your distribution platform
-npx stardust-distro create my-platform
+npx @stardust-distro/cli create my-platform
 
 # Navigate to project
 cd my-platform
