@@ -681,6 +681,15 @@ const copyCode = () => {
   justify-content: center;
   flex-wrap: wrap;
   margin-bottom: var(--space-lg);
+  max-width: 600px;  /* Add a max-width to contain the buttons */
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.hero-actions .btn {
+  flex: 1;  /* Make buttons grow equally */
+  min-width: 160px;  /* Set a minimum width */
+  justify-content: center;
 }
 
 .btn-icon {
