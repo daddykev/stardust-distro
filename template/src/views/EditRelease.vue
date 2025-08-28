@@ -5,13 +5,12 @@ import { useCatalog } from '../composables/useCatalog'
 import { useAuth } from '../composables/useAuth'
 import GenreSelector from '../components/GenreSelector.vue'
 import { getGenreByCode } from '../dictionaries/genres'
-import ernService from '../services/ern'  // Add ERN service import
+import ernService from '../services/ern'
+import meadService from '../services/mead'
 import { 
   ContributorCategories,
   searchContributorRoles,
-  getRolesByCategory,
-  categorizeRole,
-  CommonRoles
+  categorizeRole
 } from '../dictionaries/contributors'
 import {
   MoodCategories,
@@ -23,14 +22,9 @@ import {
   TempoDescriptions,
   PlaylistSuitability,
   Seasonality,
-  ContentAdvisories,
   RecordingTechniques,
   AudioCharacteristics,
-  defaultMeadData,
-  getAllMoods,
-  getAllInstruments,
-  getMoodsByCategory,
-  getInstrumentsByCategory
+  defaultMeadData
 } from '../dictionaries/mead'
 
 const router = useRouter()
@@ -41,9 +35,6 @@ const {
   loadRelease,
   uploadCoverImage,
   uploadTrackAudio,
-  addTrack,
-  updateTrack,
-  removeTrack,
   currentRelease,
   isLoading,
   error 
@@ -120,6 +111,9 @@ const autoSaveTimer = ref(null)
 const lastSavedAt = ref(null)
 const isSaving = ref(false)
 const saveError = ref(null)
+
+const generatedMEAD = ref(null)
+const showMEADPreview = ref(false)
 
 // Validation
 const validationErrors = ref({
@@ -231,20 +225,26 @@ const sectionStatus = computed(() => {
         releaseData.value.mead.playlistSuitability.length > 0
       ),
       summary: getMeadSummary(),
-      errors: validationErrors.value.mead?.length || 0
+      errors: validationErrors.value.mead?.length || 0,
+      hasData: !!(
+        releaseData.value.mead.moods?.length > 0 ||
+        releaseData.value.mead.tempo ||
+        releaseData.value.mead.instrumentation?.length > 0
+      )
     },
     territories: {
       complete: true, // Territories are optional
       summary: releaseData.value.territories.mode === 'worldwide' ? 'Worldwide' : 'Selected territories',
       errors: validationErrors.value.territories.length
     },
-    // Add ERN status
+    // Add ERN status with MEAD info
     ern: {
       complete: releaseData.value.ern.validated,
       summary: releaseData.value.ern.lastGeneratedAt 
-        ? `Generated ${formatDate(releaseData.value.ern.lastGeneratedAt)}` 
+        ? `Generated ${formatDate(releaseData.value.ern.lastGeneratedAt)}${generatedMEAD.value ? ' (with MEAD)' : ''}` 
         : 'Not generated',
-      errors: ernError.value ? 1 : 0
+      errors: ernError.value ? 1 : 0,
+      hasMEAD: !!generatedMEAD.value
     }
   }
 })
@@ -795,6 +795,24 @@ const validateERN = async () => {
     if (!hasGenre) errors.push('Genre is required')
     if (!releaseData.value.metadata.copyright) errors.push('Copyright information is required')
     
+    // MEAD validation (warnings only, not blocking)
+    const meadWarnings = []
+    if (!releaseData.value.mead.moods || releaseData.value.mead.moods.length === 0) {
+      meadWarnings.push('Consider adding moods for better discovery')
+    }
+    if (!releaseData.value.mead.tempo) {
+      meadWarnings.push('Consider adding tempo (BPM) for DJ and workout playlists')
+    }
+    if (!releaseData.value.mead.instrumentation || releaseData.value.mead.instrumentation.length === 0) {
+      meadWarnings.push('Consider adding instrumentation for music analysis')
+    }
+    
+    // Show MEAD warnings if any
+    if (meadWarnings.length > 0 && errors.length === 0) {
+      console.log('MEAD enhancement suggestions:', meadWarnings)
+      // Don't block generation, just log suggestions
+    }
+    
     if (errors.length > 0) {
       ernError.value = errors.join(', ')
       showToast('Validation failed. Please check all required fields.', 'error')
@@ -818,6 +836,7 @@ const validateERN = async () => {
   }
 }
 
+// Complete generateERN function with MEAD integration
 const generateERN = async () => {
   // First validate
   const isValid = await validateERN()
@@ -846,24 +865,108 @@ const generateERN = async () => {
     releaseData.value.ern.lastMessageId = result.messageId
     releaseData.value.ern.validated = true
     
+    // Generate MEAD if we have enrichment data
+    const hasMeadData = releaseData.value.mead && (
+      releaseData.value.mead.moods?.length > 0 ||
+      releaseData.value.mead.tempo ||
+      releaseData.value.mead.instrumentation?.length > 0 ||
+      releaseData.value.mead.playlistSuitability?.length > 0 ||
+      releaseData.value.mead.vocalCharacteristics?.length > 0 ||
+      releaseData.value.mead.marketingDescription ||
+      Object.keys(releaseData.value.mead.trackMead || {}).length > 0
+    )
+    
+    if (hasMeadData) {
+      try {
+        console.log('Generating MEAD with data:', releaseData.value.mead)
+        
+        // Prepare release data for MEAD generation
+        const releaseForMead = {
+          id: releaseId.value,
+          basic: releaseData.value.basic,
+          tracks: releaseData.value.tracks,
+          metadata: releaseData.value.metadata,
+          mead: releaseData.value.mead
+        }
+        
+        // Generate MEAD message
+        const meadResult = await meadService.generateMEAD(releaseForMead, {
+          senderName: user.value?.organizationName || user.value?.displayName,
+          senderPartyId: 'stardust-distro',
+          recipientName: 'DSP',
+          recipientPartyId: 'DSP'
+        })
+        
+        generatedMEAD.value = meadResult
+        
+        // Store MEAD generation info
+        releaseData.value.mead.lastGeneratedAt = new Date()
+        releaseData.value.mead.lastMessageId = meadResult.messageId
+        releaseData.value.mead.validated = true
+        
+        console.log('MEAD generated successfully:', meadResult.messageId)
+        
+        // Show success with MEAD info
+        showToast('ERN and MEAD generated successfully! Release is now ready for delivery.', 'success')
+      } catch (meadError) {
+        console.error('MEAD generation error:', meadError)
+        // MEAD generation failure shouldn't block ERN success
+        showToast('ERN generated successfully! MEAD generation failed but delivery can proceed.', 'warning')
+      }
+    } else {
+      console.log('No MEAD data available, skipping MEAD generation')
+      showToast('ERN generated successfully! Release is now ready for delivery.', 'success')
+    }
+    
     // Always update release status to 'ready' when ERN is generated successfully
     // This ensures the release is deliverable regardless of previous status
-    await updateRelease(releaseId.value, { 
+    const updateData = { 
       status: 'ready',
-      ern: releaseData.value.ern
-    })
+      ern: {
+        version: releaseData.value.ern.version,
+        profile: releaseData.value.ern.profile,
+        validated: true,
+        lastGeneratedAt: releaseData.value.ern.lastGeneratedAt,
+        lastMessageId: result.messageId
+      }
+    }
+    
+    // Add MEAD info if generated
+    if (generatedMEAD.value) {
+      updateData.mead = {
+        ...releaseData.value.mead,
+        lastGeneratedAt: releaseData.value.mead.lastGeneratedAt,
+        lastMessageId: releaseData.value.mead.lastMessageId,
+        validated: true
+      }
+    }
+    
+    await updateRelease(releaseId.value, updateData)
     
     // Update the local currentRelease to reflect the new status
     if (currentRelease.value) {
       currentRelease.value.status = 'ready'
-      currentRelease.value.ern = releaseData.value.ern
+      currentRelease.value.ern = updateData.ern
+      if (updateData.mead) {
+        currentRelease.value.mead = updateData.mead
+      }
     }
     
-    // Update original data to include the new ERN data
+    // Update original data to include the new ERN and MEAD data
     originalData.value = JSON.parse(JSON.stringify(releaseData.value))
     
     modifiedSections.value.add('ern')
-    showToast('ERN generated successfully! Release is now ready for delivery.', 'success')
+    if (generatedMEAD.value) {
+      modifiedSections.value.add('mead')
+    }
+    
+    // Log summary
+    console.log('Generation complete:', {
+      ernMessageId: result.messageId,
+      meadMessageId: generatedMEAD.value?.messageId,
+      releaseStatus: 'ready',
+      hasMEAD: !!generatedMEAD.value
+    })
     
   } catch (err) {
     console.error('Error generating ERN:', err)
@@ -872,6 +975,41 @@ const generateERN = async () => {
   } finally {
     isGeneratingERN.value = false
   }
+}
+
+// Helper functions for MEAD preview/download
+const previewMEAD = () => {
+  if (generatedMEAD.value) {
+    showMEADPreview.value = true
+  }
+}
+
+const downloadMEAD = () => {
+  if (!generatedMEAD.value) return
+  
+  const blob = new Blob([generatedMEAD.value.mead], { type: 'text/xml' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${releaseData.value.basic.title}_MEAD_${generatedMEAD.value.messageId}.xml`
+    .replace(/[^a-z0-9]/gi, '_')
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+const copyMEADToClipboard = () => {
+  if (!generatedMEAD.value) return
+  
+  navigator.clipboard.writeText(generatedMEAD.value.mead)
+    .then(() => {
+      showToast('MEAD copied to clipboard!', 'success')
+    })
+    .catch(err => {
+      console.error('Failed to copy:', err)
+      showToast('Failed to copy to clipboard', 'error')
+    })
 }
 
 const previewERN = () => {
@@ -2027,6 +2165,27 @@ const handleSubgenreUpdate = (value) => {
                   </button>
                 </div>
               </div>
+
+              <!-- Add after ERN Success Display in EditRelease.vue -->
+              <div v-if="releaseData.ern.validated && generatedMEAD" class="mead-success mt-lg">
+                <font-awesome-icon icon="chart-line" />
+                <div>
+                  <h4 class="text-md font-semibold mb-xs">MEAD Generated Successfully</h4>
+                  <p class="text-sm mb-xs">Message ID: <code class="bg-surface p-xs rounded-sm">{{ generatedMEAD.messageId }}</code></p>
+                  <p class="text-sm">Enhanced metadata for discovery and recommendations</p>
+                </div>
+                <div class="flex gap-sm ml-auto flex-col-sm ml-0-sm mt-md-sm">
+                  <button @click="previewMEAD" class="btn btn-secondary btn-sm">
+                    <font-awesome-icon icon="eye" />
+                    Preview MEAD
+                  </button>
+                  <button @click="downloadMEAD" class="btn btn-secondary btn-sm">
+                    <font-awesome-icon icon="download" />
+                    Download
+                  </button>
+                </div>
+              </div>
+
             </div>
             
             <!-- Delivery Section -->
@@ -2209,6 +2368,46 @@ const handleSubgenreUpdate = (value) => {
             Download ERN
           </button>
           <button @click="showERNPreview = false" class="btn btn-secondary">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MEAD Preview Modal -->
+    <div v-if="showMEADPreview" class="modal-overlay" @click="showMEADPreview = false">
+      <div class="modal-content modal-wide" @click.stop>
+        <div class="modal-header">
+          <h2 class="text-xl">MEAD Preview - Media Enrichment Data</h2>
+          <button @click="showMEADPreview = false" class="btn-icon">
+            <font-awesome-icon icon="times" />
+          </button>
+        </div>
+        
+        <div class="modal-body">
+          <div class="p-md bg-secondary rounded-md mb-md">
+            <p class="text-sm mb-xs"><strong>Message ID:</strong> {{ generatedMEAD?.messageId }}</p>
+            <p class="text-sm mb-xs"><strong>Version:</strong> MEAD {{ generatedMEAD?.version }}</p>
+            <p class="text-sm mb-xs"><strong>Purpose:</strong> Enhanced metadata for discovery and recommendations</p>
+            <p class="text-sm"><strong>Data Points:</strong> 
+              {{ releaseData.mead.moods.length }} moods, 
+              {{ releaseData.mead.instrumentation.length }} instruments,
+              {{ releaseData.mead.playlistSuitability.length }} playlists
+            </p>
+          </div>
+          <pre class="ern-preview-content">{{ generatedMEAD?.mead }}</pre>
+        </div>
+        
+        <div class="modal-footer">
+          <button @click="copyMEADToClipboard" class="btn btn-secondary">
+            <font-awesome-icon icon="copy" />
+            Copy to Clipboard
+          </button>
+          <button @click="downloadMEAD" class="btn btn-primary">
+            <font-awesome-icon icon="download" />
+            Download MEAD
+          </button>
+          <button @click="showMEADPreview = false" class="btn btn-secondary">
             Close
           </button>
         </div>

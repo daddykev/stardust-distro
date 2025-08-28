@@ -593,6 +593,37 @@ class ERNService {
       '4.3': { count: 0, percentage: 100 }
     }
   }
+
+  /**
+   * Generate ERN with MEAD
+   */
+  async generateERNWithMEAD(releaseId, targetConfig, options = {}) {
+    // Generate ERN as before
+    const ernResult = await this.generateERN(releaseId, targetConfig, options)
+    
+    // Generate MEAD if target supports it
+    let meadResult = null
+    if (targetConfig.supportsMEAD !== false) {
+      try {
+        const release = await catalogService.getRelease(releaseId)
+        meadResult = await meadService.generateMEAD(release, {
+          senderName: targetConfig.senderName || auth.currentUser?.displayName,
+          senderPartyId: targetConfig.config?.distributorId || 'stardust-distro',
+          recipientName: targetConfig.partyName,
+          recipientPartyId: targetConfig.partyId
+        })
+      } catch (error) {
+        console.error('Error generating MEAD:', error)
+        // MEAD generation failure shouldn't block ERN delivery
+      }
+    }
+    
+    return {
+      ...ernResult,
+      mead: meadResult?.mead,
+      meadMessageId: meadResult?.messageId
+    }
+  }
 }
 
 export default new ERNService()

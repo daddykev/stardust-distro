@@ -10,6 +10,7 @@ import deliveryTargetService from '../services/deliveryTargets'
 import deliveryService from '../services/delivery'
 import genreMappingService from '../services/genreMappings'
 import { validateXmlUrls } from '../utils/urlUtils'
+import meadService from '../services/mead'
 
 const router = useRouter()
 const route = useRoute()
@@ -47,6 +48,11 @@ const takedownDates = ref({})
 const deliveryHistory = ref({})
 const scheduledDateTime = ref(new Date(Date.now() + 3600000).toISOString().slice(0, 16))
 const genreMappingCache = ref({})
+
+const generatedMEADs = ref({})
+const showMEADPreview = ref(false)
+const previewMEAD = ref('')
+const previewMEADTargetName = ref('')
 
 // Step titles
 const stepTitles = [
@@ -295,12 +301,32 @@ const generateERNs = async () => {
   isGeneratingERN.value = true
   error.value = null
   generatedERNs.value = {}
+  generatedMEADs.value = {} // Clear MEAD messages
   ernErrors.value = {}
   
   // Check delivery history first
   await checkDeliveryHistory()
   
   try {
+    // Get the selected release data
+    const release = selectedRelease.value
+    if (!release) {
+      throw new Error('No release selected')
+    }
+    
+    // Check if release has MEAD data
+    const hasMeadData = release.mead && (
+      release.mead.moods?.length > 0 ||
+      release.mead.tempo ||
+      release.mead.instrumentation?.length > 0 ||
+      release.mead.playlistSuitability?.length > 0 ||
+      release.mead.vocalCharacteristics?.length > 0 ||
+      release.mead.marketingDescription ||
+      Object.keys(release.mead.trackMead || {}).length > 0
+    )
+    
+    console.log('MEAD data available:', hasMeadData)
+    
     // Generate ERN for each selected target
     for (const targetId of deliveryData.value.selectedTargets) {
       const target = availableTargets.value.find(t => t.id === targetId)
@@ -309,6 +335,7 @@ const generateERNs = async () => {
       const messageType = messageTypes.value[targetId] || 'Initial'
       
       try {
+        // Generate ERN
         const result = await ernService.generateERNWithType(
           deliveryData.value.releaseId,
           {
@@ -343,6 +370,28 @@ const generateERNs = async () => {
           ...result,
           messageSubType: messageType
         }
+        
+        // Generate MEAD if data is available and target supports it
+        if (hasMeadData && target.supportsMEAD !== false) {
+          try {
+            console.log(`Generating MEAD for ${target.name}`)
+            
+            const meadResult = await meadService.generateMEAD(release, {
+              senderName: user.value?.organizationName || user.value?.displayName,
+              senderPartyId: target.config?.distributorId || 'stardust-distro',
+              recipientName: target.partyName || target.name,
+              recipientPartyId: target.partyId || target.id
+            })
+            
+            generatedMEADs.value[targetId] = meadResult
+            console.log(`MEAD generated for ${target.name}:`, meadResult.messageId)
+            
+          } catch (meadError) {
+            console.error(`Error generating MEAD for ${target.name}:`, meadError)
+            // MEAD errors are non-blocking, continue with ERN only
+          }
+        }
+        
       } catch (err) {
         console.error(`Error generating ERN for ${target.name}:`, err)
         ernErrors.value[targetId] = err.message
@@ -358,13 +407,27 @@ const generateERNs = async () => {
     if (Object.keys(generatedERNs.value).length === 0) {
       error.value = 'No ERNs were generated. Please check your configuration.'
     } else {
-      successMessage.value = `Generated ${Object.keys(generatedERNs.value).length} ERN(s) successfully!`
+      const meadCount = Object.keys(generatedMEADs.value).length
+      const ernCount = Object.keys(generatedERNs.value).length
       
-      // Save ERN generation metadata
+      if (meadCount > 0) {
+        successMessage.value = `Generated ${ernCount} ERN(s) and ${meadCount} MEAD message(s) successfully!`
+      } else {
+        successMessage.value = `Generated ${ernCount} ERN(s) successfully!`
+      }
+      
+      // Log generation summary
       for (const [targetId, ernResult] of Object.entries(generatedERNs.value)) {
         const target = availableTargets.value.find(t => t.id === targetId)
+        const meadResult = generatedMEADs.value[targetId]
+        
         if (target) {
-          console.log(`ERN generated for ${target.name}: Message ID ${ernResult.messageId}, Type: ${ernResult.messageSubType}`)
+          console.log(`Messages generated for ${target.name}:`, {
+            ernMessageId: ernResult.messageId,
+            meadMessageId: meadResult?.messageId || 'No MEAD',
+            messageType: ernResult.messageSubType
+          })
+          
           if (ernResult.genreMapping) {
             console.log(`Genre mapped: ${ernResult.genreMapping.original} → ${ernResult.genreMapping.mapped}`)
           }
@@ -377,6 +440,47 @@ const generateERNs = async () => {
   } finally {
     isGeneratingERN.value = false
   }
+}
+
+// MEAD helpers
+const previewMEADForTarget = (targetId) => {
+  const mead = generatedMEADs.value[targetId]
+  const target = availableTargets.value.find(t => t.id === targetId)
+  
+  if (mead && target) {
+    previewMEAD.value = mead.mead
+    previewMEADTargetName.value = target.name
+    showMEADPreview.value = true
+  }
+}
+
+const downloadMEAD = (targetId) => {
+  const mead = generatedMEADs.value[targetId]
+  const target = availableTargets.value.find(t => t.id === targetId)
+  
+  if (mead && target) {
+    const blob = new Blob([mead.mead], { type: 'text/xml' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selectedRelease.value.basic?.title}_${target.name}_MEAD.xml`.replace(/[^a-z0-9]/gi, '_')
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+}
+
+const copyMEADToClipboard = () => {
+  navigator.clipboard.writeText(previewMEAD.value)
+    .then(() => {
+      successMessage.value = 'MEAD copied to clipboard!'
+      setTimeout(() => successMessage.value = '', 3000)
+    })
+    .catch(err => {
+      console.error('Failed to copy:', err)
+      error.value = 'Failed to copy to clipboard'
+    })
 }
 
 const validateERN = async (targetId) => {
@@ -498,9 +602,15 @@ const queueDelivery = async () => {
         ernMessageId: ern.messageId,
         ernXml: ern.ern,
         
+        // MEAD data
+        meadMessageId: generatedMEADs.value[targetId]?.messageId || null,
+        meadXml: generatedMEADs.value[targetId]?.mead || null,
+        hasMEAD: !!generatedMEADs.value[targetId],
+        
         // Package info
         package: {
           ernFile: `${ern.messageId}.xml`,
+          meadFile: generatedMEADs.value[targetId] ? `${generatedMEADs.value[targetId].messageId}.xml` : null,
           audioFiles: selectedRelease.value.tracks?.map(t => t.audio?.url).filter(Boolean) || [],
           imageFiles: [selectedRelease.value.assets?.coverImage?.url].filter(Boolean),
           totalSize: calculatePackageSize()
@@ -986,7 +1096,92 @@ onMounted(() => {
                 </div>
               </div>
             </div>
-            
+
+            <!-- In Step 3, after the Generated ERNs Display section -->
+            <div v-if="Object.keys(generatedERNs).length > 0" class="generated-erns">
+              <h3 class="text-lg font-semibold mb-md">Generated Messages</h3>
+              <div class="grid grid-cols-1 grid-cols-md-2 gap-lg">
+                <div v-for="(ern, targetId) in generatedERNs" :key="targetId" class="card">
+                  <div class="card-body">
+                    <div class="flex justify-between items-center mb-md">
+                      <h4 class="font-semibold">{{ getTargetName(targetId) }}</h4>
+                      <div class="flex gap-xs">
+                        <span class="badge badge-success">
+                          <font-awesome-icon icon="check-circle" />
+                          ERN
+                        </span>
+                        <span v-if="generatedMEADs[targetId]" class="badge badge-info">
+                          <font-awesome-icon icon="chart-line" />
+                          MEAD
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <!-- Show Genre Mapping Result -->
+                    <div v-if="ern.genreMapping" class="genre-mapping-result">
+                      <div class="result-badge">
+                        <font-awesome-icon icon="music" />
+                        Genre Mapped: {{ ern.genreMapping.original }} → {{ ern.genreMapping.mapped }}
+                      </div>
+                    </div>
+                    
+                    <!-- MEAD Info - ADD THIS -->
+                    <div v-if="generatedMEADs[targetId]" class="mead-info mt-md pt-md border-t">
+                      <div class="text-sm text-secondary mb-sm">
+                        <font-awesome-icon icon="chart-line" />
+                        MEAD Enrichment Included
+                      </div>
+                      <div class="text-xs text-tertiary">
+                        Enhanced metadata for discovery and recommendations
+                      </div>
+                    </div>
+                    
+                    <div class="ern-details text-sm">
+                      <div class="flex justify-between">
+                        <span>ERN ID:</span>
+                        <code class="text-xs">{{ ern.messageId }}</code>
+                      </div>
+                      <div v-if="generatedMEADs[targetId]" class="flex justify-between">
+                        <span>MEAD ID:</span>
+                        <code class="text-xs">{{ generatedMEADs[targetId].messageId }}</code>
+                      </div>
+                      <div class="flex justify-between">
+                        <span>Version:</span>
+                        <span>ERN {{ ern.version || '4.3' }}</span>
+                      </div>
+                      <div class="flex justify-between">
+                        <span>Type:</span>
+                        <span>{{ ern.messageSubType || messageTypes[targetId] }}</span>
+                      </div>
+                    </div>
+                    
+                    <div class="flex gap-sm mt-md pt-md border-t">
+                      <button @click="previewERNForTarget(targetId)" class="btn btn-sm btn-secondary">
+                        <font-awesome-icon icon="eye" />
+                        ERN
+                      </button>
+                      <button v-if="generatedMEADs[targetId]" @click="previewMEADForTarget(targetId)" class="btn btn-sm btn-secondary">
+                        <font-awesome-icon icon="eye" />
+                        MEAD
+                      </button>
+                      <button @click="validateERN(targetId)" class="btn btn-sm btn-secondary">
+                        <font-awesome-icon icon="check-circle" />
+                        Validate
+                      </button>
+                      <button @click="downloadERN(targetId)" class="btn btn-sm btn-primary">
+                        <font-awesome-icon icon="download" />
+                        ERN
+                      </button>
+                      <button v-if="generatedMEADs[targetId]" @click="downloadMEAD(targetId)" class="btn btn-sm btn-primary">
+                        <font-awesome-icon icon="download" />
+                        MEAD
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>            
+
             <!-- ERN Errors Display -->
             <div v-if="Object.keys(ernErrors).length > 0" class="ern-errors mt-xl">
               <h3 class="text-lg font-semibold mb-md">Generation Errors</h3>
@@ -1218,6 +1413,38 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- MEAD Preview Modal -->
+    <div v-if="showMEADPreview" class="modal-overlay" @click="showMEADPreview = false">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h2 class="text-xl font-semibold">MEAD Preview - {{ previewMEADTargetName }}</h2>
+          <button @click="showMEADPreview = false" class="modal-close">
+            <font-awesome-icon icon="times" />
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="p-md bg-secondary rounded-md mb-md">
+            <h3 class="text-sm font-semibold mb-xs">Media Enrichment & Description</h3>
+            <p class="text-xs text-secondary">
+              MEAD provides rich metadata that enhances music discovery on DSPs through mood classification, 
+              tempo analysis, instrumentation details, and playlist suitability indicators.
+            </p>
+          </div>
+          <pre class="ern-preview">{{ previewMEAD }}</pre>
+        </div>
+        <div class="modal-footer">
+          <button @click="copyMEADToClipboard" class="btn btn-secondary">
+            <font-awesome-icon icon="copy" />
+            Copy to Clipboard
+          </button>
+          <button @click="showMEADPreview = false" class="btn btn-primary">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>    
+    
   </div>
 </template>
 
@@ -1734,6 +1961,17 @@ onMounted(() => {
   overflow-x: auto;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+.mead-info {
+  padding: var(--space-sm);
+  background-color: rgba(66, 133, 244, 0.1);
+  border-radius: var(--radius-md);
+}
+
+.badge-info {
+  background-color: rgba(66, 133, 244, 0.1);
+  color: var(--color-info);
 }
 
 /* Responsive */
