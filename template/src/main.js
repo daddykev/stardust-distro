@@ -84,7 +84,8 @@ import {
   faFingerprint,
   faLock,
   faKey,
-  faLanguage
+  faLanguage,
+  faUsers
 } from '@fortawesome/free-solid-svg-icons'
 
 // Import brand icons
@@ -170,7 +171,8 @@ library.add(
   faFingerprint,
   faLock,
   faKey,
-  faLanguage 
+  faLanguage,
+  faUsers
 )
 
 // Add brand icons to the library
