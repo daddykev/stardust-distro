@@ -233,6 +233,13 @@ npm run deploy
 - **Custom Domains**: Each tenant can use their own domain
 - **Shared Infrastructure**: Efficient resource utilization
 
+### Metadata Services Architecture
+- **Multi-Source Integration**: Spotify and Deezer APIs for comprehensive metadata
+- **Product Metadata Service**: Caching layer for API responses with 30-day TTL
+- **Metadata Synthesizer**: Runtime synthesis combining best data from all sources
+- **Quality Assessment**: Automatic scoring of metadata completeness and accuracy
+- **Conflict Resolution**: Intelligent handling of discrepancies between sources
+
 ## Unified Authentication Strategy
 
 Stardust Distro shares authentication with the DDEX Workbench app ecosystem:
@@ -291,8 +298,9 @@ stardust-distro/
 │   │   ├── testing-guide.md       # Testing component guide ✅
 │   │   └── troubleshooting.md     # Troubleshooting guide ✅
 │   ├── functions/                 # Cloud Functions
-│   │   ├── api/                   # App API
-│   │   │   └── deezer.js          # Deezer API functions ✅
+│   │   ├── api/                   # Public APIs
+│   │   │   ├── deezer.js          # Deezer API queries ✅
+│   │   │   └── spotify.js         # Spotify API queries ✅
 │   │   ├── middleware/            # Middleware functions
 │   │   │   ├── auth.js            # To verify authentication ✅
 │   │   │   └── validation.js      # Factory for request validation ✅
@@ -1744,23 +1752,25 @@ if (validation.valid) {
       - [x] **Two-Step Process**
           - [x] Step 1: Upload asset files (audio/images)
           - [x] Step 2: Automatic metadata fetch and release creation
-      - [x] **Deezer Integration Features**
+      - [x] **Multi-Source Metadata Integration**
           - [x] Automatic UPC extraction from filenames
-          - [x] Deezer API integration for album metadata
-          - [x] Track-level metadata retrieval with ISRCs
-          - [x] High-quality cover art download (XL size)
+          - [x] Spotify API integration for album metadata
+          - [x] Deezer API integration as fallback/supplementary source
+          - [x] Track-level metadata retrieval with ISRCs from both sources
+          - [x] High-quality cover art download from available sources
+          - [x] Metadata synthesis for best data accuracy
           - [x] Intelligent cover art handling:
               - Skip if user uploaded cover
-              - Offer choice to download from Deezer
-              - Store Deezer artwork in Firebase Storage
+              - Offer choice to download from metadata sources
+              - Store artwork in Firebase Storage
           - [x] Batch metadata fetching with rate limiting
           - [x] Progress tracking for API calls
       - [x] **Cover Art Management**
           - [x] Automatic detection of missing cover art
-          - [x] Deezer artwork preview before download
-          - [x] User choice dialog for Deezer artwork usage
+          - [x] Spotify/Deezer artwork preview before download
+          - [x] User choice dialog for external artwork usage
           - [x] Firebase Storage integration for downloaded art
-          - [x] Source tracking (user vs Deezer)
+          - [x] Source tracking (user vs Spotify vs Deezer)
           
   - [x] **DDEX File Validation & Processing**
       - [x] **File Naming Requirements**
@@ -1917,17 +1927,18 @@ Traditional import workflow for users with complete metadata:
 Revolutionary workflow for users with only audio files:
 1. **Upload DDEX Files** → System validates naming convention
 2. **Extract UPCs** → Automatic UPC extraction from filenames
-3. **Fetch from Deezer** → Retrieve complete metadata and artwork
-4. **Match & Create** → Auto-match files and create releases
+3. **Fetch from Multiple Sources** → Retrieve metadata from Spotify and Deezer
+4. **Synthesize & Match** → Combine best data from all sources and create releases
 
-**Deezer API Integration Features:**
-- **Automatic Metadata Enrichment**: Complete album and track metadata from Deezer's database
+**Multi-Source API Integration Features:**
+- **Metadata Synthesis**: Combines data from Spotify and Deezer for accuracy
+- **Automatic Metadata Enrichment**: Complete album and track metadata from multiple databases
 - **Smart Cover Art Handling**: 
   - Detects if user uploaded cover art
-  - Offers to download high-quality artwork from Deezer if missing
-  - Stores Deezer artwork in Firebase with proper attribution
-- **Comprehensive Track Data**: ISRCs, durations, artist credits
-- **Fallback Strategies**: Search by UPC if direct lookup fails
+  - Offers to download high-quality artwork from available sources
+  - Stores external artwork in Firebase with proper attribution
+- **Comprehensive Track Data**: ISRCs, durations, artist credits from best available source
+- **Fallback Strategies**: Uses multiple sources to ensure data completeness
 - **Batch Processing**: Efficient handling of multiple releases
 
 **File Organization:**
@@ -1950,14 +1961,16 @@ Additional: 123456789012_02.jpg (UPC_ImageNumber)
 // 2 incomplete shown in status modal for manual completion
 ```
 
-**Example 2: Metadata-less Import with Deezer**
+**Example 2: Metadata-less Import with Multi-Source APIs**
 ```javascript
 // User uploads 100 DDEX-named audio files (no metadata)
 // System extracts 10 unique UPCs from filenames
-// Deezer API fetches complete metadata for all 10 albums
+// Spotify API fetches metadata for 9 albums (90% hit rate)
+// Deezer API provides missing album and supplements ISRCs
+// Metadata synthesizer combines best data from both sources
 // System detects 3 albums missing cover art
-// User chooses to download covers from Deezer
-// 10 complete releases created with full metadata and artwork
+// User chooses to download covers from Spotify (higher quality)
+// 10 complete releases created with synthesized metadata and artwork
 ```
 
 #### Recovery & Continuity
