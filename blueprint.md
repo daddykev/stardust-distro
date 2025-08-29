@@ -314,12 +314,14 @@ stardust-distro/
 │   │   ├── components/            # UI components
 │   │   │   ├── delivery/          # Delivery management
 │   │   │   │   └── DeliveryTargetForm.vue  # Target configuration ✅
+│   │   │   ├── ArtistForm.vue     # Create and edit artist profiles ✅
 │   │   │   ├── DuplicateWarning.vue  # Fingerprint analysis tool ✅
 │   │   │   ├── GenreSelector.vue  # Unified genre selector tool ✅
 │   │   │   ├── MigrationStatus.vue  # Catalog import modal ✅
 │   │   │   ├── NavBar.vue         # Navigation bar component ✅
 │   │   │   └── ReconciliationDashboard.vue  # Delivery receipts ✅
 │   │   ├── composables/           # Vue composables
+│   │   │   ├── useArtists.js      # Manages global artist state ✅
 │   │   │   ├── useAuth.js         # Authentication composable ✅
 │   │   │   ├── useCatalog.js      # Catalog operations ✅
 │   │   │   └── useDelivery.js     # Delivery operations ✅
@@ -351,6 +353,7 @@ stardust-distro/
 │   │   │   ├── apple.js           # Apple Music XML generation ✅
 │   │   │   ├── apple/             # Apple versions
 │   │   │   │   ├── apple-5323.js  # Apple 5.3.23 builder ✅
+│   │   │   ├── artists.js         # Artist operations ✅
 │   │   │   ├── assets.js          # Asset management ✅
 │   │   │   ├── catalog.js         # Catalog operations ✅
 │   │   │   ├── delivery.js        # Delivery operations ✅
@@ -374,6 +377,7 @@ stardust-distro/
 │   │   │   └── validation.js      # Frontend Validation Schemas ✅
 │   │   ├── views/                 # Page views
 │   │   │   ├── Analytics.vue      # Usage analytics ✅
+│   │   │   ├── Artists.vue        # Artist management ✅
 │   │   │   ├── Catalog.vue        # Catalog management ✅
 │   │   │   ├── Dashboard.vue      # Main dashboard ✅
 │   │   │   ├── Deliveries.vue     # Delivery management ✅
