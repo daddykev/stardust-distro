@@ -389,6 +389,7 @@ stardust-distro/
 │   │   │   ├── metadataSynthesizer.js. # Metadata synth ✅
 │   │   │   ├── productMetadata.js  # Product metadata operations ✅
 │   │   │   ├── receipts.js        # Enhanced delivery receipts ✅
+│   │   │   ├── securityTesting.js  # OWASP ZAP service ✅
 │   │   │   └── testTargets.js     # Test DSP targets ✅
 │   │   ├── utils/                 # Utils
 │   │   │   ├── releaseClassifier.js  # Classify release by DDEX standards ✅
@@ -412,7 +413,7 @@ stardust-distro/
 │   │   │   ├── Settings.vue       # Platform settings ✅
 │   │   │   ├── Signup.vue         # Account creation page ✅
 │   │   │   ├── SplashPage.vue     # Landing/marketing page ✅
-│   │   │   └── Testing.vue        # Comprehensive testing suite ✅
+│   │   │   └── Testing.vue        # Testing suite with OWASP ZAP ✅
 │   │   ├── firebase.js            # Firebase initialization ✅
 │   │   ├── App.vue                # Root component with theme management ✅
 │   │   └── main.js                # Entry point with FontAwesome setup ✅
