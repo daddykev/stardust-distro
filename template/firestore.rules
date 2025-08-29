@@ -37,6 +37,27 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
     
+    // Artists - user-scoped with validation
+    match /artists/{artistId} {
+      allow read: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.name != null &&
+        request.resource.data.type in ['individual', 'group'] &&
+        request.resource.data.status in ['active', 'inactive'] &&
+        (request.resource.data.roles != null && request.resource.data.roles.size() > 0);
+      allow update: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId && // Can't change owner
+        request.resource.data.name != null &&
+        request.resource.data.type in ['individual', 'group'] &&
+        request.resource.data.status in ['active', 'inactive'];
+      allow delete: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+    }
+    
     // Releases - tenant isolation with ownership
     match /releases/{releaseId} {
       allow read: if isAuthenticated() && 

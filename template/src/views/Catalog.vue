@@ -311,6 +311,10 @@ const executeBulkDelete = async () => {
     isBulkProcessing.value = false
   }
 }
+
+const navigateToArtists = () => {
+  router.push('/artists')
+}
 </script>
 
 <template>
@@ -322,10 +326,16 @@ const executeBulkDelete = async () => {
           <h1 class="page-title">Music Catalog</h1>
           <p class="page-subtitle">Manage your releases and track deliveries</p>
         </div>
-        <button @click="navigateToNewRelease" class="btn btn-primary">
-          <font-awesome-icon icon="plus" />
-          New Release
-        </button>
+        <div class="header-actions">
+          <button @click="navigateToArtists" class="btn btn-secondary">
+            <font-awesome-icon icon="users" />
+            Artists
+          </button>
+          <button @click="navigateToNewRelease" class="btn btn-primary">
+            <font-awesome-icon icon="plus" />
+            New Release
+          </button>
+        </div>
       </div>
 
       <!-- Statistics Cards -->

@@ -170,3 +170,6 @@ credentials.json
 
 # dataconnect generated files
 .dataconnect
+
+# internal overview build doc
+overview.md

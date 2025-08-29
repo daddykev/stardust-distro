@@ -1,6 +1,21 @@
 {
   "indexes": [
     {
+      "collectionGroup": "artists",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "userId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "name",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
       "collectionGroup": "deliveries",
       "queryScope": "COLLECTION",
       "fields": [
