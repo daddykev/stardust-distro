@@ -11,7 +11,7 @@ Democratize music distribution by providing a complete, DDEX-compliant distribut
 - **Instant Distribution Platform**: Deploy a functional distribution system with one command
 - **Extended Format Support**: DDEX ERN (3.8.2, 4.2, 4.3) and Apple Music XML (5.3.23)
 - **Multi-Protocol Delivery**: Supports FTP, SFTP, Amazon S3, Azure, and REST APIs
-- **No Vendor Lock-in**: Core platform is a full production-ready system
+- **Firebase-Powered Infrastructure**: Leverages Google Cloud's enterprise-grade services for authentication, database, storage, and serverless functions - providing reliability, scalability, and managed security
 
 ### Platform Architecture
 
@@ -22,6 +22,16 @@ Democratize music distribution by providing a complete, DDEX-compliant distribut
 - All delivery protocols (FTP/SFTP/API/S3/Azure)
 - Complete metadata and production credits
 - Professional dashboard with multi-format uploader
+
+Stardust Distro is built on Firebase (Google Cloud Platform), a strategic choice that provides:
+- **Managed Authentication**: Enterprise-grade auth with zero configuration
+- **Auto-scaling Infrastructure**: Handles growth from 1 to 1M+ users automatically  
+- **Global CDN**: Content delivery at edge locations worldwide
+- **Serverless Functions**: Pay only for what you use, no idle servers
+- **Real-time Database**: Live updates across all connected clients
+- **99.95% Uptime SLA**: Google's infrastructure reliability
+
+While the codebase is 100% open source (MIT License) and theoretically portable, it's optimized for Firebase's ecosystem to deliver a production-ready platform from day one. Firebase's generous free tier supports small to medium labels, with predictable pay-as-you-go pricing for larger operations.
 
 ## Development Status
 

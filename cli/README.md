@@ -178,8 +178,6 @@ Your platform will handle:
 
 ## 🤝 Contributing
 
-We're approaching v1.0! Join us:
-
 ```bash
 git clone https://github.com/daddykev/stardust-distro.git
 cd stardust-distro
@@ -193,11 +191,10 @@ See [CONTRIBUTING.md](https://github.com/daddykev/stardust-distro/blob/main/CONT
 
 ## 🚦 Current Status
 
-**v0.9.9 - Release Candidate** (August 2025)
+**v1.0.1 - Alpha Release** (August 2025)
 - ✅ Production ready
 - ✅ All core features complete
 - ✅ Security audit passed
-- ⏳ Preparing for v1.0 launch
 
 ## 📮 Get Started Now
 
