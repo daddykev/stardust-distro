@@ -368,6 +368,8 @@ stardust-distro/
 │   │   │   ├── genreMappings.js   # Genre map Firestore service ✅
 │   │   │   ├── import.js          # Catalog migration service ✅
 │   │   │   ├── mead.js            # MEAD XML builder ✅
+│   │   │   ├── metadataSynthesizer.js. # Metadata synth ✅
+│   │   │   ├── productMetadata.js  # Product metadata operations ✅
 │   │   │   ├── receipts.js        # Enhanced delivery receipts ✅
 │   │   │   └── testTargets.js     # Test DSP targets ✅
 │   │   ├── utils/                 # Utils

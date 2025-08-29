@@ -58,6 +58,10 @@ app.use(express.json());
 const deezerRoutes = require('./api/deezer');
 app.use('/deezer', deezerRoutes);
 
+// Import Spotify API routes
+const spotifyRoutes = require('./api/spotify');
+app.use('/spotify', spotifyRoutes);
+
 // Export the Express app as a Cloud Function
 exports.api = onRequest(app);
 

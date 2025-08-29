@@ -214,6 +214,11 @@ service cloud.firestore {
       allow create, delete: if false; // Functions only
     }
 
+    // Product metadata - user-scoped cache
+    match /productMetadata/{upc} {
+      allow read, write: if isAuthenticated();
+    }
+
     // Default deny all
     match /{document=**} {
       allow read, write: if false;

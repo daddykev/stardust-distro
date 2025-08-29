@@ -330,8 +330,23 @@ onMounted(async () => {
         metadata: { ...releaseData.value.metadata, ...(currentRelease.value.metadata || {}) },
         mead: { ...defaultMeadData, ...(currentRelease.value.mead || {}) },
         territories: { ...releaseData.value.territories, ...(currentRelease.value.territories || {}) },
-        ern: { ...releaseData.value.ern, ...(currentRelease.value.ern || {}) }  // Include ERN data
+        ern: { ...releaseData.value.ern, ...(currentRelease.value.ern || {}) }
       }
+      
+      // ADD THIS DEBUG CODE:
+      console.log('🎵 === EditRelease: Loaded Release Data ===')
+      console.log('Release ID:', releaseId.value)
+      console.log('Tracks loaded:', releaseData.value.tracks.length)
+      releaseData.value.tracks.forEach((track, index) => {
+        console.log(`Track ${index + 1}:`, {
+          title: track.title,
+          isrc: track.isrc || 'NO ISRC',
+          artist: track.artist,
+          sequenceNumber: track.sequenceNumber
+        })
+      })
+      console.log('Full tracks data:', JSON.stringify(releaseData.value.tracks, null, 2))
+      // END DEBUG CODE
       
       // Ensure all tracks have contributors array
       releaseData.value.tracks.forEach(track => {
@@ -416,6 +431,14 @@ const saveChanges = async () => {
     isSaving.value = true
     saveError.value = null
     
+    // ADD THIS DEBUG:
+    console.log('🔄 === Saving Release Changes ===')
+    console.log('Tracks being saved:')
+    releaseData.value.tracks.forEach((track, index) => {
+      console.log(`  Track ${index + 1}: ISRC = ${track.isrc || 'NONE'}`)
+    })
+    // END DEBUG
+    
     const cleanedData = cleanDataForFirestore(releaseData.value)
     await updateRelease(releaseId.value, cleanedData)
     
@@ -487,6 +510,13 @@ const handleAddTrack = () => {
 }
 
 const handleUpdateTrack = (index, updates) => {
+  // ADD THIS DEBUG:
+  console.log(`Updating track ${index}:`, updates)
+  if (updates.isrc !== undefined) {
+    console.log(`  ISRC update: "${releaseData.value.tracks[index].isrc}" -> "${updates.isrc}"`)
+  }
+  // END DEBUG
+  
   Object.assign(releaseData.value.tracks[index], updates)
   modifiedSections.value.add('tracks')
 }
@@ -1378,6 +1408,14 @@ const handleSubgenreUpdate = (value) => {
                       class="form-input"
                       placeholder="ISRC (optional)"
                     />
+                  </div>
+
+                  <!-- ADD THIS DEBUG DISPLAY right after the ISRC input: -->
+                  <div v-if="track.isrc" class="text-xs text-success mt-xs">
+                    ISRC: {{ track.isrc }}
+                  </div>
+                  <div v-else class="text-xs text-warning mt-xs">
+                    No ISRC
                   </div>
                   
                   <!-- Contributors Section -->
