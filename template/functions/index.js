@@ -1,4 +1,8 @@
 // functions/index.js
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
+
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const { onCall, HttpsError, onRequest } = require('firebase-functions/v2/https')
 const { setGlobalOptions } = require('firebase-functions/v2')

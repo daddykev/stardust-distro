@@ -198,7 +198,7 @@ const extractUPCFromFilename = (filename) => {
 /**
  * Download cover art from Deezer and upload to Firebase Storage
  */
-const downloadAndStoreDeezerArtwork = async (upc, coverUrl) => {
+const downloadAndStoreApiArtwork = async (upc, coverUrl) => {
   try {
     console.log(`📥 Downloading Deezer artwork for UPC ${upc}`)
     console.log(`  URL: ${coverUrl}`)
@@ -245,76 +245,6 @@ const downloadAndStoreDeezerArtwork = async (upc, coverUrl) => {
   } catch (error) {
     console.error(`  ❌ Failed to download/store artwork for UPC ${upc}:`, error)
     return null  // Return null instead of undefined artwork
-  }
-}
-
-const fetchDeezerMetadata = async (upc) => {
-  try {
-    console.log(`  🌐 Fetching metadata for UPC: ${upc}`)
-    
-    // Use the new productMetadata service
-    const metadata = await productMetadataService.getMetadata(upc, {
-      sources: ['deezer'],
-      forceRefresh: false // Use cache if available
-    })
-    
-    if (!metadata || !metadata.extracted?.deezer) {
-      console.warn(`    ⚠️ No metadata found for UPC: ${upc}`)
-      return null
-    }
-    
-    // Synthesize the metadata at runtime
-    const synthesized = metadataSynthesizer.synthesize(metadata, {
-      strategy: 'preferred',
-      preferredSource: 'deezer'
-    })
-    
-    if (!synthesized) {
-      console.warn(`    ⚠️ Could not synthesize metadata for UPC: ${upc}`)
-      return null
-    }
-    
-    console.log(`    ✅ Found album: "${synthesized.title}" by ${synthesized.artist}`)
-    console.log(`    📀 Album details:`)
-    console.log(`      - Tracks: ${synthesized.tracks?.length || 0}`)
-    console.log(`      - Release date: ${synthesized.releaseDate}`)
-    console.log(`      - Label: ${synthesized.label || 'Unknown'}`)
-    console.log(`      - Cover XL: ${synthesized.coverArt?.xl ? 'Available' : 'Not available'}`)
-    
-    // Build release data in the format Migration.vue expects
-    const releaseData = {
-      upc: upc,
-      title: synthesized.title,
-      artist: synthesized.artist,
-      label: synthesized.label || '',
-      releaseDate: synthesized.releaseDate || new Date().toISOString().split('T')[0],
-      genre: synthesized.genre || '',
-      coverUrl: synthesized.coverArt?.xl || synthesized.coverArt?.large || synthesized.coverArt?.medium,
-      coverUrlOriginal: synthesized.coverArt?.xl,
-      duration: synthesized.duration || 0,
-      tracks: synthesized.tracks.map((track, index) => ({
-        trackNumber: track.position || index + 1,
-        discNumber: 1,
-        title: track.title || `Track ${index + 1}`,
-        artist: track.artist || synthesized.artist || 'Unknown Artist',
-        isrc: track.isrc || '',
-        duration: track.duration?.synthesized || track.duration?.sources?.deezer || 0,
-        preview: track.preview || null
-      })),
-      // Store metadata source info
-      _metadata: {
-        source: 'productMetadata',
-        sources: metadata.quality?.sources || ['deezer'],
-        completeness: metadata.quality?.completeness?.deezer || 0
-      }
-    }
-    
-    console.log(`    ✅ Successfully processed metadata for UPC ${upc}`)
-    return releaseData
-    
-  } catch (error) {
-    console.error(`    ❌ Error fetching metadata for UPC ${upc}:`, error.message)
-    return null
   }
 }
 
@@ -388,8 +318,8 @@ const processMetadatalessUpload = async () => {
       
       // Use the new productMetadata service
       const productMetadata = await productMetadataService.getMetadata(upc, {
-        sources: ['deezer'],
-        forceRefresh: false // Use cache if available
+        sources: ['spotify', 'deezer'], // Try Spotify first, then Deezer
+        forceRefresh: false
       })
       
       const fetchTime = Date.now() - startTime
@@ -398,7 +328,7 @@ const processMetadatalessUpload = async () => {
         // Synthesize the metadata at runtime
         const synthesized = metadataSynthesizer.synthesize(productMetadata, {
           strategy: 'preferred',
-          preferredSource: 'deezer'
+          preferredSource: 'spotify' // Prefer Spotify for better ISRC coverage
         })
         
         if (synthesized) {
@@ -410,8 +340,9 @@ const processMetadatalessUpload = async () => {
             label: synthesized.label || '',
             releaseDate: synthesized.releaseDate || new Date().toISOString().split('T')[0],
             genre: synthesized.genre || '',
-            coverUrl: synthesized.coverArt?.xl || synthesized.coverArt?.large || synthesized.coverArt?.medium,
-            coverUrlOriginal: synthesized.coverArt?.xl,
+            // FIX: Get cover URL from the synthesized coverArt object
+            coverUrl: synthesized.coverArt?.large || synthesized.coverArt?.xl || synthesized.coverArt?.medium || synthesized.coverArt?.small,
+            coverUrlOriginal: synthesized.coverArt?.large || synthesized.coverArt?.xl, // Keep the best quality
             duration: synthesized.duration || 0,
             tracks: synthesized.tracks.map((track, index) => ({
               trackNumber: track.position || index + 1,
@@ -419,7 +350,7 @@ const processMetadatalessUpload = async () => {
               title: track.title || `Track ${index + 1}`,
               artist: track.artist || synthesized.artist || 'Unknown Artist',
               isrc: track.isrc || '',
-              duration: track.duration?.synthesized || track.duration?.sources?.deezer || 0,
+              duration: track.duration?.synthesized || track.duration?.sources?.spotify || track.duration?.sources?.deezer || track.duration || 0,
               preview: track.preview || null
             }))
           }
@@ -455,9 +386,12 @@ const processMetadatalessUpload = async () => {
             img.upc === upc && img.imageType === 'cover'
           )
           
+          // FIX: Check for cover URL properly
           if (!hasUserCover && metadata.coverUrlOriginal) {
-            console.log(`     - 🎨 Deezer cover available, user didn't upload cover`)
+            console.log(`     - 🎨 Cover available from API, user didn't upload cover`)
             needsArtwork.push({ upc, coverUrl: metadata.coverUrlOriginal })
+          } else if (!hasUserCover && !metadata.coverUrlOriginal) {
+            console.log(`     - ⚠️ No cover available from any source`)
           }
         } else {
           failedUPCs.push(upc)
@@ -543,27 +477,27 @@ const processMetadatalessUpload = async () => {
 const handleArtworkChoice = async () => {
   showArtworkConfirmation.value = false
   
-  if (artworkConfirmationChoice.value === 'use-deezer') {
-    // Download and store Deezer artwork
-    await downloadDeezerArtwork()
+  if (artworkConfirmationChoice.value === 'use-deezer') { // Could rename to 'use-api'
+    // Download and store API artwork
+    await downloadApiArtwork()
   }
   
   // Continue to matching regardless of choice
   await continueToMatching()
 }
 
-const downloadDeezerArtwork = async () => {
+const downloadApiArtwork = async () => {
   downloadingArtwork.value = true
-  artworkDownloadStatus.value = 'Downloading artwork from Deezer...'
+  artworkDownloadStatus.value = 'Downloading artwork from API sources...'
   
-  console.log('🎨 === Downloading Deezer Artwork ===')
+  console.log('🎨 === Downloading API Artwork ===')
   console.log(`  Processing ${Object.keys(deezerArtwork.value).length} covers`)
   
   try {
     for (const [upc, coverUrl] of Object.entries(deezerArtwork.value)) {
       artworkDownloadStatus.value = `Downloading artwork for UPC ${upc}...`
       
-      const artwork = await downloadAndStoreDeezerArtwork(upc, coverUrl)
+      const artwork = await downloadAndStoreApiArtwork(upc, coverUrl)
       if (artwork) {
         // Add to uploaded files as if user uploaded it
         uploadedFiles.value.images.push({
@@ -573,8 +507,8 @@ const downloadDeezerArtwork = async () => {
           upc: upc,
           imageType: 'cover',
           format: 'JPEG',
-          size: 0, // We don't track size for downloaded images
-          source: 'deezer'
+          size: 0,
+          source: 'api' // Changed from 'deezer' to 'api'
         })
         
         // Update the metadata to use the Firebase Storage URL

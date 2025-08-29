@@ -9,7 +9,7 @@ class ProductMetadataService {
   async getMetadata(upc, options = {}) {
     const { 
       forceRefresh = false,
-      sources = ['deezer'], // Start with just Deezer
+      sources = ['spotify', 'deezer'], // Default to both, Spotify first
       skipExpired = false
     } = options
     
@@ -77,14 +77,23 @@ class ProductMetadataService {
       sources: {},
       extracted: {},
       synthesis: { 
-        preferredSource: 'deezer', // For now, default to Deezer
+        preferredSource: 'spotify', // Default to Spotify
         strategy: 'consensus' 
       },
       quality: {},
       usage: {
         accessCount: 0,
+        users: [],
         usedInReleases: []
-      }
+      },
+      createdBy: auth.currentUser?.uid,
+      createdAt: new Date()
+    }
+    
+    // Add current user to usage tracking if not already there
+    const currentUserId = auth.currentUser?.uid
+    if (currentUserId && !existing.usage.users?.includes(currentUserId)) {
+      existing.usage.users = [...(existing.usage.users || []), currentUserId]
     }
     
     // Fetch from requested sources
@@ -139,26 +148,64 @@ class ProductMetadataService {
    */
   async fetchFromSource(upc, source) {
     try {
+      const apiUrl = process.env.NODE_ENV === 'development' 
+        ? 'http://localhost:5001/stardust-distro/us-central1/api'
+        : 'https://us-central1-stardust-distro.cloudfunctions.net/api'
+      
       switch (source) {
-        case 'deezer':
-          const apiUrl = process.env.NODE_ENV === 'development' 
-            ? 'http://localhost:5001/stardust-distro/us-central1/api'
-            : 'https://us-central1-stardust-distro.cloudfunctions.net/api'
+        case 'spotify':
+          console.log(`🎵 Fetching Spotify metadata for UPC: ${upc}`)
           
+          const spotifyResponse = await fetch(`${apiUrl}/spotify/album/${upc}`)
+          const spotifyData = await spotifyResponse.json()
+          
+          if (spotifyData.success && spotifyData.album) {
+            console.log(`  ✅ Found album on Spotify: ${spotifyData.album.name}`)
+            console.log(`  📀 Album has ${spotifyData.album.tracks_with_isrc?.length || spotifyData.album.tracks?.items?.length || 0} tracks`)
+            
+            // Spotify includes ISRCs directly in the tracks_with_isrc array
+            const tracksWithISRC = spotifyData.album.tracks_with_isrc || spotifyData.album.tracks?.items || []
+            
+            // Log ISRCs
+            let isrcCount = 0
+            tracksWithISRC.forEach((track, i) => {
+              const isrc = track.external_ids?.isrc
+              if (isrc) {
+                isrcCount++
+                console.log(`    ✅ Track ${i + 1} "${track.name}": ISRC = ${isrc}`)
+              } else {
+                console.log(`    ❌ Track ${i + 1} "${track.name}": No ISRC`)
+              }
+            })
+            
+            console.log(`  📊 Found ISRCs for ${isrcCount}/${tracksWithISRC.length} tracks`)
+            
+            return { 
+              status: 'success', 
+              raw: spotifyData.album
+            }
+          } else {
+            console.log(`  ❌ Album not found on Spotify for UPC: ${upc}`)
+            return { 
+              status: 'not_found',
+              error: spotifyData.error?.message || 'Album not found on Spotify'
+            }
+          }
+          
+        case 'deezer':
           console.log(`🎵 Fetching Deezer metadata for UPC: ${upc}`)
           
-          // This is exactly how Migration.vue was calling it
-          const response = await fetch(`${apiUrl}/deezer/album/${upc}`)
-          const data = await response.json()
+          const deezerResponse = await fetch(`${apiUrl}/deezer/album/${upc}`)
+          const deezerData = await deezerResponse.json()
           
-          if (data.success && data.album) {
-            console.log(`  ✅ Found album: ${data.album.title}`)
+          if (deezerData.success && deezerData.album) {
+            console.log(`  ✅ Found album on Deezer: ${deezerData.album.title}`)
             
-            // The album already includes tracks
-            let albumTracks = data.album.tracks?.data || []
+            // Get the tracks
+            let albumTracks = deezerData.album.tracks?.data || []
             console.log(`  📀 Album has ${albumTracks.length} tracks`)
             
-            // Fetch ISRCs exactly like Migration.vue did
+            // Fetch ISRCs
             if (albumTracks.length > 0) {
               const trackIds = albumTracks.map(t => t.id)
               console.log(`  🔍 Fetching ISRCs for track IDs: ${trackIds.join(', ')}`)
@@ -172,23 +219,19 @@ class ProductMetadataService {
                 
                 if (isrcResponse.ok) {
                   const isrcData = await isrcResponse.json()
-                  console.log(`  📦 ISRC response:`, JSON.stringify(isrcData, null, 2))
                   
                   if (isrcData.tracks) {
-                    // Create a map with STRING keys (this is the fix!)
+                    // Create a map with STRING keys (important for matching)
                     const isrcMap = {}
                     isrcData.tracks.forEach(t => {
                       if (t.isrc) {
-                        // Ensure both the key and comparison are strings
                         isrcMap[String(t.id)] = t.isrc
                       }
                     })
                     
-                    console.log(`  📊 ISRC map created:`, isrcMap)
-                    
                     // Map ISRCs back to tracks - ensure string comparison
                     albumTracks = albumTracks.map(track => {
-                      const trackIdStr = String(track.id) // Convert to string for comparison
+                      const trackIdStr = String(track.id)
                       const isrc = isrcMap[trackIdStr] || ''
                       
                       if (isrc) {
@@ -199,39 +242,48 @@ class ProductMetadataService {
                       
                       return {
                         ...track,
-                        isrc: isrc  // Add the ISRC to the track
+                        isrc: isrc
                       }
                     })
                     
                     console.log(`  📊 Found ISRCs for ${Object.keys(isrcMap).length}/${albumTracks.length} tracks`)
                   }
                 } else {
-                  console.warn('  ⚠️ Could not fetch ISRCs: status', isrcResponse.status)
+                  console.warn(`  ⚠️ Could not fetch ISRCs: status ${isrcResponse.status}`)
                 }
               } catch (error) {
                 console.warn('  ⚠️ Could not fetch ISRCs:', error.message)
               }
             }
             
-            // Return the album with ISRCs merged into tracks
             return { 
               status: 'success', 
               raw: {
-                ...data.album,
+                ...deezerData.album,
                 tracks: {
-                  ...data.album.tracks,
-                  data: albumTracks  // This now has ISRCs
+                  ...deezerData.album.tracks,
+                  data: albumTracks
                 }
               }
             }
           } else {
+            console.log(`  ❌ Album not found on Deezer for UPC: ${upc}`)
             return { 
               status: 'not_found',
-              error: data.error?.message || 'Album not found'
+              error: deezerData.error?.message || 'Album not found on Deezer'
             }
           }
           
-        // ... other sources
+        case 'discogs':
+          // TODO: Implement Discogs fetch when ready
+          console.log(`  ⚠️ Discogs integration not yet implemented`)
+          return {
+            status: 'not_implemented',
+            error: 'Discogs integration coming soon'
+          }
+          
+        default:
+          throw new Error(`Unknown source: ${source}`)
       }
     } catch (error) {
       console.error(`Error fetching from ${source}:`, error)
@@ -244,10 +296,10 @@ class ProductMetadataService {
    */
   extractData(source, raw) {
     switch (source) {
-      case 'deezer':
-        return this.extractDeezerData(raw)
       case 'spotify':
         return this.extractSpotifyData(raw)
+      case 'deezer':
+        return this.extractDeezerData(raw)
       case 'discogs':
         return this.extractDiscogsData(raw)
       default:
@@ -256,11 +308,62 @@ class ProductMetadataService {
   }
   
   /**
+   * Extract Spotify data into normalized format
+   */
+  extractSpotifyData(raw) {
+    console.log('🔄 Extracting Spotify data...')
+    
+    const tracks = raw.tracks_with_isrc || raw.tracks?.items || []
+    
+    const extracted = {
+      title: raw.name,
+      artist: raw.artists?.[0]?.name || 'Unknown Artist',
+      releaseDate: raw.release_date,
+      label: raw.label || '',
+      genre: raw.genres?.[0] || '',
+      albumType: raw.album_type, // single, album, compilation
+      totalTracks: raw.total_tracks,
+      coverArt: {
+        large: raw.images?.[0]?.url,
+        medium: raw.images?.[1]?.url,
+        small: raw.images?.[2]?.url
+      },
+      externalIds: {
+        spotify: raw.id,
+        upc: raw.external_ids?.upc
+      },
+      tracks: tracks.map((track, index) => {
+        const extractedTrack = {
+          position: track.track_number || index + 1,
+          discNumber: track.disc_number || 1,
+          title: track.name,
+          artist: track.artists?.[0]?.name || raw.artists?.[0]?.name,
+          duration: Math.round(track.duration_ms / 1000), // Convert ms to seconds
+          isrc: track.external_ids?.isrc || '',
+          explicit: track.explicit || false,
+          spotifyId: track.id,
+          spotifyUri: track.uri,
+          preview: track.preview_url || null
+        }
+        
+        console.log(`  Track ${index + 1}: "${extractedTrack.title}" - ISRC: ${extractedTrack.isrc || 'NONE'}`)
+        
+        return extractedTrack
+      })
+    }
+    
+    console.log(`  Extracted ${extracted.tracks.length} tracks from Spotify`)
+    console.log(`  ISRCs found: ${extracted.tracks.filter(t => t.isrc).length}`)
+    console.log(`  Album type: ${extracted.albumType}`)
+    
+    return extracted
+  }
+  
+  /**
    * Extract Deezer data into normalized format
    */
   extractDeezerData(raw) {
     console.log('🔄 Extracting Deezer data...')
-    console.log('  Raw tracks:', raw.tracks?.data?.length || 0)
     
     const extracted = {
       title: raw.title,
@@ -268,49 +371,49 @@ class ProductMetadataService {
       releaseDate: raw.release_date,
       label: raw.label,
       genre: raw.genres?.data?.[0]?.name || '',
-      duration: raw.duration,
+      duration: raw.duration, // Album duration in seconds
+      totalTracks: raw.nb_tracks || raw.tracks?.data?.length,
       coverArt: {
         xl: raw.cover_xl,
         large: raw.cover_big,
         medium: raw.cover_medium,
         small: raw.cover_small
       },
+      externalIds: {
+        deezer: String(raw.id),
+        upc: raw.upc
+      },
       tracks: raw.tracks?.data?.map((track, index) => {
         const extractedTrack = {
           position: track.track_position || index + 1,
+          discNumber: track.disk_number || 1,
           title: track.title || `Track ${index + 1}`,
           artist: track.artist?.name || raw.artist?.name,
-          duration: track.duration,
-          isrc: track.isrc || '',  // This should now have the ISRC
+          duration: track.duration, // Already in seconds
+          isrc: track.isrc || '',
+          explicit: track.explicit_lyrics || false,
           deezerId: String(track.id),
           preview: track.preview || null
         }
         
-        console.log(`  Track ${index + 1}: ISRC = ${extractedTrack.isrc || 'NONE'}`)
+        console.log(`  Track ${index + 1}: "${extractedTrack.title}" - ISRC: ${extractedTrack.isrc || 'NONE'}`)
         
         return extractedTrack
       }) || []
     }
     
-    console.log(`  Extracted ${extracted.tracks.length} tracks`)
+    console.log(`  Extracted ${extracted.tracks.length} tracks from Deezer`)
     console.log(`  ISRCs found: ${extracted.tracks.filter(t => t.isrc).length}`)
     
     return extracted
   }
   
   /**
-   * Extract Spotify data (placeholder for now)
-   */
-  extractSpotifyData(raw) {
-    // TODO: Implement when we add Spotify
-    return {}
-  }
-  
-  /**
    * Extract Discogs data (placeholder for now)
    */
   extractDiscogsData(raw) {
-    // TODO: Implement when we add Discogs
+    console.log('🔄 Extracting Discogs data...')
+    // TODO: Implement when Discogs is added
     return {}
   }
   
@@ -348,22 +451,36 @@ class ProductMetadataService {
       }
       total += 0.5
       
-      // Check track completeness
+      // Check track completeness (ISRCs)
       if (data.tracks?.length > 0) {
         const hasISRCs = data.tracks.filter(t => t.isrc).length / data.tracks.length
         score += hasISRCs * 0.5
         total += 0.5
       }
       
+      // Check for label
+      if (data.label) {
+        score += 0.25
+      }
+      total += 0.25
+      
       quality.completeness[source] = score / total
     })
     
-    // Check for conflicts (when we have multiple sources)
+    // Check for conflicts between sources
     if (sources.length > 1) {
+      // Check track count differences
       const trackCounts = sources.map(s => extracted[s].tracks?.length || 0)
       if (new Set(trackCounts).size > 1) {
         quality.hasConflicts = true
         quality.conflictFields.push('track_count')
+      }
+      
+      // Check release date differences
+      const releaseDates = sources.map(s => extracted[s].releaseDate).filter(d => d)
+      if (new Set(releaseDates).size > 1) {
+        quality.hasConflicts = true
+        quality.conflictFields.push('release_date')
       }
     }
     
@@ -397,6 +514,18 @@ class ProductMetadataService {
         correctedAt: serverTimestamp(),
         reason
       },
+      lastUpdated: serverTimestamp()
+    })
+  }
+  
+  /**
+   * Update synthesis preferences
+   */
+  async updateSynthesisPreferences(upc, preferences) {
+    const docRef = doc(db, 'productMetadata', upc)
+    
+    await updateDoc(docRef, {
+      'synthesis': preferences,
       lastUpdated: serverTimestamp()
     })
   }

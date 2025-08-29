@@ -2,7 +2,15 @@
 const express = require('express');
 const router = express.Router();
 
-// Use process.env directly (new Firebase standard)
+// Debug environment loading
+console.log('Environment check:', {
+  NODE_ENV: process.env.NODE_ENV,
+  hasClientId: !!process.env.SPOTIFY_CLIENT_ID,
+  hasClientSecret: !!process.env.SPOTIFY_CLIENT_SECRET,
+  envKeys: Object.keys(process.env).filter(key => key.includes('SPOTIFY'))
+});
+
+// Get credentials from environment
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 
@@ -12,6 +20,11 @@ if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
   console.error('Please create a .env file in the functions directory with:');
   console.error('SPOTIFY_CLIENT_ID=your_client_id');
   console.error('SPOTIFY_CLIENT_SECRET=your_client_secret');
+  
+  // Don't throw an error in development, just warn
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Spotify credentials missing');
+  }
 }
 
 const SPOTIFY_API_BASE = 'https://api.spotify.com/v1';
