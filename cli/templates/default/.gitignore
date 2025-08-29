@@ -47,7 +47,9 @@ functions/serviceAccountKey.json
 
 # Functions specific
 functions/.env
-functions/.env.*
+functions/.env.local
+functions/.env.*.local
+!functions/.env.example
 functions/lib/
 functions/node_modules/
 

@@ -15,7 +15,7 @@ const currentFeatures = [
   {
     icon: 'upload',
     title: 'Asset Management',
-    description: 'Firebase Storage integration with upload progress tracking',
+    description: 'Firebase Storage integration with fingerprinting and duplicate detection',
     status: 'live'
   },
   {
@@ -26,8 +26,8 @@ const currentFeatures = [
   },
   {
     icon: 'file-code',
-    title: 'ERN 4.3 Generation',
-    description: 'Full DDEX-compliant ERN generation with XML formatting',
+    title: 'Multi-Format Support',
+    description: 'DDEX ERN (3.8.2, 4.2, 4.3) and Apple Music XML generation',
     status: 'live'
   },
   {
@@ -44,19 +44,85 @@ const currentFeatures = [
   }
 ]
 
-// Phase 6: Production Launch Essentials
-const launchPhase = {
-  title: 'Production Launch Essentials',
-  status: 'IN PROGRESS',
-  tasks: [
-    { name: 'Multi-version DDEX ERN', status: 'active' },
-    { name: 'Idempotency & deduplication', status: 'active' },
-    { name: 'Apple Music 5.3.23 spec', status: 'active' },
-    { name: 'Import/export wizard', status: 'upcoming' },
-    { name: 'Documentation & guides', status: 'upcoming' },
-    { name: 'npm package publication', status: 'upcoming' }
-  ]
-}
+// Phase 6: Production Launch Essentials - COMPLETE
+const launchFeatures = [
+  {
+    icon: 'file-import',
+    title: 'Smart Catalog Migration',
+    description: 'Dual-mode import: CSV with metadata or metadata-less with API enrichment',
+    status: 'complete'
+  },
+  {
+    icon: 'tags',
+    title: 'Genre Intelligence',
+    description: 'DSP-specific mapping with 200+ hierarchical genres, visual management',
+    status: 'complete'
+  },
+  {
+    icon: 'fingerprint',
+    title: 'Content Fingerprinting',
+    description: 'MD5, SHA-256, and audio similarity detection prevents duplicates',
+    status: 'complete'
+  },
+  {
+    icon: 'sync',
+    title: 'Idempotency Protection',
+    description: 'Prevents duplicate deliveries with transaction locks',
+    status: 'complete'
+  },
+  {
+    icon: 'envelope',
+    title: 'Email Notifications',
+    description: 'Gmail SMTP integration with templates and user preferences',
+    status: 'complete'
+  },
+  {
+    icon: 'book',
+    title: 'DDEX MEAD 1.1',
+    description: 'Enhanced metadata for 10% better discovery and playlist placement',
+    status: 'complete'
+  }
+]
+
+// Security features
+const securityFeatures = [
+  {
+    icon: 'code',
+    title: 'Application Security',
+    score: '85/100',
+    description: 'Production-ready security with comprehensive protection',
+    items: [
+      'Input validation on 100% of forms',
+      'DOMPurify XSS prevention',
+      'Zod schema validation',
+      'File type magic number validation'
+    ]
+  },
+  {
+    icon: 'lock',
+    title: 'Modern Authentication',
+    score: '100%',
+    description: 'Complete auth protection across the entire platform infrastructure',
+    items: [
+      'Firebase Auth with RBAC',
+      'Protected Cloud Functions',
+      'Rate limiting (100/20 req/min)',
+      'Tenant isolation'
+    ]
+  },
+  {
+    icon: 'key',
+    title: 'Data Protection',
+    score: '100%',
+    description: 'Sensitive data encrypted at rest, in transit, and during processing',
+    items: [
+      'Cloud KMS encryption',
+      'Encrypted API credentials',
+      'Secure session management',
+      'Immutable audit logs'
+    ]
+  }
+]
 
 // Phase 7: Post-Launch Essentials
 const postLaunchFeatures = [
@@ -86,39 +152,40 @@ const postLaunchFeatures = [
   }
 ]
 
-// Phase 8: Plugin Marketplace
-const pluginExamples = [
-  'Immersive Audio',
-  'Delivery Orchestration',
-  'MEAD (Media Enrichment and Description)',
-  'Custom Workflows'
-]
+const npmInstallCommand = 'npm install -g @stardust-distro/cli'
 
-const codeExample = ref(`# Install and deploy your distribution platform
-npx stardust-distro create my-distro  # Coming Soon!
+const codeExample = ref(`# Install from npm
+npm install -g @stardust-distro/cli
+
+# Create your distribution platform
+stardust-distro create my-distro
 cd my-distro
 npm run deploy
 
-# Clone the repo and explore the platform (available now)
+# Or clone from GitHub
 git clone https://github.com/daddykev/stardust-distro.git
 cd stardust-distro/template
 npm install
 npm run dev`)
 
-const handleViewProgress = () => {
+const handleGetStarted = () => {
   router.push('/signup')
+}
+
+const handleViewNPM = () => {
+  window.open('https://www.npmjs.com/package/@stardust-distro/cli', '_blank')
 }
 
 const handleViewGithub = () => {
   window.open('https://github.com/daddykev/stardust-distro', '_blank')
 }
 
-const handleContribute = () => {
-  window.open('https://github.com/daddykev/stardust-distro/blob/main/CONTRIBUTING.md', '_blank')
-}
-
 const copyCode = () => {
   navigator.clipboard.writeText(codeExample.value)
+}
+
+const copyNpmCommand = () => {
+  navigator.clipboard.writeText(npmInstallCommand)
 }
 </script>
 
@@ -131,7 +198,7 @@ const copyCode = () => {
           <div class="hero-badge">
             <span class="badge-text badge-launch">
               <font-awesome-icon icon="rocket" class="badge-icon" />
-              Launch Imminent
+              v0.9.9 Release Candidate
             </span>
             <span class="badge-separator">•</span>
             <span class="badge-text">100% Open Source</span>
@@ -145,59 +212,79 @@ const copyCode = () => {
           </h1>
           
           <p class="hero-description">
-            We're building a <strong>DDEX-compliant</strong>, <strong>npm-installable</strong> 
-            music distribution platform with everything needed to power global music delivery.
+            A <strong>production-ready</strong>, <strong>DDEX-compliant</strong> music distribution platform 
+            with enterprise-grade security, comprehensive testing, and everything needed to power global music delivery.
           </p>
 
           <div class="development-status">
             <div class="status-bar">
-              <div class="status-progress" style="width: 71%"></div>
+              <div class="status-progress" style="width: 86%"></div>
             </div>
             <p class="status-text">
-              <strong>Development Progress:</strong> Phase 6 of 8 (Production Launch Essentials)
+              <strong>Development Progress:</strong> Phase 6 Complete
             </p>
           </div>
           
           <div class="hero-actions">
-            <button @click="handleViewProgress" class="btn btn-primary btn-lg">
-              View Dev Progress
+            <button @click="handleGetStarted" class="btn btn-primary btn-lg">
+              <font-awesome-icon icon="rocket" class="btn-icon" />
+              Get Started
+            </button>
+            <button @click="handleViewNPM" class="btn btn-secondary btn-lg">
+              <font-awesome-icon :icon="['fab', 'npm']" class="btn-icon npm-icon" />
+              View on npm
             </button>
             <button @click="handleViewGithub" class="btn btn-secondary btn-lg">
               <font-awesome-icon :icon="['fab', 'github']" class="btn-icon" />
-              View on GitHub
+              GitHub repo
+            </button>
+          </div>
+
+          <div class="npm-install">
+            <code>{{ npmInstallCommand }}</code>
+            <button class="copy-btn-inline" @click="copyNpmCommand" title="Copy command">
+              <font-awesome-icon icon="copy" />
             </button>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Philosophy Section -->
-    <section class="section bg-secondary">
+    <!-- Security Section -->
+    <section class="section bg-security">
       <div class="container">
-        <div class="philosophy-section">
-          <h2 class="section-title">True Open Source, Strategic Extensions</h2>
-          <div class="philosophy-grid">
-            <div class="philosophy-card">
-              <div class="philosophy-icon">
-                <font-awesome-icon icon="check-circle" />
+        <div class="security-section">
+          <h2 class="section-title">
+            <font-awesome-icon icon="shield-alt" />
+            Enterprise-Grade Security
+          </h2>
+          <p class="security-score">Security Score: <strong>85/100</strong> • Production Ready</p>
+          
+          <div class="security-grid">
+            <div v-for="feature in securityFeatures" :key="feature.title" class="security-card">
+              <div class="security-header">
+                <div class="security-icon">
+                  <font-awesome-icon :icon="feature.icon" />
+                </div>
+                <div class="security-score-badge">{{ feature.score }}</div>
               </div>
-              <h3>Complete Core Platform</h3>
-              <p>All essential features for global distribution: ERN generation, all delivery protocols, catalog management - 100% free.</p>
+              <h3>{{ feature.title }}</h3>
+              <p>{{ feature.description }}</p>
+              <ul class="security-list">
+                <li v-for="item in feature.items" :key="item">
+                  <font-awesome-icon icon="check" class="check-icon" />
+                  {{ item }}
+                </li>
+              </ul>
             </div>
-            <div class="philosophy-card">
-              <div class="philosophy-icon">
-                <font-awesome-icon icon="rocket" />
-              </div>
-              <h3>No Vendor Lock-in</h3>
-              <p>MIT licensed, no paid tiers, no limitations. Deploy anywhere, modify everything, own your platform forever.</p>
-            </div>
-            <div class="philosophy-card">
-              <div class="philosophy-icon">
-                <font-awesome-icon icon="plug" />
-              </div>
-              <h3>Plugin Ecosystem (Phase 8)</h3>
-              <p>Future marketplace for advanced features like Dolby Atmos, complex rights, and custom workflows.</p>
-            </div>
+          </div>
+
+          <div class="security-note">
+            <font-awesome-icon icon="info-circle" />
+            <p>
+              All critical security items are implemented and deployed. The platform meets or exceeds 
+              industry standards for data protection, authentication, and secure communications.
+            </p>
           </div>
         </div>
       </div>
@@ -207,9 +294,9 @@ const copyCode = () => {
     <section class="section">
       <div class="container">
         <div class="text-center mb-xl">
-          <h2 class="section-title">What's Working Now</h2>
+          <h2 class="section-title">Production-Ready Features</h2>
           <p class="section-description">
-            Phases 1-5 complete - these features are implemented, tested, and production-ready
+            Everything you need for professional music distribution - implemented, tested, and ready
           </p>
         </div>
         
@@ -230,36 +317,37 @@ const copyCode = () => {
       </div>
     </section>
 
-    <!-- Phase 6: Launch Essentials -->
+    <!-- Phase 6: Launch Essentials COMPLETE -->
     <section class="section bg-primary-light">
       <div class="container">
         <div class="launch-section">
           <h2 class="section-title">
-            <font-awesome-icon icon="rocket" /> 
+            <font-awesome-icon icon="check-circle" /> 
             Phase 6: Production Launch Essentials
+            <span class="status-badge status-complete">COMPLETE</span>
           </h2>
           <p class="launch-subtitle">
-            <strong>Currently In Progress:</strong> Core reliability features and user experience improvements
+            All production essentials are now implemented and tested
           </p>
           
-          <div class="launch-tasks">
-            <h3>Active Development:</h3>
-            <div class="task-grid">
-              <div v-for="task in launchPhase.tasks" :key="task.name" class="task-item">
-                <div class="task-indicator" :class="`task-${task.status}`">
-                  <font-awesome-icon v-if="task.status === 'complete'" icon="check-circle" />
-                  <font-awesome-icon v-else-if="task.status === 'active'" icon="spinner" spin />
-                  <font-awesome-icon v-else icon="circle" />
-                </div>
-                <span class="task-name">{{ task.name }}</span>
+          <div class="grid grid-cols-1 grid-cols-md-3">
+            <div v-for="feature in launchFeatures" :key="feature.title" class="launch-card">
+              <div class="launch-card-icon">
+                <font-awesome-icon :icon="feature.icon" />
+              </div>
+              <h3>{{ feature.title }}</h3>
+              <p>{{ feature.description }}</p>
+              <div class="launch-status">
+                <font-awesome-icon icon="check-circle" class="status-icon-complete" />
+                Complete
               </div>
             </div>
           </div>
 
-          <div class="launch-timeline">
-            <font-awesome-icon icon="calendar" />
+          <div class="launch-cta">
             <p>
-              <strong>Launch Imminent!</strong> npm package available in 2 weeks
+              <strong>🎉 Ready for Production!</strong> The platform is feature-complete with comprehensive 
+              catalog migration, email notifications, genre mapping, and reliability features.
             </p>
           </div>
         </div>
@@ -270,9 +358,9 @@ const copyCode = () => {
     <section class="section">
       <div class="container">
         <div class="text-center mb-xl">
-          <h2 class="section-title">Development Roadmap</h2>
+          <h2 class="section-title">Development Timeline</h2>
           <p class="section-description">
-            Building in public with full transparency
+            From concept to production-ready platform
           </p>
         </div>
         
@@ -316,7 +404,7 @@ const copyCode = () => {
             </div>
             <div class="roadmap-content">
               <h3>Phase 4: Delivery Engine</h3>
-              <p>FTP, SFTP, S3, API, and Azure protocol implementation</p>
+              <p>All protocols implemented with retry logic</p>
               <span class="roadmap-status">COMPLETE</span>
             </div>
           </div>
@@ -327,19 +415,19 @@ const copyCode = () => {
             </div>
             <div class="roadmap-content">
               <h3>Phase 5: Production Testing</h3>
-              <p>Comprehensive testing suite with 17 tests, 100% pass rate</p>
+              <p>17 tests with 100% pass rate</p>
               <span class="roadmap-status">COMPLETE</span>
             </div>
           </div>
           
-          <div class="roadmap-item roadmap-current">
+          <div class="roadmap-item roadmap-complete">
             <div class="roadmap-marker">
-              <font-awesome-icon icon="rocket" />
+              <font-awesome-icon icon="check" />
             </div>
             <div class="roadmap-content">
               <h3>Phase 6: Production Launch Essentials</h3>
-              <p>Multi-version ERN, Apple Music spec, bulk import, documentation</p>
-              <span class="roadmap-status">IN PROGRESS</span>
+              <p>Security, import tools, multi-format support, documentation</p>
+              <span class="roadmap-status">COMPLETE</span>
             </div>
           </div>
           
@@ -349,19 +437,8 @@ const copyCode = () => {
             </div>
             <div class="roadmap-content">
               <h3>Phase 7: Post-Launch Essentials</h3>
-              <p>Backup/restore, GDPR, circuit breakers, API/webhooks, monitoring</p>
-              <span class="roadmap-status">PLANNED</span>
-            </div>
-          </div>
-          
-          <div class="roadmap-item">
-            <div class="roadmap-marker">
-              <font-awesome-icon icon="plug" />
-            </div>
-            <div class="roadmap-content">
-              <h3>Phase 8: Plugin Marketplace</h3>
-              <p>Extensible architecture for community and commercial plugins</p>
-              <span class="roadmap-status">FUTURE</span>
+              <p>Backup/restore, GDPR, circuit breakers, API/webhooks</p>
+              <span class="roadmap-status">NEXT</span>
             </div>
           </div>
         </div>
@@ -374,7 +451,7 @@ const copyCode = () => {
         <div class="text-center mb-xl">
           <h2 class="section-title">
             <font-awesome-icon icon="cog" /> 
-            Phase 7: Post-Launch Essentials
+            Phase 7: Post-Launch Enhancements
             <span class="coming-soon-badge">Coming Next</span>
           </h2>
           <p class="section-description">
@@ -397,94 +474,14 @@ const copyCode = () => {
       </div>
     </section>
 
-    <!-- Phase 8: Plugin Marketplace Vision -->
-    <section class="section">
-      <div class="container">
-        <div class="marketplace-section">
-          <div class="marketplace-content">
-            <h2 class="section-title">
-              <font-awesome-icon icon="plug" /> 
-              Phase 8: Plugin Marketplace
-              <span class="coming-soon-badge">Future</span>
-            </h2>
-            <p class="marketplace-subtitle">
-              An open ecosystem where developers can create and distribute plugins for specialized features
-            </p>
-            
-            <div class="marketplace-benefits">
-              <div class="benefit">
-                <h4>For Advanced Users</h4>
-                <ul>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Dolby Atmos Processing
-                  </li>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Complex rights and royalty management
-                  </li>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Advanced delivery orchestration
-                  </li>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Custom integrations and workflows
-                  </li>
-                </ul>
-              </div>
-              <div class="benefit">
-                <h4>For Developers</h4>
-                <ul>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Build and monetize your expertise
-                  </li>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Access comprehensive SDK and docs
-                  </li>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Reach thousands of labels globally
-                  </li>
-                  <li>
-                    <font-awesome-icon icon="arrow-right" />
-                    Set your own pricing and terms
-                  </li>
-                </ul>
-              </div>
-            </div>
-
-            <div class="plugin-examples">
-              <h4>Example Plugin Categories:</h4>
-              <div class="plugin-tags">
-                <span v-for="plugin in pluginExamples" :key="plugin" class="plugin-tag">
-                  {{ plugin }}
-                </span>
-              </div>
-            </div>
-
-            <div class="marketplace-note">
-              <font-awesome-icon icon="info-circle" />
-              <p>
-                The core platform includes everything needed for standard distribution. 
-                Plugins will add specialized capabilities for advanced industry needs.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- Quick Start -->
     <section class="section">
       <div class="container">
         <div class="quick-start">
           <div class="quick-start-content">
-            <h2 class="section-title">Try the Platform</h2>
+            <h2 class="section-title">Ready to Deploy</h2>
             <p class="section-description">
-              The core platform is functional - start exploring today!
+              Install from npm or clone from GitHub - your platform awaits!
             </p>
           </div>
           <div class="code-block">
@@ -493,50 +490,16 @@ const copyCode = () => {
               <font-awesome-icon icon="copy" />
             </button>
           </div>
-        </div>
-      </div>
-    </section>
 
-    <!-- Contribution CTA -->
-    <section class="section bg-secondary">
-      <div class="container">
-        <div class="cta-section">
-          <h2 class="cta-title">Join the Revolution</h2>
-          <p class="cta-description">
-            Help us with Phase 6 priorities and prepare for launch!
-          </p>
-          
-          <div class="contribution-options">
-            <div class="contribution-card">
-              <font-awesome-icon icon="envelope" />
-              <h3>Email Templates</h3>
-              <p>Design notification templates and workflows</p>
-            </div>
-            <div class="contribution-card">
-              <font-awesome-icon icon="file-import" />
-              <h3>Import/Export</h3>
-              <p>Define formats and test import scenarios</p>
-            </div>
-            <div class="contribution-card">
-              <font-awesome-icon icon="code" />
-              <h3>ERN Versions</h3>
-              <p>Test multi-version ERN generation</p>
-            </div>
-            <div class="contribution-card">
-              <font-awesome-icon icon="book" />
-              <h3>Documentation</h3>
-              <p>Write guides and API docs</p>
-            </div>
-          </div>
-          
-          <div class="cta-actions">
-            <button @click="handleContribute" class="btn btn-primary btn-lg">
-              Start Contributing
-            </button>
-            <button @click="handleViewGithub" class="btn btn-secondary btn-lg">
-              <font-awesome-icon icon="star" />
-              Star on GitHub
-            </button>
+          <div class="package-links">
+            <a href="https://www.npmjs.com/package/@stardust-distro/cli" target="_blank" class="package-link">
+              <font-awesome-icon :icon="['fab', 'npm']" />
+              <span>npm package</span>
+            </a>
+            <a href="https://github.com/daddykev/stardust-distro" target="_blank" class="package-link">
+              <font-awesome-icon :icon="['fab', 'github']" />
+              <span>GitHub repo</span>
+            </a>
           </div>
         </div>
       </div>
@@ -641,7 +604,7 @@ const copyCode = () => {
 /* Development Status */
 .development-status {
   margin: var(--space-xl) auto;
-  max-width: 500px;
+  max-width: 600px;
 }
 
 .status-bar {
@@ -674,43 +637,172 @@ const copyCode = () => {
   gap: var(--space-md);
   justify-content: center;
   flex-wrap: wrap;
+  margin-bottom: var(--space-lg);
+  max-width: 600px;  /* Add a max-width to contain the buttons */
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.hero-actions .btn {
+  flex: 1;  /* Make buttons grow equally */
+  min-width: 160px;  /* Set a minimum width */
+  justify-content: center;
 }
 
 .btn-icon {
   margin-right: var(--space-xs);
 }
 
-/* Philosophy Section */
-.philosophy-section {
+.npm-icon {
+  font-size: 1.2em;
+}
+
+.npm-install {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.npm-install code {
+  color: var(--color-text);
+}
+
+.copy-btn-inline {
+  padding: var(--space-xs);
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.copy-btn-inline:hover {
+  color: var(--color-text);
+  transform: scale(1.1);
+}
+
+/* Security Section */
+.bg-security {
+  background: linear-gradient(135deg, var(--color-bg-secondary) 0%, var(--color-bg) 100%);
+}
+
+.security-section {
   text-align: center;
 }
 
-.philosophy-grid {
+.security-score {
+  font-size: var(--text-lg);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-2xl);
+}
+
+.security-score strong {
+  color: var(--color-success);
+  font-size: var(--text-xl);
+}
+
+.security-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: var(--space-xl);
-  margin-top: var(--space-2xl);
+  margin-bottom: var(--space-2xl);
 }
 
-.philosophy-card {
-  text-align: center;
+.security-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  text-align: left;
+  border: 1px solid var(--color-border);
+  position: relative;
 }
 
-.philosophy-icon {
-  font-size: 3rem;
+.security-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   margin-bottom: var(--space-md);
+}
+
+.security-icon {
+  font-size: 2rem;
   color: var(--color-primary);
 }
 
-.philosophy-card h3 {
+.security-score-badge {
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-success);
+  color: white;
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+}
+
+.security-card h3 {
   font-size: var(--text-xl);
   font-weight: var(--font-semibold);
-  margin-bottom: var(--space-sm);
+  margin-bottom: var(--space-xs);
   color: var(--color-heading);
 }
 
-.philosophy-card p {
+.security-card p {
   color: var(--color-text-secondary);
+  margin-bottom: var(--space-md);
+  line-height: var(--leading-relaxed);
+}
+
+.security-list {
+  list-style: none;
+  padding: 0;
+}
+
+.security-list li {
+  padding: var(--space-xs) 0;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  font-size: var(--text-sm);
+}
+
+.check-icon {
+  color: var(--color-success);
+  flex-shrink: 0;
+  margin-top: 2px;
+  font-size: 0.9em;
+}
+
+.security-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background-color: var(--color-surface);
+  border-radius: var(--radius-md);
+  text-align: left;
+  max-width: 800px;
+  margin: 0 auto;
+  border: 1px solid var(--color-border);
+}
+
+.security-note svg {
+  color: var(--color-info);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.security-note p {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin: 0;
   line-height: var(--leading-relaxed);
 }
 
@@ -753,6 +845,15 @@ const copyCode = () => {
   color: white;
 }
 
+.status-complete {
+  background-color: var(--color-success);
+  color: white;
+  font-size: var(--text-sm);
+  padding: var(--space-sm) var(--space-md);
+  vertical-align: middle;
+  margin-left: var(--space-md);
+}
+
 .feature-icon {
   font-size: 2.5rem;
   margin-bottom: var(--space-md);
@@ -789,94 +890,63 @@ const copyCode = () => {
   margin-bottom: var(--space-2xl);
 }
 
-.launch-subtitle strong {
-  color: var(--color-primary);
-}
-
-.launch-tasks {
-  margin-bottom: var(--space-2xl);
-}
-
-.launch-tasks h3 {
-  font-size: var(--text-lg);
-  color: var(--color-heading);
-  margin-bottom: var(--space-lg);
-}
-
-.task-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-md);
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.task-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-}
-
-.task-indicator {
-  font-size: 1.25rem;
-  width: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.task-complete {
-  color: var(--color-success);
-}
-
-.task-active {
-  color: var(--color-warning);
-}
-
-.task-upcoming {
-  color: var(--color-text-tertiary);
-}
-
-.task-name {
-  font-size: var(--text-sm);
-  color: var(--color-text);
-}
-
-.launch-timeline {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-sm);
-  padding: var(--space-md);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  max-width: 400px;
-  margin: 0 auto;
-}
-
-.launch-timeline svg {
-  color: var(--color-primary);
-}
-
-.launch-timeline p {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  margin: 0;
-}
-
-.launch-timeline strong {
-  color: var(--color-text);
-}
-
-/* Plugin Marketplace */
-.marketplace-section {
-  padding: var(--space-2xl);
-  background-color: var(--color-surface);
-  border-radius: var(--radius-xl);
+.launch-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
   text-align: center;
+}
+
+.launch-card-icon {
+  font-size: 2rem;
+  color: var(--color-success);
+  margin-bottom: var(--space-md);
+}
+
+.launch-card h3 {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-sm);
+  color: var(--color-heading);
+}
+
+.launch-card p {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-md);
+  line-height: var(--leading-relaxed);
+}
+
+.launch-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  color: var(--color-success);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.status-icon-complete {
+  font-size: 1.1em;
+}
+
+.launch-cta {
+  margin-top: var(--space-2xl);
+  padding: var(--space-lg);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.launch-cta p {
+  margin: 0;
+  color: var(--color-text);
+  line-height: var(--leading-relaxed);
+}
+
+.launch-cta strong {
+  color: var(--color-success);
 }
 
 .coming-soon-badge {
@@ -890,99 +960,6 @@ const copyCode = () => {
   font-weight: var(--font-semibold);
   text-transform: uppercase;
   vertical-align: middle;
-}
-
-.marketplace-subtitle {
-  font-size: var(--text-lg);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-2xl);
-}
-
-.marketplace-benefits {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: var(--space-xl);
-  text-align: left;
-  margin-bottom: var(--space-2xl);
-}
-
-.benefit h4 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-md);
-  color: var(--color-heading);
-}
-
-.benefit ul {
-  list-style: none;
-  padding: 0;
-}
-
-.benefit li {
-  padding: var(--space-xs) 0;
-  padding-left: var(--space-lg);
-  position: relative;
-  color: var(--color-text-secondary);
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-sm);
-}
-
-.benefit li svg {
-  color: var(--color-primary);
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.plugin-examples {
-  text-align: center;
-  margin-bottom: var(--space-xl);
-}
-
-.plugin-examples h4 {
-  font-size: var(--text-md);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-md);
-}
-
-.plugin-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-  justify-content: center;
-}
-
-.plugin-tag {
-  padding: var(--space-xs) var(--space-md);
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
-  font-size: var(--text-sm);
-  color: var(--color-text);
-}
-
-.marketplace-note {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-md);
-  padding: var(--space-md);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  text-align: left;
-  max-width: 600px;
-  margin: 0 auto;
-}
-
-.marketplace-note svg {
-  color: var(--color-info);
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.marketplace-note p {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  margin: 0;
 }
 
 /* Roadmap */
@@ -1093,7 +1070,7 @@ const copyCode = () => {
 .code-block {
   position: relative;
   max-width: 600px;
-  margin: 0 auto;
+  margin: 0 auto var(--space-xl);
   background-color: var(--color-bg-tertiary);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
@@ -1138,61 +1115,36 @@ const copyCode = () => {
   transform: scale(1.05);
 }
 
-/* Contribution Section */
-.cta-section {
-  text-align: center;
-}
-
-.cta-title {
-  font-size: var(--text-3xl);
-  font-weight: var(--font-bold);
-  margin-bottom: var(--space-md);
-  color: var(--color-heading);
-}
-
-.cta-description {
-  font-size: var(--text-lg);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-2xl);
-}
-
-.contribution-options {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-lg);
-  margin-bottom: var(--space-2xl);
-}
-
-.contribution-card {
-  padding: var(--space-lg);
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  text-align: center;
-}
-
-.contribution-card svg {
-  font-size: 2rem;
-  color: var(--color-primary);
-  margin-bottom: var(--space-md);
-}
-
-.contribution-card h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-xs);
-  color: var(--color-heading);
-}
-
-.contribution-card p {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.cta-actions {
+.package-links {
   display: flex;
-  gap: var(--space-md);
+  gap: var(--space-lg);
   justify-content: center;
-  flex-wrap: wrap;
+  align-items: center;
+}
+
+.package-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--color-text);
+  transition: all var(--transition-base);
+  font-weight: var(--font-medium);
+}
+
+.package-link:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.package-link svg {
+  font-size: 1.2em;
 }
 
 /* Footer */
@@ -1228,16 +1180,18 @@ const copyCode = () => {
     width: 100%;
   }
   
-  .philosophy-grid {
+  .security-grid {
     grid-template-columns: 1fr;
   }
   
-  .marketplace-benefits {
-    grid-template-columns: 1fr;
+  .package-links {
+    flex-direction: column;
+    width: 100%;
   }
   
-  .task-grid {
-    grid-template-columns: 1fr;
+  .package-link {
+    width: 100%;
+    justify-content: center;
   }
 }
 </style>

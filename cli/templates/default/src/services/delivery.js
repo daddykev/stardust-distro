@@ -257,13 +257,23 @@ export class DeliveryService {
     // Log UPC being used
     console.log(`Preparing package with UPC: ${upc}`)
     
-    // Add ERN file (already contains properly escaped URLs)
+    // Add ERN file
     if (delivery.ernXml) {
       files.push({
         name: `${delivery.ernMessageId}.xml`,
         content: delivery.ernXml,
         type: 'text/xml',
         isERN: true
+      })
+    }
+    
+    // Add MEAD file if present
+    if (delivery.meadXml) {
+      files.push({
+        name: `${delivery.meadMessageId}.xml`,
+        content: delivery.meadXml,
+        type: 'text/xml',
+        isMEAD: true
       })
     }
 

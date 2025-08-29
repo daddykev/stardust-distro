@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useCatalog } from '../composables/useCatalog'
 import importService from '../services/import'
+import productMetadataService from '../services/productMetadata'
+import metadataSynthesizer from '../services/metadataSynthesizer'
 import MigrationStatus from '../components/MigrationStatus.vue'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -46,6 +48,7 @@ const artworkDownloadStatus = ref('')
 
 // Auto-process metadata ref
 const autoProcessMetadata = ref(false)
+const metadataQualityInfo = ref({})
 
 // UI state
 const isLoading = ref(false)
@@ -195,7 +198,7 @@ const extractUPCFromFilename = (filename) => {
 /**
  * Download cover art from Deezer and upload to Firebase Storage
  */
-const downloadAndStoreDeezerArtwork = async (upc, coverUrl) => {
+const downloadAndStoreApiArtwork = async (upc, coverUrl) => {
   try {
     console.log(`📥 Downloading Deezer artwork for UPC ${upc}`)
     console.log(`  URL: ${coverUrl}`)
@@ -229,118 +232,19 @@ const downloadAndStoreDeezerArtwork = async (upc, coverUrl) => {
     const downloadURL = await getDownloadURL(snapshot.ref)
     console.log(`  ✅ Artwork stored successfully`)
     
-    return {
+    // Build the artwork object
+    const artwork = {
       url: downloadURL,
       path: storagePath,
       fileName,
       source: 'deezer'
     }
+    
+    return artwork  // Return the artwork object
+    
   } catch (error) {
     console.error(`  ❌ Failed to download/store artwork for UPC ${upc}:`, error)
-    return null
-  }
-}
-
-const fetchDeezerMetadata = async (upc) => {
-  try {
-    console.log(`  🌐 Calling Deezer API for UPC: ${upc}`)
-    
-    // Use the deployed Cloud Function API
-    const apiUrl = process.env.NODE_ENV === 'development' 
-      ? 'http://localhost:5001/stardust-distro/us-central1/api'
-      : 'https://us-central1-stardust-distro.cloudfunctions.net/api';
-    
-    const response = await fetch(`${apiUrl}/deezer/album/${upc}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error(`    ❌ Deezer API error for UPC ${upc}:`, errorData);
-      throw new Error(`Failed to fetch from Deezer: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    if (!data.success || !data.album) {
-      console.warn(`    ⚠️ Album not found on Deezer for UPC: ${upc}`);
-      return null;
-    }
-    
-    const album = data.album;
-    console.log(`    ✅ Found album: "${album.title}" by ${album.artist.name}`);
-    console.log(`    📀 Album details:`)
-    console.log(`      - Tracks: ${album.tracks?.data?.length || 0}`)
-    console.log(`      - Release date: ${album.release_date}`)
-    console.log(`      - Label: ${album.label || 'Unknown'}`)
-    console.log(`      - Cover XL: ${album.cover_xl ? 'Available' : 'Not available'}`)
-    
-    // The album already includes tracks in the response!
-    const tracks = album.tracks?.data || [];
-    
-    // Fetch ISRCs for tracks if needed
-    const trackIds = tracks.map(t => t.id);
-    let isrcMap = {};
-    
-    if (trackIds.length > 0) {
-      try {
-        console.log(`    🎵 Fetching ISRCs for ${trackIds.length} tracks...`)
-        const isrcResponse = await fetch(`${apiUrl}/deezer/tracks/batch-isrc`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ trackIds })
-        });
-        
-        if (isrcResponse.ok) {
-          const isrcData = await isrcResponse.json();
-          if (isrcData.tracks) {
-            isrcData.tracks.forEach(t => {
-              if (t.isrc) {
-                isrcMap[t.id] = t.isrc;
-              }
-            });
-            console.log(`      - Found ${Object.keys(isrcMap).length} ISRCs`)
-          }
-        }
-      } catch (error) {
-        console.warn('      ⚠️ Could not fetch ISRCs:', error.message);
-      }
-    }
-    
-    // Build release data from Deezer metadata
-    const releaseData = {
-      upc: upc,
-      title: album.title,
-      artist: album.artist?.name || 'Unknown Artist',
-      label: album.label || '',
-      releaseDate: album.release_date || new Date().toISOString().split('T')[0],
-      genre: album.genres?.data?.[0]?.name || '',
-      // Store the XL cover URL for later download
-      coverUrl: album.cover_xl || album.cover_big || album.cover_medium || album.cover,
-      coverUrlOriginal: album.cover_xl, // Keep the original XL URL
-      duration: album.duration || 0,
-      tracks: tracks.map((track, index) => ({
-        trackNumber: index + 1,
-        discNumber: 1,
-        title: track.title || `Track ${index + 1}`,
-        artist: track.artist?.name || album.artist?.name || 'Unknown Artist',
-        isrc: isrcMap[track.id] || '',
-        duration: track.duration || 0,
-        preview: track.preview || null
-      }))
-    };
-    
-    console.log(`    ✅ Successfully processed metadata for UPC ${upc}`)
-    return releaseData;
-    
-  } catch (error) {
-    console.error(`    ❌ Error fetching Deezer metadata for UPC ${upc}:`, error.message);
-    return null;
+    return null  // Return null instead of undefined artwork
   }
 }
 
@@ -353,8 +257,11 @@ const processMetadatalessUpload = async () => {
   metadataFetchProgress.value = {}
   metadataFetchStatus.value = 'Initializing metadata fetch...'
   
+  // Track metadata quality for display
+  const metadataQuality = {}
+  
   try {
-    // Extract unique UPCs from ALL uploaded files (not just recent ones)
+    // Extract unique UPCs from ALL uploaded files
     const upcs = new Set()
     
     console.log('📝 Extracting UPCs from all uploaded files...')
@@ -385,13 +292,16 @@ const processMetadatalessUpload = async () => {
       return
     }
     
-    // Fetch metadata for each UPC
+    // Fetch metadata for each UPC using the new productMetadata service
     const upcArray = Array.from(upcs)
     let successCount = 0
     let failedUPCs = []
     const needsArtwork = []
+    let cachedCount = 0
+    let freshCount = 0
     
-    console.log('🌐 Starting Deezer API calls...')
+    console.log('🌐 Starting metadata fetch from productMetadata service...')
+    
     for (let i = 0; i < upcArray.length; i++) {
       const upc = upcArray[i]
       metadataFetchStatus.value = `Fetching metadata for UPC ${upc}...`
@@ -401,39 +311,118 @@ const processMetadatalessUpload = async () => {
         upc: upc
       }
       
-      console.log(`\n🔄 [${i + 1}/${upcArray.length}] Fetching metadata for UPC: ${upc}`)
-      const metadata = await fetchDeezerMetadata(upc)
+      console.log(`\n🔄 [${i + 1}/${upcArray.length}] Processing UPC: ${upc}`)
       
-      if (metadata) {
-        deezerMetadata.value[upc] = metadata
-        successCount++
-        console.log(`  ✅ Success! Found: "${metadata.title}" by ${metadata.artist}`)
-        console.log(`     - ${metadata.tracks.length} tracks`)
-        console.log(`     - Release date: ${metadata.releaseDate}`)
-        console.log(`     - Label: ${metadata.label || 'Unknown'}`)
+      // Check if we have cached data first
+      const startTime = Date.now()
+      
+      // Use the new productMetadata service
+      const productMetadata = await productMetadataService.getMetadata(upc, {
+        sources: ['spotify', 'deezer'], // Try Spotify first, then Deezer
+        forceRefresh: false
+      })
+      
+      const fetchTime = Date.now() - startTime
+      
+      if (productMetadata && productMetadata.extracted?.deezer) {
+        // Synthesize the metadata at runtime
+        const synthesized = metadataSynthesizer.synthesize(productMetadata, {
+          strategy: 'preferred',
+          preferredSource: 'spotify' // Prefer Spotify for better ISRC coverage
+        })
         
-        // Check if user uploaded cover for this UPC
-        const hasUserCover = uploadedFiles.value.images.some(img => 
-          img.upc === upc && img.imageType === 'cover'
-        )
-        
-        if (!hasUserCover && metadata.coverUrlOriginal) {
-          console.log(`     - 🎨 Deezer cover available, user didn't upload cover`)
-          needsArtwork.push({ upc, coverUrl: metadata.coverUrlOriginal })
+        if (synthesized) {
+          // Build the metadata in the format Migration.vue expects
+          const metadata = {
+            upc: upc,
+            title: synthesized.title,
+            artist: synthesized.artist,
+            label: synthesized.label || '',
+            releaseDate: synthesized.releaseDate || new Date().toISOString().split('T')[0],
+            genre: synthesized.genre || '',
+            // FIX: Get cover URL from the synthesized coverArt object
+            coverUrl: synthesized.coverArt?.large || synthesized.coverArt?.xl || synthesized.coverArt?.medium || synthesized.coverArt?.small,
+            coverUrlOriginal: synthesized.coverArt?.large || synthesized.coverArt?.xl, // Keep the best quality
+            duration: synthesized.duration || 0,
+            tracks: synthesized.tracks.map((track, index) => ({
+              trackNumber: track.position || index + 1,
+              discNumber: 1,
+              title: track.title || `Track ${index + 1}`,
+              artist: track.artist || synthesized.artist || 'Unknown Artist',
+              isrc: track.isrc || '',
+              duration: track.duration?.synthesized || track.duration?.sources?.spotify || track.duration?.sources?.deezer || track.duration || 0,
+              preview: track.preview || null
+            }))
+          }
+          
+          deezerMetadata.value[upc] = metadata
+          successCount++
+          
+          // Track if this was cached or fresh
+          const wasCached = fetchTime < 1000 // If it took less than 1 second, probably cached
+          if (wasCached) {
+            cachedCount++
+            console.log(`  ⚡ Retrieved from cache in ${fetchTime}ms`)
+          } else {
+            freshCount++
+            console.log(`  🌐 Fetched fresh data in ${fetchTime}ms`)
+          }
+          
+          // Track metadata quality
+          metadataQuality[upc] = {
+            completeness: productMetadata.quality?.completeness?.deezer || 0,
+            sources: productMetadata.quality?.sources || ['deezer'],
+            cached: wasCached
+          }
+          
+          console.log(`  ✅ Success! Found: "${metadata.title}" by ${metadata.artist}`)
+          console.log(`     - ${metadata.tracks.length} tracks`)
+          console.log(`     - Release date: ${metadata.releaseDate}`)
+          console.log(`     - Label: ${metadata.label || 'Unknown'}`)
+          console.log(`     - Metadata completeness: ${(metadataQuality[upc].completeness * 100).toFixed(0)}%`)
+          
+          // Check if user uploaded cover for this UPC
+          const hasUserCover = uploadedFiles.value.images.some(img => 
+            img.upc === upc && img.imageType === 'cover'
+          )
+          
+          // FIX: Check for cover URL properly
+          if (!hasUserCover && metadata.coverUrlOriginal) {
+            console.log(`     - 🎨 Cover available from API, user didn't upload cover`)
+            needsArtwork.push({ upc, coverUrl: metadata.coverUrlOriginal })
+          } else if (!hasUserCover && !metadata.coverUrlOriginal) {
+            console.log(`     - ⚠️ No cover available from any source`)
+          }
+        } else {
+          failedUPCs.push(upc)
+          console.warn(`  ⚠️ Could not synthesize metadata for UPC: ${upc}`)
         }
       } else {
         failedUPCs.push(upc)
-        console.warn(`  ⚠️ Could not fetch metadata for UPC: ${upc}`)
+        console.warn(`  ⚠️ No metadata found for UPC: ${upc}`)
+        
+        // Check if it was a not_found status
+        if (productMetadata?.sources?.deezer?.status === 'not_found') {
+          console.log(`     - Album not found on Deezer`)
+        } else if (productMetadata?.sources?.deezer?.error) {
+          console.log(`     - Error: ${productMetadata.sources.deezer.error}`)
+        }
       }
       
-      // Add a small delay to avoid rate limiting
+      // Reduced delay since we're often using cache
       if (i < upcArray.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500))
+        await new Promise(resolve => setTimeout(resolve, 100))
       }
     }
     
     console.log(`\n📊 Metadata Fetch Results:`)
     console.log(`  ✅ Successful: ${successCount}/${upcArray.length}`)
+    if (cachedCount > 0) {
+      console.log(`  ⚡ From cache: ${cachedCount}`)
+    }
+    if (freshCount > 0) {
+      console.log(`  🌐 Fresh fetches: ${freshCount}`)
+    }
     if (failedUPCs.length > 0) {
       console.log(`  ❌ Failed UPCs: ${failedUPCs.join(', ')}`)
     }
@@ -441,13 +430,26 @@ const processMetadatalessUpload = async () => {
       console.log(`  🎨 Releases needing artwork: ${needsArtwork.length}`)
     }
     
+    // Display quality summary
+    const avgCompleteness = Object.values(metadataQuality).reduce(
+      (sum, q) => sum + q.completeness, 0
+    ) / Object.keys(metadataQuality).length
+    
+    if (Object.keys(metadataQuality).length > 0) {
+      console.log(`  📊 Average metadata completeness: ${(avgCompleteness * 100).toFixed(0)}%`)
+    }
+    
     if (successCount === 0) {
       error.value = 'Could not fetch metadata for any of the uploaded files from Deezer.'
-      console.error('❌ All Deezer API calls failed')
+      console.error('❌ All metadata fetch attempts failed')
       return
     }
     
     metadataFetchStatus.value = `Successfully fetched metadata for ${successCount} releases`
+    
+    // Store the quality data for display in the template
+    // You might want to add this as a reactive ref at the top of the component
+    // metadataQualityInfo.value = metadataQuality
     
     // If we have releases that need artwork, show confirmation dialog
     if (needsArtwork.length > 0) {
@@ -475,27 +477,27 @@ const processMetadatalessUpload = async () => {
 const handleArtworkChoice = async () => {
   showArtworkConfirmation.value = false
   
-  if (artworkConfirmationChoice.value === 'use-deezer') {
-    // Download and store Deezer artwork
-    await downloadDeezerArtwork()
+  if (artworkConfirmationChoice.value === 'use-deezer') { // Could rename to 'use-api'
+    // Download and store API artwork
+    await downloadApiArtwork()
   }
   
   // Continue to matching regardless of choice
   await continueToMatching()
 }
 
-const downloadDeezerArtwork = async () => {
+const downloadApiArtwork = async () => {
   downloadingArtwork.value = true
-  artworkDownloadStatus.value = 'Downloading artwork from Deezer...'
+  artworkDownloadStatus.value = 'Downloading artwork from API sources...'
   
-  console.log('🎨 === Downloading Deezer Artwork ===')
+  console.log('🎨 === Downloading API Artwork ===')
   console.log(`  Processing ${Object.keys(deezerArtwork.value).length} covers`)
   
   try {
     for (const [upc, coverUrl] of Object.entries(deezerArtwork.value)) {
       artworkDownloadStatus.value = `Downloading artwork for UPC ${upc}...`
       
-      const artwork = await downloadAndStoreDeezerArtwork(upc, coverUrl)
+      const artwork = await downloadAndStoreApiArtwork(upc, coverUrl)
       if (artwork) {
         // Add to uploaded files as if user uploaded it
         uploadedFiles.value.images.push({
@@ -505,8 +507,8 @@ const downloadDeezerArtwork = async () => {
           upc: upc,
           imageType: 'cover',
           format: 'JPEG',
-          size: 0, // We don't track size for downloaded images
-          source: 'deezer'
+          size: 0,
+          source: 'api' // Changed from 'deezer' to 'api'
         })
         
         // Update the metadata to use the Firebase Storage URL
@@ -544,12 +546,21 @@ const continueToMatching = async () => {
       trackArtist: track.artist,
       trackNumber: track.trackNumber,
       discNumber: track.discNumber,
-      isrc: track.isrc,
+      isrc: track.isrc,  // Make sure ISRC is included here
       duration: track.duration
     }))
   )
   
   console.log(`✅ Transformed ${parsedData.value.length} tracks from ${releases.length} releases`)
+  
+  // Debug: Check if ISRCs are present
+  parsedData.value.forEach((track, index) => {
+    if (track.isrc) {
+      console.log(`  Track ${index + 1}: ISRC = ${track.isrc}`)
+    } else {
+      console.log(`  Track ${index + 1}: No ISRC`)
+    }
+  })
   
   // Update import job
   if (!importJob.value) {
@@ -777,6 +788,17 @@ const processFileUpload = async (files, type) => {
   uploadProgress.value = {} // Reset progress
 
   try {
+    // Create import job if it doesn't exist (BEFORE validation)
+    if (!importJob.value) {
+      console.log('📝 Creating import job for file upload...')
+      importJob.value = await importService.createImportJob(user.value.uid, {
+        mode: isMetadatalessMode.value ? 'metadata-less' : 'standard',
+        status: 'files_uploading',
+        createdAt: new Date().toISOString()
+      })
+      console.log(`  Created import job: ${importJob.value.id}`)
+    }
+
     // Validate DDEX naming
     const validatedFiles = []
     const errors = []
@@ -807,13 +829,14 @@ const processFileUpload = async (files, type) => {
       }
     }
 
-    // Upload validated files
+    // Upload validated files - now importJob.value.id is guaranteed to exist
     console.log(`📤 Starting upload of ${validatedFiles.length} files to Firebase Storage...`)
+    console.log(`  Using import job ID: ${importJob.value.id}`)
     
     const uploaded = await importService.uploadBatchFiles(
       validatedFiles,
       user.value.uid,
-      importJob.value?.id,
+      importJob.value.id, // This will no longer be undefined
       (progress) => {
         // Progress handling remains the same
         if (progress && typeof progress === 'object') {
@@ -842,19 +865,15 @@ const processFileUpload = async (files, type) => {
     
     uploadedFiles.value[type].push(...uploaded)
 
-    // Update import job if exists
-    if (importJob.value) {
-      console.log('💾 Updating import job...')
-      await importService.updateImportJob(importJob.value.id, {
-        uploadedFiles: uploadedFiles.value,
-        status: 'files_uploading'
-      })
-    }
+    // Update import job
+    console.log('💾 Updating import job...')
+    await importService.updateImportJob(importJob.value.id, {
+      uploadedFiles: uploadedFiles.value,
+      status: 'files_uploaded'
+    })
 
     // MODIFIED: Don't auto-process metadata immediately
-    // Instead, check if we should trigger it manually or wait
     if (isMetadatalessMode.value && currentStep.value === 1) {
-      // Don't auto-trigger - let user decide when ready
       console.log('📝 Files uploaded. Upload more files or click "Process Metadata" when ready.')
     }
 
@@ -1005,14 +1024,14 @@ const matchReleaseWithFiles = async (release) => {
   const upc = release.upc
   const result = {
     release,
-    complete: false,  // Ensure this is always a boolean
+    complete: false,
     hasPartialData: false,
     matchedFiles: {
       coverImage: null,
       additionalImages: [],
       audioTracks: []
     },
-    error: null  // Initialize error as null
+    error: null
   }
 
   console.log(`  📂 Searching for files with UPC: ${upc}`)
@@ -1050,17 +1069,19 @@ const matchReleaseWithFiles = async (release) => {
     if (audioFile) {
       result.matchedFiles.audioTracks.push({
         ...track,
+        isrc: track.isrc || '',  // Ensure ISRC is preserved
         audioFile
       })
       result.hasPartialData = true
-      console.log(`    ✅ Track ${track.trackNumber}: "${track.title}" - Found ${audioFile.name}`)
+      console.log(`    ✅ Track ${track.trackNumber}: "${track.title}" - Found ${audioFile.name} (ISRC: ${track.isrc || 'none'})`)
     } else {
       result.matchedFiles.audioTracks.push({
         ...track,
+        isrc: track.isrc || '',  // Ensure ISRC is preserved even for missing audio
         audioFile: null,
         missing: true
       })
-      console.log(`    ❌ Track ${track.trackNumber}: "${track.title}" - Missing audio file`)
+      console.log(`    ❌ Track ${track.trackNumber}: "${track.title}" - Missing audio file (ISRC: ${track.isrc || 'none'})`)
     }
   }
 
@@ -1082,6 +1103,11 @@ const createDraftReleases = async (matchedReleases) => {
     try {
       console.log(`  Creating release: "${match.release.title}" (UPC: ${match.release.upc})`)
       
+      // Debug: Check ISRCs before creating
+      match.matchedFiles.audioTracks.forEach((track, index) => {
+        console.log(`    Track ${index + 1}: ISRC = ${track.isrc || 'MISSING'}`)
+      })
+      
       const releaseData = {
         basic: {
           title: match.release.title,
@@ -1096,7 +1122,7 @@ const createDraftReleases = async (matchedReleases) => {
           sequenceNumber: index + 1,
           title: track.title,
           artist: track.artist || match.release.artist,
-          isrc: track.isrc || '',
+          isrc: track.isrc || '',  // This should have the ISRC
           duration: track.duration || 0,
           audio: track.audioFile ? {
             url: track.audioFile.url,
@@ -1131,6 +1157,11 @@ const createDraftReleases = async (matchedReleases) => {
         importedAt: new Date().toISOString()
       }
 
+      console.log(`    Saving ${releaseData.tracks.length} tracks with ISRCs:`)
+      releaseData.tracks.forEach(t => {
+        console.log(`      - "${t.title}": ISRC = ${t.isrc || 'NONE'}`)
+      })
+      
       const newRelease = await createRelease(releaseData)
       created.push(newRelease)
       console.log(`    ✅ Created release with ID: ${newRelease.id}`)
@@ -1761,14 +1792,27 @@ onMounted(() => {
 
               <!-- Fetched Metadata Display -->
               <div v-if="Object.keys(deezerMetadata).length > 0 && !fetchingMetadata" 
-                   class="fetched-metadata-enhanced card p-xl mt-xl">
+                  class="fetched-metadata-enhanced card p-xl mt-xl">
                 <div class="metadata-header flex items-center gap-md mb-lg">
                   <font-awesome-icon icon="check-circle" class="text-2xl text-success" />
                   <h3>Metadata Retrieved Successfully</h3>
+                  <!-- Show if data was cached -->
+                  <div v-if="Object.values(metadataQualityInfo).some(q => q.cached)" 
+                      class="ml-auto flex items-center gap-sm">
+                    <span class="badge badge-info">
+                      <font-awesome-icon icon="bolt" />
+                      Using Cached Data
+                    </span>
+                  </div>
                 </div>
                 
                 <div class="text-secondary mb-lg">
                   <p>Found {{ Object.keys(deezerMetadata).length }} release(s) from Deezer</p>
+                  <!-- Show average completeness if available -->
+                  <p v-if="Object.keys(metadataQualityInfo).length > 0" class="text-sm">
+                    Average metadata completeness: 
+                    {{ Math.round(Object.values(metadataQualityInfo).reduce((sum, q) => sum + q.completeness, 0) / Object.keys(metadataQualityInfo).length * 100) }}%
+                  </p>
                 </div>
                 
                 <div class="grid grid-cols-1 gap-lg">
@@ -1782,6 +1826,15 @@ onMounted(() => {
                           <span>{{ upc }}</span>
                           <span>•</span>
                           <span>{{ metadata.tracks.length }} tracks</span>
+                          <!-- Show quality indicator -->
+                          <span v-if="metadataQualityInfo[upc]" class="ml-auto">
+                            <span v-if="metadataQualityInfo[upc].cached" class="text-info">
+                              <font-awesome-icon icon="bolt" /> Cached
+                            </span>
+                            <span v-else class="text-success">
+                              <font-awesome-icon icon="cloud" /> Fresh
+                            </span>
+                          </span>
                         </p>
                         <div v-if="metadata.coverUrl && !hasUploadedCovers" class="flex items-center gap-xs text-sm text-info mt-xs">
                           <font-awesome-icon icon="cloud-download-alt" />

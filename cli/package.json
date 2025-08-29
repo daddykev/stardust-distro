@@ -1,6 +1,6 @@
 {
   "name": "@stardust-distro/cli",
-  "version": "0.9.9",
+  "version": "1.0.0",
   "description": "Deploy your own music distribution platform in under 5 minutes",
   "type": "module",
   "main": "index.js",
@@ -25,7 +25,7 @@
     "commander": "11.1.0",
     "figlet": "^1.8.2",
     "fs-extra": "11.2.0",
-    "inquirer": "8.2.6",
+    "inquirer": "^12.9.4",
     "ora": "5.4.1"
   },
   "engines": {

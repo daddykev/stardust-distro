@@ -5,12 +5,12 @@ import { useCatalog } from '../composables/useCatalog'
 import { useAuth } from '../composables/useAuth'
 import GenreSelector from '../components/GenreSelector.vue'
 import { getGenreByCode } from '../dictionaries/genres'
+import ernService from '../services/ern'
+import meadService from '../services/mead'
 import { 
   ContributorCategories,
   searchContributorRoles,
-  getRolesByCategory,
-  categorizeRole,
-  CommonRoles
+  categorizeRole
 } from '../dictionaries/contributors'
 import {
   MoodCategories,
@@ -22,14 +22,9 @@ import {
   TempoDescriptions,
   PlaylistSuitability,
   Seasonality,
-  ContentAdvisories,
   RecordingTechniques,
   AudioCharacteristics,
-  defaultMeadData,
-  getAllMoods,
-  getAllInstruments,
-  getMoodsByCategory,
-  getInstrumentsByCategory
+  defaultMeadData
 } from '../dictionaries/mead'
 
 const router = useRouter()
@@ -40,9 +35,6 @@ const {
   loadRelease,
   uploadCoverImage,
   uploadTrackAudio,
-  addTrack,
-  updateTrack,
-  removeTrack,
   currentRelease,
   isLoading,
   error 
@@ -58,7 +50,8 @@ const expandedSections = ref({
   assets: false,
   metadata: false,
   mead: false,
-  territories: false
+  territories: false,
+  ern: false  // Add ERN section
 })
 
 // Track which sections have been modified
@@ -99,6 +92,14 @@ const releaseData = ref({
     mode: 'worldwide',
     included: [],
     excluded: []
+  },
+  // Add ERN section
+  ern: {
+    version: '4.3',
+    profile: 'AudioAlbum',
+    validated: false,
+    lastGeneratedAt: null,
+    lastMessageId: null
   }
 })
 
@@ -111,6 +112,9 @@ const lastSavedAt = ref(null)
 const isSaving = ref(false)
 const saveError = ref(null)
 
+const generatedMEAD = ref(null)
+const showMEADPreview = ref(false)
+
 // Validation
 const validationErrors = ref({
   basic: [],
@@ -118,7 +122,8 @@ const validationErrors = ref({
   assets: [],
   metadata: [],
   mead: [],
-  territories: []
+  territories: [],
+  ern: []  // Add ERN validation errors
 })
 
 // Upload progress tracking
@@ -135,6 +140,13 @@ const contributorModal = ref({
   searchResults: [],
   error: null
 })
+
+// ERN generation state
+const isGeneratingERN = ref(false)
+const isValidatingERN = ref(false)
+const ernError = ref(null)
+const generatedERN = ref(null)
+const showERNPreview = ref(false)
 
 // Category labels for UI
 const contributorCategories = {
@@ -177,7 +189,7 @@ const displayGenreName = computed(() => {
   return releaseData.value.metadata.subgenre || releaseData.value.metadata.genre || 'No genre set'
 })
 
-// Section completion status
+// Section completion status - Updated to include ERN
 const sectionStatus = computed(() => {
   return {
     basic: {
@@ -213,14 +225,37 @@ const sectionStatus = computed(() => {
         releaseData.value.mead.playlistSuitability.length > 0
       ),
       summary: getMeadSummary(),
-      errors: validationErrors.value.mead?.length || 0
+      errors: validationErrors.value.mead?.length || 0,
+      hasData: !!(
+        releaseData.value.mead.moods?.length > 0 ||
+        releaseData.value.mead.tempo ||
+        releaseData.value.mead.instrumentation?.length > 0
+      )
     },
     territories: {
       complete: true, // Territories are optional
       summary: releaseData.value.territories.mode === 'worldwide' ? 'Worldwide' : 'Selected territories',
       errors: validationErrors.value.territories.length
+    },
+    // Add ERN status with MEAD info
+    ern: {
+      complete: releaseData.value.ern.validated,
+      summary: releaseData.value.ern.lastGeneratedAt 
+        ? `Generated ${formatDate(releaseData.value.ern.lastGeneratedAt)}${generatedMEAD.value ? ' (with MEAD)' : ''}` 
+        : 'Not generated',
+      errors: ernError.value ? 1 : 0,
+      hasMEAD: !!generatedMEAD.value
     }
   }
+})
+
+// Check if release is ready for delivery
+const isReadyForDelivery = computed(() => {
+  return sectionStatus.value.basic.complete && 
+         sectionStatus.value.tracks.complete && 
+         sectionStatus.value.assets.complete && 
+         sectionStatus.value.metadata.complete &&
+         releaseData.value.ern.validated
 })
 
 // MEAD summary helper
@@ -294,8 +329,24 @@ onMounted(async () => {
         assets: { ...releaseData.value.assets, ...(currentRelease.value.assets || {}) },
         metadata: { ...releaseData.value.metadata, ...(currentRelease.value.metadata || {}) },
         mead: { ...defaultMeadData, ...(currentRelease.value.mead || {}) },
-        territories: { ...releaseData.value.territories, ...(currentRelease.value.territories || {}) }
+        territories: { ...releaseData.value.territories, ...(currentRelease.value.territories || {}) },
+        ern: { ...releaseData.value.ern, ...(currentRelease.value.ern || {}) }
       }
+      
+      // ADD THIS DEBUG CODE:
+      console.log('🎵 === EditRelease: Loaded Release Data ===')
+      console.log('Release ID:', releaseId.value)
+      console.log('Tracks loaded:', releaseData.value.tracks.length)
+      releaseData.value.tracks.forEach((track, index) => {
+        console.log(`Track ${index + 1}:`, {
+          title: track.title,
+          isrc: track.isrc || 'NO ISRC',
+          artist: track.artist,
+          sequenceNumber: track.sequenceNumber
+        })
+      })
+      console.log('Full tracks data:', JSON.stringify(releaseData.value.tracks, null, 2))
+      // END DEBUG CODE
       
       // Ensure all tracks have contributors array
       releaseData.value.tracks.forEach(track => {
@@ -380,6 +431,14 @@ const saveChanges = async () => {
     isSaving.value = true
     saveError.value = null
     
+    // ADD THIS DEBUG:
+    console.log('🔄 === Saving Release Changes ===')
+    console.log('Tracks being saved:')
+    releaseData.value.tracks.forEach((track, index) => {
+      console.log(`  Track ${index + 1}: ISRC = ${track.isrc || 'NONE'}`)
+    })
+    // END DEBUG
+    
     const cleanedData = cleanDataForFirestore(releaseData.value)
     await updateRelease(releaseId.value, cleanedData)
     
@@ -451,6 +510,13 @@ const handleAddTrack = () => {
 }
 
 const handleUpdateTrack = (index, updates) => {
+  // ADD THIS DEBUG:
+  console.log(`Updating track ${index}:`, updates)
+  if (updates.isrc !== undefined) {
+    console.log(`  ISRC update: "${releaseData.value.tracks[index].isrc}" -> "${updates.isrc}"`)
+  }
+  // END DEBUG
+  
   Object.assign(releaseData.value.tracks[index], updates)
   modifiedSections.value.add('tracks')
 }
@@ -719,17 +785,334 @@ const handleAudioUpload = async (event, trackIndex) => {
   }
 }
 
+// ERN Methods
+const validateERN = async () => {
+  isValidatingERN.value = true
+  ernError.value = null
+  
+  try {
+    // Validate all required fields
+    const errors = []
+    
+    // Basic validation
+    if (!releaseData.value.basic.title) errors.push('Release title is required')
+    if (!releaseData.value.basic.displayArtist) errors.push('Display artist is required')
+    if (!releaseData.value.basic.barcode) errors.push('Barcode is required')
+    if (!releaseData.value.basic.releaseDate) errors.push('Release date is required')
+    
+    // Tracks validation
+    if (releaseData.value.tracks.length === 0) {
+      errors.push('At least one track is required')
+    } else {
+      releaseData.value.tracks.forEach((track, index) => {
+        if (!track.title) errors.push(`Track ${index + 1}: Title is required`)
+        if (!track.audio) errors.push(`Track ${index + 1}: Audio file is required`)
+      })
+    }
+    
+    // Assets validation
+    if (!releaseData.value.assets.coverImage) {
+      errors.push('Cover image is required')
+    }
+    
+    // Metadata validation
+    const hasGenre = !!(
+      releaseData.value.metadata.genreCode || 
+      releaseData.value.metadata.subgenreCode ||
+      releaseData.value.metadata.genre ||
+      releaseData.value.metadata.subgenre
+    )
+    if (!hasGenre) errors.push('Genre is required')
+    if (!releaseData.value.metadata.copyright) errors.push('Copyright information is required')
+    
+    // MEAD validation (warnings only, not blocking)
+    const meadWarnings = []
+    if (!releaseData.value.mead.moods || releaseData.value.mead.moods.length === 0) {
+      meadWarnings.push('Consider adding moods for better discovery')
+    }
+    if (!releaseData.value.mead.tempo) {
+      meadWarnings.push('Consider adding tempo (BPM) for DJ and workout playlists')
+    }
+    if (!releaseData.value.mead.instrumentation || releaseData.value.mead.instrumentation.length === 0) {
+      meadWarnings.push('Consider adding instrumentation for music analysis')
+    }
+    
+    // Show MEAD warnings if any
+    if (meadWarnings.length > 0 && errors.length === 0) {
+      console.log('MEAD enhancement suggestions:', meadWarnings)
+      // Don't block generation, just log suggestions
+    }
+    
+    if (errors.length > 0) {
+      ernError.value = errors.join(', ')
+      showToast('Validation failed. Please check all required fields.', 'error')
+      return false
+    }
+    
+    // In production, this would call DDEX Workbench API
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    
+    releaseData.value.ern.validated = true
+    showToast('Validation successful!', 'success')
+    return true
+    
+  } catch (err) {
+    console.error('Validation error:', err)
+    ernError.value = err.message || 'Validation failed'
+    showToast('Validation failed', 'error')
+    return false
+  } finally {
+    isValidatingERN.value = false
+  }
+}
+
+// Complete generateERN function with MEAD integration
+const generateERN = async () => {
+  // First validate
+  const isValid = await validateERN()
+  if (!isValid) return
+  
+  isGeneratingERN.value = true
+  ernError.value = null
+  
+  try {
+    // Save any pending changes first
+    if (hasChanges.value) {
+      await saveChanges()
+    }
+    
+    // Generate ERN using the service
+    const result = await ernService.generateERN(releaseId.value, {
+      ernVersion: releaseData.value.ern.version,
+      profile: releaseData.value.ern.profile,
+      testMode: false,
+      senderName: user.value?.organizationName || user.value?.displayName,
+      senderPartyId: 'stardust-distro' // Default for now
+    })
+    
+    generatedERN.value = result
+    releaseData.value.ern.lastGeneratedAt = new Date()
+    releaseData.value.ern.lastMessageId = result.messageId
+    releaseData.value.ern.validated = true
+    
+    // Generate MEAD if we have enrichment data
+    const hasMeadData = releaseData.value.mead && (
+      releaseData.value.mead.moods?.length > 0 ||
+      releaseData.value.mead.tempo ||
+      releaseData.value.mead.instrumentation?.length > 0 ||
+      releaseData.value.mead.playlistSuitability?.length > 0 ||
+      releaseData.value.mead.vocalCharacteristics?.length > 0 ||
+      releaseData.value.mead.marketingDescription ||
+      Object.keys(releaseData.value.mead.trackMead || {}).length > 0
+    )
+    
+    if (hasMeadData) {
+      try {
+        console.log('Generating MEAD with data:', releaseData.value.mead)
+        
+        // Prepare release data for MEAD generation
+        const releaseForMead = {
+          id: releaseId.value,
+          basic: releaseData.value.basic,
+          tracks: releaseData.value.tracks,
+          metadata: releaseData.value.metadata,
+          mead: releaseData.value.mead
+        }
+        
+        // Generate MEAD message
+        const meadResult = await meadService.generateMEAD(releaseForMead, {
+          senderName: user.value?.organizationName || user.value?.displayName,
+          senderPartyId: 'stardust-distro',
+          recipientName: 'DSP',
+          recipientPartyId: 'DSP'
+        })
+        
+        generatedMEAD.value = meadResult
+        
+        // Store MEAD generation info
+        releaseData.value.mead.lastGeneratedAt = new Date()
+        releaseData.value.mead.lastMessageId = meadResult.messageId
+        releaseData.value.mead.validated = true
+        
+        console.log('MEAD generated successfully:', meadResult.messageId)
+        
+        // Show success with MEAD info
+        showToast('ERN and MEAD generated successfully! Release is now ready for delivery.', 'success')
+      } catch (meadError) {
+        console.error('MEAD generation error:', meadError)
+        // MEAD generation failure shouldn't block ERN success
+        showToast('ERN generated successfully! MEAD generation failed but delivery can proceed.', 'warning')
+      }
+    } else {
+      console.log('No MEAD data available, skipping MEAD generation')
+      showToast('ERN generated successfully! Release is now ready for delivery.', 'success')
+    }
+    
+    // Always update release status to 'ready' when ERN is generated successfully
+    // This ensures the release is deliverable regardless of previous status
+    const updateData = { 
+      status: 'ready',
+      ern: {
+        version: releaseData.value.ern.version,
+        profile: releaseData.value.ern.profile,
+        validated: true,
+        lastGeneratedAt: releaseData.value.ern.lastGeneratedAt,
+        lastMessageId: result.messageId
+      }
+    }
+    
+    // Add MEAD info if generated
+    if (generatedMEAD.value) {
+      updateData.mead = {
+        ...releaseData.value.mead,
+        lastGeneratedAt: releaseData.value.mead.lastGeneratedAt,
+        lastMessageId: releaseData.value.mead.lastMessageId,
+        validated: true
+      }
+    }
+    
+    await updateRelease(releaseId.value, updateData)
+    
+    // Update the local currentRelease to reflect the new status
+    if (currentRelease.value) {
+      currentRelease.value.status = 'ready'
+      currentRelease.value.ern = updateData.ern
+      if (updateData.mead) {
+        currentRelease.value.mead = updateData.mead
+      }
+    }
+    
+    // Update original data to include the new ERN and MEAD data
+    originalData.value = JSON.parse(JSON.stringify(releaseData.value))
+    
+    modifiedSections.value.add('ern')
+    if (generatedMEAD.value) {
+      modifiedSections.value.add('mead')
+    }
+    
+    // Log summary
+    console.log('Generation complete:', {
+      ernMessageId: result.messageId,
+      meadMessageId: generatedMEAD.value?.messageId,
+      releaseStatus: 'ready',
+      hasMEAD: !!generatedMEAD.value
+    })
+    
+  } catch (err) {
+    console.error('Error generating ERN:', err)
+    ernError.value = err.message || 'Failed to generate ERN'
+    showToast('Failed to generate ERN', 'error')
+  } finally {
+    isGeneratingERN.value = false
+  }
+}
+
+// Helper functions for MEAD preview/download
+const previewMEAD = () => {
+  if (generatedMEAD.value) {
+    showMEADPreview.value = true
+  }
+}
+
+const downloadMEAD = () => {
+  if (!generatedMEAD.value) return
+  
+  const blob = new Blob([generatedMEAD.value.mead], { type: 'text/xml' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${releaseData.value.basic.title}_MEAD_${generatedMEAD.value.messageId}.xml`
+    .replace(/[^a-z0-9]/gi, '_')
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+const copyMEADToClipboard = () => {
+  if (!generatedMEAD.value) return
+  
+  navigator.clipboard.writeText(generatedMEAD.value.mead)
+    .then(() => {
+      showToast('MEAD copied to clipboard!', 'success')
+    })
+    .catch(err => {
+      console.error('Failed to copy:', err)
+      showToast('Failed to copy to clipboard', 'error')
+    })
+}
+
+const previewERN = () => {
+  if (generatedERN.value) {
+    showERNPreview.value = true
+  }
+}
+
+const downloadERN = () => {
+  if (!generatedERN.value) return
+  
+  const blob = new Blob([generatedERN.value.ern], { type: 'text/xml' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${releaseData.value.basic.title}_ERN_${generatedERN.value.messageId}.xml`.replace(/[^a-z0-9]/gi, '_')
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+const copyERNToClipboard = () => {
+  if (!generatedERN.value) return
+  
+  navigator.clipboard.writeText(generatedERN.value.ern)
+    .then(() => {
+      showToast('ERN copied to clipboard!', 'success')
+    })
+    .catch(err => {
+      console.error('Failed to copy:', err)
+      showToast('Failed to copy to clipboard', 'error')
+    })
+}
+
+const initiateDelivery = () => {
+  // Navigate to new delivery with this release pre-selected
+  router.push({
+    path: '/deliveries/new',
+    query: { releaseId: releaseId.value }
+  })
+}
+
 // Helper functions
 const formatDate = (dateValue) => {
   if (!dateValue) return 'No date set'
   
   let date
-  if (dateValue?.toDate) {
+  
+  // Handle Firebase Timestamp
+  if (dateValue?.toDate && typeof dateValue.toDate === 'function') {
     date = dateValue.toDate()
-  } else if (typeof dateValue === 'string') {
+  } 
+  // Handle string dates
+  else if (typeof dateValue === 'string') {
     date = new Date(dateValue)
-  } else {
+  } 
+  // Handle Date objects
+  else if (dateValue instanceof Date) {
     date = dateValue
+  }
+  // Handle timestamp numbers
+  else if (typeof dateValue === 'number') {
+    date = new Date(dateValue)
+  }
+  // Unknown format
+  else {
+    return 'Invalid date'
+  }
+  
+  // Validate the date is valid
+  if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+    return 'Invalid date'
   }
   
   return date.toLocaleDateString('en-US', {
@@ -776,15 +1159,15 @@ const handleSubgenreUpdate = (value) => {
 <template>
   <div class="edit-release">
     <!-- Simple page header without navigation -->
-    <div class="page-header">
+    <div class="card border-b rounded-none mb-xl">
       <div class="container">
-        <div class="header-content">
-          <div class="header-info">
-            <h1 class="page-title">{{ releaseData.basic.title || 'Untitled Release' }}</h1>
-            <p class="page-subtitle">{{ releaseData.basic.displayArtist ? `${releaseData.basic.type} by ${releaseData.basic.displayArtist}` : 'Edit Release' }}</p>
+        <div class="flex justify-between items-center flex-wrap gap-lg">
+          <div class="flex-1">
+            <h1 class="text-2xl font-bold mb-xs">{{ releaseData.basic.title || 'Untitled Release' }}</h1>
+            <p class="text-lg text-secondary">{{ releaseData.basic.displayArtist ? `${releaseData.basic.type} by ${releaseData.basic.displayArtist}` : 'Edit Release' }}</p>
           </div>
           
-          <div class="header-actions">
+          <div class="flex gap-sm">
             <button 
               v-if="hasChanges"
               @click="discardChanges" 
@@ -807,24 +1190,24 @@ const handleSubgenreUpdate = (value) => {
         </div>
         
         <!-- Save status bar -->
-        <div v-if="lastSavedAt || saveError" class="save-status">
-          <div v-if="saveError" class="save-error">
+        <div v-if="lastSavedAt || saveError" class="mt-md p-sm bg-secondary rounded-md">
+          <div v-if="saveError" class="text-error flex items-center gap-xs">
             <font-awesome-icon icon="exclamation-triangle" />
             {{ saveError }}
           </div>
-          <div v-else-if="lastSavedAt" class="save-success">
+          <div v-else-if="lastSavedAt" class="text-success flex items-center gap-xs">
             <font-awesome-icon icon="check-circle" />
             Last saved {{ new Date(lastSavedAt).toLocaleTimeString() }}
           </div>
         </div>
         
         <!-- Quick actions bar -->
-        <div class="quick-actions">
-          <button @click="expandAll" class="btn btn-ghost btn-sm">
+        <div class="flex gap-sm mt-md quick-actions">
+          <button @click="expandAll" class="btn btn-secondary btn-sm">
             <font-awesome-icon icon="expand" />
             Expand All
           </button>
-          <button @click="collapseAll" class="btn btn-ghost btn-sm">
+          <button @click="collapseAll" class="btn btn-secondary btn-sm">
             <font-awesome-icon icon="compress" />
             Collapse All
           </button>
@@ -835,46 +1218,46 @@ const handleSubgenreUpdate = (value) => {
     <!-- Main content with collapsible sections -->
     <div class="container">
       <!-- Loading state -->
-      <div v-if="isLoading" class="loading-container">
-        <div class="loading-spinner"></div>
+      <div v-if="isLoading" class="flex flex-col items-center justify-center p-3xl text-center">
+        <div class="loading-spinner mb-md"></div>
         <p>Loading release data...</p>
       </div>
 
       <!-- Error state -->
-      <div v-else-if="error && !releaseData.basic.title" class="error-container card">
-        <font-awesome-icon icon="exclamation-triangle" />
-        <h2>Failed to load release</h2>
-        <p>{{ error }}</p>
+      <div v-else-if="error && !releaseData.basic.title" class="card p-xl text-center">
+        <font-awesome-icon icon="exclamation-triangle" class="text-3xl text-error mb-md" />
+        <h2 class="mb-sm">Failed to load release</h2>
+        <p class="text-secondary mb-lg">{{ error }}</p>
         <button @click="router.push('/catalog')" class="btn btn-primary">
           Back to Catalog
         </button>
       </div>
 
       <!-- Edit sections -->
-      <div v-else class="edit-sections">
+      <div v-else class="flex flex-col gap-lg">
         <!-- Basic Information Section -->
-        <div class="collapsible-section" :class="{ expanded: expandedSections.basic, modified: modifiedSections.has('basic') }">
-          <div class="section-header" @click="toggleSection('basic')">
-            <div class="section-icon">
-              <font-awesome-icon :icon="expandedSections.basic ? 'chevron-down' : 'chevron-right'" />
-            </div>
-            <div class="section-info">
-              <h2 class="section-title">
-                Basic Information
-                <span v-if="sectionStatus.basic.complete" class="status-badge complete">
-                  <font-awesome-icon icon="check" />
-                </span>
-                <span v-else-if="sectionStatus.basic.errors" class="status-badge error">
-                  {{ sectionStatus.basic.errors }}
-                </span>
-              </h2>
-              <p class="section-summary">{{ sectionStatus.basic.summary }}</p>
+        <div class="card collapsible-section" :class="{ expanded: expandedSections.basic, modified: modifiedSections.has('basic') }">
+          <div class="section-header p-lg" @click="toggleSection('basic')">
+            <div class="flex items-center gap-md">
+              <font-awesome-icon :icon="expandedSections.basic ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
+              <div class="flex-1">
+                <h2 class="text-lg font-semibold flex items-center gap-sm">
+                  Basic Information
+                  <span v-if="sectionStatus.basic.complete" class="status-badge complete">
+                    <font-awesome-icon icon="check" />
+                  </span>
+                  <span v-else-if="sectionStatus.basic.errors" class="status-badge error">
+                    {{ sectionStatus.basic.errors }}
+                  </span>
+                </h2>
+                <p class="text-sm text-secondary mt-xs">{{ sectionStatus.basic.summary }}</p>
+              </div>
             </div>
           </div>
           
-          <div v-if="expandedSections.basic" class="section-content">
-            <div class="form-grid">
-              <div class="form-group span-2">
+          <div v-if="expandedSections.basic" class="section-content p-lg pt-0">
+            <div class="grid grid-cols-2 gap-md grid-cols-sm-1">
+              <div class="form-group col-span-2">
                 <label class="form-label required">Release Title</label>
                 <input 
                   v-model="releaseData.basic.title" 
@@ -885,7 +1268,7 @@ const handleSubgenreUpdate = (value) => {
                 />
               </div>
               
-              <div class="form-group span-2">
+              <div class="form-group col-span-2">
                 <label class="form-label required">Display Artist</label>
                 <input 
                   v-model="releaseData.basic.displayArtist" 
@@ -964,43 +1347,43 @@ const handleSubgenreUpdate = (value) => {
         </div>
 
         <!-- Tracks Section -->
-        <div class="collapsible-section" :class="{ expanded: expandedSections.tracks, modified: modifiedSections.has('tracks') }">
-          <div class="section-header" @click="toggleSection('tracks')">
-            <div class="section-icon">
-              <font-awesome-icon :icon="expandedSections.tracks ? 'chevron-down' : 'chevron-right'" />
-            </div>
-            <div class="section-info">
-              <h2 class="section-title">
-                Tracks
-                <span v-if="sectionStatus.tracks.complete" class="status-badge complete">
-                  <font-awesome-icon icon="check" />
-                </span>
-                <span v-else-if="sectionStatus.tracks.warnings" class="status-badge warning">
-                  {{ sectionStatus.tracks.warnings }} missing audio
-                </span>
-              </h2>
-              <p class="section-summary">{{ sectionStatus.tracks.summary }}</p>
+        <div class="card collapsible-section" :class="{ expanded: expandedSections.tracks, modified: modifiedSections.has('tracks') }">
+          <div class="section-header p-lg" @click="toggleSection('tracks')">
+            <div class="flex items-center gap-md">
+              <font-awesome-icon :icon="expandedSections.tracks ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
+              <div class="flex-1">
+                <h2 class="text-lg font-semibold flex items-center gap-sm">
+                  Tracks
+                  <span v-if="sectionStatus.tracks.complete" class="status-badge complete">
+                    <font-awesome-icon icon="check" />
+                  </span>
+                  <span v-else-if="sectionStatus.tracks.warnings" class="status-badge warning">
+                    {{ sectionStatus.tracks.warnings }} missing audio
+                  </span>
+                </h2>
+                <p class="text-sm text-secondary mt-xs">{{ sectionStatus.tracks.summary }}</p>
+              </div>
             </div>
           </div>
           
-          <div v-if="expandedSections.tracks" class="section-content">
-            <div class="tracks-header">
+          <div v-if="expandedSections.tracks" class="section-content p-lg pt-0">
+            <div class="mb-md">
               <button @click="handleAddTrack" class="btn btn-primary btn-sm">
                 <font-awesome-icon icon="plus" />
                 Add Track
               </button>
             </div>
             
-            <div v-if="releaseData.tracks.length === 0" class="empty-tracks">
-              <font-awesome-icon icon="music" />
+            <div v-if="releaseData.tracks.length === 0" class="text-center p-xl text-secondary">
+              <font-awesome-icon icon="music" class="text-2xl mb-sm block text-tertiary" />
               <p>No tracks yet</p>
             </div>
             
-            <div v-else class="tracks-list">
-              <div v-for="(track, index) in releaseData.tracks" :key="track.id" class="track-item">
+            <div v-else class="flex flex-col gap-md">
+              <div v-for="(track, index) in releaseData.tracks" :key="track.id" class="track-item bg-secondary rounded-md p-md flex gap-md items-start">
                 <div class="track-number">{{ index + 1 }}</div>
                 
-                <div class="track-details">
+                <div class="flex-1 flex flex-col gap-sm">
                   <input 
                     :value="track.title"
                     @input="handleUpdateTrack(index, { title: $event.target.value })"
@@ -1009,7 +1392,7 @@ const handleSubgenreUpdate = (value) => {
                     placeholder="Track title"
                   />
                   
-                  <div class="track-meta">
+                  <div class="grid grid-cols-2 gap-sm grid-cols-sm-1">
                     <input 
                       :value="track.artist"
                       @input="handleUpdateTrack(index, { artist: $event.target.value })"
@@ -1026,14 +1409,22 @@ const handleSubgenreUpdate = (value) => {
                       placeholder="ISRC (optional)"
                     />
                   </div>
+
+                  <!-- ADD THIS DEBUG DISPLAY right after the ISRC input: -->
+                  <div v-if="track.isrc" class="text-xs text-success mt-xs">
+                    ISRC: {{ track.isrc }}
+                  </div>
+                  <div v-else class="text-xs text-warning mt-xs">
+                    No ISRC
+                  </div>
                   
                   <!-- Contributors Section -->
-                  <div class="track-contributors">
-                    <div class="contributors-header">
-                      <span class="contributors-label">Contributors</span>
+                  <div class="track-contributors mt-md pt-md border-t">
+                    <div class="flex justify-between items-center mb-sm">
+                      <span class="font-medium text-sm text-secondary">Contributors</span>
                       <button 
                         @click="showContributorModal(index)" 
-                        class="btn btn-ghost btn-sm"
+                        class="btn btn-secondary btn-sm"
                         type="button"
                       >
                         <font-awesome-icon icon="plus" />
@@ -1041,15 +1432,15 @@ const handleSubgenreUpdate = (value) => {
                       </button>
                     </div>
                     
-                    <div v-if="track.contributors && track.contributors.length > 0" class="contributors-list">
+                    <div v-if="track.contributors && track.contributors.length > 0" class="flex flex-wrap gap-xs mt-sm">
                       <div 
                         v-for="(contributor, cIndex) in track.contributors" 
                         :key="`${track.id}-contributor-${cIndex}`"
                         class="contributor-tag"
                         :class="`contributor-${getCategoryClass(contributor.role)}`"
                       >
-                        <span class="contributor-name">{{ contributor.name }}</span>
-                        <span class="contributor-role">{{ contributor.role }}</span>
+                        <span class="font-medium">{{ contributor.name }}</span>
+                        <span class="text-xs text-secondary">{{ contributor.role }}</span>
                         <button 
                           @click="removeContributor(index, cIndex)" 
                           class="contributor-remove"
@@ -1060,13 +1451,13 @@ const handleSubgenreUpdate = (value) => {
                       </div>
                     </div>
                     
-                    <div v-else class="no-contributors">
+                    <div v-else class="text-tertiary text-sm italic p-sm">
                       No contributors added yet
                     </div>
                   </div>
                   
-                  <div class="track-audio">
-                    <label class="btn btn-secondary btn-sm">
+                  <div class="flex flex-col gap-xs">
+                    <label class="btn btn-secondary btn-sm inline-block">
                       <font-awesome-icon icon="upload" />
                       {{ track.audio ? 'Replace Audio' : 'Upload Audio' }}
                       <input 
@@ -1077,7 +1468,7 @@ const handleSubgenreUpdate = (value) => {
                       />
                     </label>
                     
-                    <div v-if="track.audio" class="audio-info">
+                    <div v-if="track.audio" class="flex items-center gap-xs text-sm text-secondary">
                       <font-awesome-icon icon="music" />
                       <span>{{ track.audio.name || 'Audio uploaded' }}</span>
                       <span v-if="track.audio.duration">({{ formatDuration(track.audio.duration) }})</span>
@@ -1098,25 +1489,25 @@ const handleSubgenreUpdate = (value) => {
         </div>
 
         <!-- Assets Section -->
-        <div class="collapsible-section" :class="{ expanded: expandedSections.assets, modified: modifiedSections.has('assets') }">
-          <div class="section-header" @click="toggleSection('assets')">
-            <div class="section-icon">
-              <font-awesome-icon :icon="expandedSections.assets ? 'chevron-down' : 'chevron-right'" />
-            </div>
-            <div class="section-info">
-              <h2 class="section-title">
-                Assets
-                <span v-if="sectionStatus.assets.complete" class="status-badge complete">
-                  <font-awesome-icon icon="check" />
-                </span>
-              </h2>
-              <p class="section-summary">{{ sectionStatus.assets.summary }}</p>
+        <div class="card collapsible-section" :class="{ expanded: expandedSections.assets, modified: modifiedSections.has('assets') }">
+          <div class="section-header p-lg" @click="toggleSection('assets')">
+            <div class="flex items-center gap-md">
+              <font-awesome-icon :icon="expandedSections.assets ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
+              <div class="flex-1">
+                <h2 class="text-lg font-semibold flex items-center gap-sm">
+                  Assets
+                  <span v-if="sectionStatus.assets.complete" class="status-badge complete">
+                    <font-awesome-icon icon="check" />
+                  </span>
+                </h2>
+                <p class="text-sm text-secondary mt-xs">{{ sectionStatus.assets.summary }}</p>
+              </div>
             </div>
           </div>
           
-          <div v-if="expandedSections.assets" class="section-content">
-            <div class="asset-section">
-              <h3>Cover Image</h3>
+          <div v-if="expandedSections.assets" class="section-content p-lg pt-0">
+            <div class="mb-lg">
+              <h3 class="text-md font-semibold mb-md">Cover Image</h3>
               
               <div v-if="!releaseData.assets.coverImage" class="upload-area">
                 <label class="upload-label">
@@ -1126,21 +1517,21 @@ const handleSubgenreUpdate = (value) => {
                     @change="handleCoverImageUpload"
                     style="display: none"
                   />
-                  <font-awesome-icon icon="upload" class="upload-icon" />
+                  <font-awesome-icon icon="upload" class="text-2xl text-tertiary" />
                   <p>Click to upload cover image</p>
-                  <span class="upload-hint">Minimum 3000x3000px</span>
+                  <span class="text-sm text-secondary">Minimum 3000x3000px</span>
                 </label>
               </div>
               
-              <div v-else class="uploaded-asset">
+              <div v-else class="flex gap-lg p-md bg-secondary rounded-lg flex-col-sm items-center-sm text-center-sm">
                 <img 
                   :src="releaseData.assets.coverImage.url || releaseData.assets.coverImage.preview" 
                   :alt="releaseData.assets.coverImage.name"
                   class="cover-preview"
                 />
                 <div class="asset-info">
-                  <h4>{{ releaseData.assets.coverImage.name }}</h4>
-                  <p>{{ formatFileSize(releaseData.assets.coverImage.size) }}</p>
+                  <h4 class="font-semibold mb-xs">{{ releaseData.assets.coverImage.name }}</h4>
+                  <p class="text-secondary mb-md text-sm">{{ formatFileSize(releaseData.assets.coverImage.size) }}</p>
                   <label class="btn btn-secondary btn-sm">
                     Replace Image
                     <input 
@@ -1153,7 +1544,7 @@ const handleSubgenreUpdate = (value) => {
                 </div>
               </div>
               
-              <div v-if="uploadProgress.cover" class="progress-bar">
+              <div v-if="uploadProgress.cover" class="progress-bar mt-sm">
                 <div class="progress-fill" :style="{ width: `${uploadProgress.cover}%` }"></div>
               </div>
             </div>
@@ -1161,25 +1552,25 @@ const handleSubgenreUpdate = (value) => {
         </div>
 
         <!-- Metadata Section -->
-        <div class="collapsible-section" :class="{ expanded: expandedSections.metadata, modified: modifiedSections.has('metadata') }">
-          <div class="section-header" @click="toggleSection('metadata')">
-            <div class="section-icon">
-              <font-awesome-icon :icon="expandedSections.metadata ? 'chevron-down' : 'chevron-right'" />
-            </div>
-            <div class="section-info">
-              <h2 class="section-title">
-                Metadata
-                <span v-if="sectionStatus.metadata.complete" class="status-badge complete">
-                  <font-awesome-icon icon="check" />
-                </span>
-              </h2>
-              <p class="section-summary">{{ sectionStatus.metadata.summary }}</p>
+        <div class="card collapsible-section" :class="{ expanded: expandedSections.metadata, modified: modifiedSections.has('metadata') }">
+          <div class="section-header p-lg" @click="toggleSection('metadata')">
+            <div class="flex items-center gap-md">
+              <font-awesome-icon :icon="expandedSections.metadata ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
+              <div class="flex-1">
+                <h2 class="text-lg font-semibold flex items-center gap-sm">
+                  Metadata
+                  <span v-if="sectionStatus.metadata.complete" class="status-badge complete">
+                    <font-awesome-icon icon="check" />
+                  </span>
+                </h2>
+                <p class="text-sm text-secondary mt-xs">{{ sectionStatus.metadata.summary }}</p>
+              </div>
             </div>
           </div>
           
-          <div v-if="expandedSections.metadata" class="section-content">
-            <div class="form-section">
-              <h3>Genre Classification</h3>
+          <div v-if="expandedSections.metadata" class="section-content p-lg pt-0">
+            <div class="mb-xl">
+              <h3 class="text-md font-semibold mb-md">Genre Classification</h3>
               <GenreSelector
                 v-model="releaseData.metadata.genreCode"
                 v-model:subgenre-value="releaseData.metadata.subgenreCode"
@@ -1189,7 +1580,7 @@ const handleSubgenreUpdate = (value) => {
               />
             </div>
             
-            <div class="form-grid">
+            <div class="grid grid-cols-2 gap-md grid-cols-sm-1">
               <div class="form-group">
                 <label class="form-label">Language</label>
                 <select v-model="releaseData.metadata.language" class="form-select" @change="modifiedSections.add('metadata')">
@@ -1217,7 +1608,7 @@ const handleSubgenreUpdate = (value) => {
                 />
               </div>
               
-              <div class="form-group span-2">
+              <div class="form-group col-span-2">
                 <label class="form-label required">Copyright</label>
                 <input 
                   v-model="releaseData.metadata.copyright" 
@@ -1231,50 +1622,63 @@ const handleSubgenreUpdate = (value) => {
           </div>
         </div>
 
-        <!-- MEAD Section -->
-        <div class="collapsible-section" :class="{ expanded: expandedSections.mead, modified: modifiedSections.has('mead') }">
-          <div class="section-header" @click="toggleSection('mead')">
-            <div class="section-icon">
-              <font-awesome-icon :icon="expandedSections.mead ? 'chevron-down' : 'chevron-right'" />
-            </div>
-            <div class="section-info">
-              <h2 class="section-title">
-                MEAD - Media Enrichment
-                <span v-if="sectionStatus.mead.complete" class="status-badge complete">
-                  <font-awesome-icon icon="check" />
-                </span>
-                <span class="mead-badge">Enhances Discovery</span>
-              </h2>
-              <p class="section-summary">{{ sectionStatus.mead.summary }}</p>
+        <!-- MEAD Section (COMPLETE) -->
+        <div class="card collapsible-section" :class="{ expanded: expandedSections.mead, modified: modifiedSections.has('mead') }">
+          <div class="section-header p-lg" @click="toggleSection('mead')">
+            <div class="flex items-center gap-md">
+              <font-awesome-icon :icon="expandedSections.mead ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
+              <div class="flex-1">
+                <h2 class="text-lg font-semibold flex items-center gap-sm">
+                  MEAD - Media Enrichment
+                  <span v-if="sectionStatus.mead.complete" class="status-badge complete">
+                    <font-awesome-icon icon="check" />
+                  </span>
+                  <span class="mead-badge">Enhances Discovery</span>
+                </h2>
+                <p class="text-sm text-secondary mt-xs">{{ sectionStatus.mead.summary }}</p>
+              </div>
             </div>
           </div>
           
-          <div v-if="expandedSections.mead" class="section-content">
+          <div v-if="expandedSections.mead" class="section-content p-lg pt-0">
             <!-- MEAD Information Panel -->
-            <div class="mead-info-panel">
+            <div class="mead-info-panel rounded-lg p-lg mb-xl">
               <div class="mead-benefits">
-                <h4><font-awesome-icon icon="chart-line" /> Boost Your Music's Performance</h4>
-                <p>MEAD (Media Enrichment and Description) metadata can increase streams by up to 10% and reduce skip rates by 7.5% on major DSPs.</p>
-                <div class="benefit-tags">
-                  <span class="benefit-tag"><font-awesome-icon icon="search" /> Better Discovery</span>
-                  <span class="benefit-tag"><font-awesome-icon icon="list-music" /> Playlist Curation</span>
-                  <span class="benefit-tag"><font-awesome-icon icon="microphone" /> Voice Search</span>
-                  <span class="benefit-tag"><font-awesome-icon icon="robot" /> AI Recommendations</span>
+                <h4 class="text-primary mb-sm flex items-center gap-sm">
+                  <font-awesome-icon icon="chart-line" /> 
+                  Boost Your Music's Performance
+                </h4>
+                <p class="text-secondary mb-md">MEAD (Media Enrichment and Description) metadata can increase streams by up to 10% and reduce skip rates by 7.5% on major DSPs.</p>
+                <div class="flex flex-wrap gap-sm">
+                  <span class="benefit-tag">
+                    <font-awesome-icon icon="search" /> Better Discovery
+                  </span>
+                  <span class="benefit-tag">
+                    <font-awesome-icon icon="list-music" /> Playlist Curation
+                  </span>
+                  <span class="benefit-tag">
+                    <font-awesome-icon icon="microphone" /> Voice Search
+                  </span>
+                  <span class="benefit-tag">
+                    <font-awesome-icon icon="robot" /> AI Recommendations
+                  </span>
                 </div>
               </div>
             </div>
 
             <!-- Mood & Theme Classification -->
-            <div class="form-section">
-              <h3><font-awesome-icon icon="heart" /> Mood & Theme</h3>
-              <p class="section-description">Help DSPs categorize your music for mood-based playlists and recommendations.</p>
+            <div class="mb-xl">
+              <h3 class="text-md font-semibold mb-md flex items-center gap-sm">
+                <font-awesome-icon icon="heart" /> Mood & Theme
+              </h3>
+              <p class="text-sm text-secondary italic mb-md">Help DSPs categorize your music for mood-based playlists and recommendations.</p>
               
-              <div class="mood-selector">
-                <div class="mood-categories">
+              <div class="mood-selector mb-lg">
+                <div class="grid grid-cols-3 gap-lg grid-cols-md-2 grid-cols-sm-1 mb-lg">
                   <div v-for="(category, categoryKey) in MoodCategories" :key="categoryKey" class="mood-category">
-                    <h4>{{ category.name }}</h4>
-                    <p class="category-description">{{ category.description }}</p>
-                    <div class="mood-chips">
+                    <h4 class="text-sm font-semibold text-secondary mb-xs uppercase">{{ category.name }}</h4>
+                    <p class="text-xs text-tertiary mb-sm">{{ category.description }}</p>
+                    <div class="flex flex-wrap gap-xs">
                       <button 
                         v-for="mood in category.moods" 
                         :key="mood"
@@ -1289,9 +1693,9 @@ const handleSubgenreUpdate = (value) => {
                   </div>
                 </div>
                 
-                <div v-if="releaseData.mead.moods.length > 0" class="selected-moods">
-                  <h4>Selected Moods:</h4>
-                  <div class="selected-mood-tags">
+                <div v-if="releaseData.mead.moods.length > 0" class="p-md bg-secondary rounded-md border">
+                  <h4 class="text-sm text-secondary mb-sm">Selected Moods:</h4>
+                  <div class="flex flex-wrap gap-xs">
                     <span v-for="mood in releaseData.mead.moods" :key="mood" class="selected-mood-tag">
                       {{ mood }}
                       <button @click="removeMood(mood)" class="remove-mood" type="button">
@@ -1310,12 +1714,12 @@ const handleSubgenreUpdate = (value) => {
                     type="checkbox"
                     @change="modifiedSections.add('mead')"
                   />
-                  <span class="checkbox-content">Contains explicit content</span>
+                  <span class="text-sm">Contains explicit content</span>
                 </label>
                 <input 
                   v-model="releaseData.mead.contentAdvisory" 
                   type="text" 
-                  class="form-input"
+                  class="form-input mt-sm"
                   placeholder="Additional content warnings (optional)"
                   @input="modifiedSections.add('mead')"
                 />
@@ -1323,11 +1727,13 @@ const handleSubgenreUpdate = (value) => {
             </div>
 
             <!-- Musical Characteristics -->
-            <div class="form-section">
-              <h3><font-awesome-icon icon="music" /> Musical Characteristics</h3>
-              <p class="section-description">Technical details that help with music analysis and matching.</p>
+            <div class="mb-xl">
+              <h3 class="text-md font-semibold mb-md flex items-center gap-sm">
+                <font-awesome-icon icon="music" /> Musical Characteristics
+              </h3>
+              <p class="text-sm text-secondary italic mb-md">Technical details that help with music analysis and matching.</p>
               
-              <div class="form-grid">
+              <div class="grid grid-cols-2 gap-md grid-cols-sm-1">
                 <div class="form-group">
                   <label class="form-label">Tempo (BPM)</label>
                   <input 
@@ -1339,7 +1745,7 @@ const handleSubgenreUpdate = (value) => {
                     max="200"
                     @input="modifiedSections.add('mead')"
                   />
-                  <small class="form-hint">Beats per minute for DJ mixing and workout playlists</small>
+                  <small class="text-xs text-tertiary italic mt-xs block">Beats per minute for DJ mixing and workout playlists</small>
                 </div>
                 
                 <div class="form-group">
@@ -1373,16 +1779,18 @@ const handleSubgenreUpdate = (value) => {
             </div>
 
             <!-- Instrumentation -->
-            <div class="form-section">
-              <h3><font-awesome-icon icon="guitar" /> Instrumentation</h3>
-              <p class="section-description">Primary instruments featured in this release.</p>
+            <div class="mb-xl">
+              <h3 class="text-md font-semibold mb-md flex items-center gap-sm">
+                <font-awesome-icon icon="guitar" /> Instrumentation
+              </h3>
+              <p class="text-sm text-secondary italic mb-md">Primary instruments featured in this release.</p>
               
-              <div class="instrumentation-selector">
-                <div class="instrument-categories">
+              <div class="instrumentation-selector mb-lg">
+                <div class="grid grid-cols-4 gap-lg grid-cols-md-2 grid-cols-sm-1 mb-lg">
                   <div v-for="(category, categoryKey) in InstrumentCategories" :key="categoryKey" class="instrument-category">
-                    <h4>{{ category.name }}</h4>
-                    <p class="category-description">{{ category.description }}</p>
-                    <div class="instrument-chips">
+                    <h4 class="text-sm font-semibold text-secondary mb-xs uppercase">{{ category.name }}</h4>
+                    <p class="text-xs text-tertiary mb-sm">{{ category.description }}</p>
+                    <div class="flex flex-wrap gap-xs">
                       <button 
                         v-for="instrument in category.instruments" 
                         :key="instrument.code"
@@ -1397,9 +1805,9 @@ const handleSubgenreUpdate = (value) => {
                   </div>
                 </div>
                 
-                <div v-if="releaseData.mead.instrumentation.length > 0" class="selected-instruments">
-                  <h4>Primary Instruments:</h4>
-                  <div class="selected-instrument-tags">
+                <div v-if="releaseData.mead.instrumentation.length > 0" class="p-md bg-secondary rounded-md border">
+                  <h4 class="text-sm text-secondary mb-sm">Primary Instruments:</h4>
+                  <div class="flex flex-wrap gap-xs">
                     <span v-for="instrument in releaseData.mead.instrumentation" :key="instrument" class="selected-instrument-tag">
                       {{ instrument }}
                       <button @click="removeInstrument(instrument)" class="remove-instrument" type="button">
@@ -1423,10 +1831,12 @@ const handleSubgenreUpdate = (value) => {
             </div>
 
             <!-- Vocal Information -->
-            <div class="form-section">
-              <h3><font-awesome-icon icon="microphone" /> Vocal Information</h3>
+            <div class="mb-xl">
+              <h3 class="text-md font-semibold mb-md flex items-center gap-sm">
+                <font-awesome-icon icon="microphone" /> Vocal Information
+              </h3>
               
-              <div class="form-grid">
+              <div class="grid grid-cols-2 gap-md grid-cols-sm-1">
                 <div class="form-group">
                   <label class="form-label">Vocal Register</label>
                   <select v-model="releaseData.mead.vocalRegister" class="form-select" @change="modifiedSections.add('mead')">
@@ -1439,16 +1849,17 @@ const handleSubgenreUpdate = (value) => {
                 
                 <div class="form-group">
                   <label class="form-label">Vocal Characteristics</label>
-                  <div class="vocal-characteristics">
+                  <div class="grid grid-cols-2 gap-sm grid-cols-sm-1">
                     <label v-for="characteristic in VocalCharacteristics" 
-                           :key="characteristic.code" class="checkbox-option">
+                          :key="characteristic.code" 
+                          class="checkbox-option p-sm rounded-sm">
                       <input 
                         :value="characteristic.code"
                         :checked="releaseData.mead.vocalCharacteristics.includes(characteristic.code)"
                         @change="toggleVocalCharacteristic(characteristic.code)"
                         type="checkbox"
                       />
-                      <span class="checkbox-content">{{ characteristic.name }}</span>
+                      <span class="text-sm">{{ characteristic.name }}</span>
                     </label>
                   </div>
                 </div>
@@ -1456,10 +1867,12 @@ const handleSubgenreUpdate = (value) => {
             </div>
 
             <!-- Production Information -->
-            <div class="form-section">
-              <h3><font-awesome-icon icon="cog" /> Production Information</h3>
+            <div class="mb-xl">
+              <h3 class="text-md font-semibold mb-md flex items-center gap-sm">
+                <font-awesome-icon icon="cog" /> Production Information
+              </h3>
               
-              <div class="form-grid">
+              <div class="grid grid-cols-2 gap-md grid-cols-sm-1">
                 <div class="form-group">
                   <label class="form-label">Recording Technique</label>
                   <select v-model="releaseData.mead.recordingTechnique" class="form-select" @change="modifiedSections.add('mead')">
@@ -1483,10 +1896,12 @@ const handleSubgenreUpdate = (value) => {
             </div>
 
             <!-- Discovery & Marketing -->
-            <div class="form-section">
-              <h3><font-awesome-icon icon="bullhorn" /> Discovery & Marketing</h3>
+            <div class="mb-xl">
+              <h3 class="text-md font-semibold mb-md flex items-center gap-sm">
+                <font-awesome-icon icon="bullhorn" /> Discovery & Marketing
+              </h3>
               
-              <div class="form-group">
+              <div class="form-group mb-md">
                 <label class="form-label">Focus Track</label>
                 <select v-model="releaseData.mead.focusTrack" class="form-select" @change="modifiedSections.add('mead')">
                   <option value="">Select focus track for voice search</option>
@@ -1494,10 +1909,10 @@ const handleSubgenreUpdate = (value) => {
                     {{ index + 1 }}. {{ track.title }}
                   </option>
                 </select>
-                <small class="form-hint">Track played when users ask for "the latest {{ releaseData.basic.displayArtist }} track"</small>
+                <small class="text-xs text-tertiary italic mt-xs block">Track played when users ask for "the latest {{ releaseData.basic.displayArtist }} track"</small>
               </div>
               
-              <div class="form-group">
+              <div class="form-group mb-md">
                 <label class="form-label">Marketing Description</label>
                 <textarea 
                   v-model="releaseData.mead.marketingDescription" 
@@ -1508,15 +1923,15 @@ const handleSubgenreUpdate = (value) => {
                 ></textarea>
               </div>
               
-              <div class="form-grid">
+              <div class="grid grid-cols-2 gap-md grid-cols-sm-1">
                 <div class="form-group">
                   <label class="form-label">Playlist Suitability</label>
-                  <div class="playlist-tags">
+                  <div class="flex flex-wrap gap-sm flex-col-sm">
                     <button v-for="playlist in PlaylistSuitability" 
                             :key="playlist.code"
                             @click="togglePlaylistSuitability(playlist.code)"
                             :class="{ active: releaseData.mead.playlistSuitability.includes(playlist.code) }"
-                            class="playlist-chip"
+                            class="playlist-chip text-center-sm"
                             type="button">
                       {{ playlist.name }}
                     </button>
@@ -1536,18 +1951,22 @@ const handleSubgenreUpdate = (value) => {
             </div>
 
             <!-- Track-Level MEAD Override -->
-            <div v-if="releaseData.tracks.length > 0" class="form-section">
-              <h3><font-awesome-icon icon="sliders-h" /> Track-Level MEAD</h3>
-              <p class="section-description">Override release-level MEAD data for individual tracks with unique characteristics.</p>
+            <div v-if="releaseData.tracks.length > 0" class="mb-xl">
+              <h3 class="text-md font-semibold mb-md flex items-center gap-sm">
+                <font-awesome-icon icon="sliders-h" /> Track-Level MEAD
+              </h3>
+              <p class="text-sm text-secondary italic mb-md">Override release-level MEAD data for individual tracks with unique characteristics.</p>
               
-              <div class="track-mead-list">
-                <div v-for="(track, index) in releaseData.tracks" :key="track.id" class="track-mead-item">
-                  <div class="track-mead-header">
-                    <span class="track-number">{{ index + 1 }}</span>
-                    <span class="track-title">{{ track.title }}</span>
+              <div class="flex flex-col gap-md">
+                <div v-for="(track, index) in releaseData.tracks" :key="track.id" class="border rounded-md overflow-hidden">
+                  <div class="flex items-center justify-between p-md bg-secondary">
+                    <div class="flex items-center gap-md">
+                      <span class="track-number">{{ index + 1 }}</span>
+                      <span class="font-medium">{{ track.title }}</span>
+                    </div>
                     <button 
                       @click="track.showMead = !track.showMead" 
-                      class="btn btn-ghost btn-sm"
+                      class="btn btn-secondary btn-sm"
                       type="button"
                     >
                       <font-awesome-icon :icon="track.showMead ? 'chevron-up' : 'chevron-down'" />
@@ -1555,8 +1974,8 @@ const handleSubgenreUpdate = (value) => {
                     </button>
                   </div>
                   
-                  <div v-if="track.showMead" class="track-mead-content">
-                    <div class="form-grid">
+                  <div v-if="track.showMead" class="p-md">
+                    <div class="grid grid-cols-2 gap-md grid-cols-sm-1 mb-md">
                       <div class="form-group">
                         <label class="form-label">Track BPM</label>
                         <input 
@@ -1585,12 +2004,12 @@ const handleSubgenreUpdate = (value) => {
                     
                     <div class="form-group">
                       <label class="form-label">Track-Specific Moods</label>
-                      <div class="track-moods">
+                      <div class="flex flex-wrap gap-xs">
                         <button v-for="mood in ['Happy', 'Sad', 'Energetic', 'Calm', 'Dark', 'Uplifting', 'Romantic', 'Aggressive']" 
                                 :key="mood"
                                 @click="toggleTrackMood(index, mood)"
                                 :class="{ active: (getTrackMead(track.id).moods || []).includes(mood) }"
-                                class="mood-chip small"
+                                class="mood-chip text-xs p-xs"
                                 type="button">
                           {{ mood }}
                         </button>
@@ -1604,24 +2023,24 @@ const handleSubgenreUpdate = (value) => {
         </div>
 
         <!-- Territories Section -->
-        <div class="collapsible-section" :class="{ expanded: expandedSections.territories, modified: modifiedSections.has('territories') }">
-          <div class="section-header" @click="toggleSection('territories')">
-            <div class="section-icon">
-              <font-awesome-icon :icon="expandedSections.territories ? 'chevron-down' : 'chevron-right'" />
-            </div>
-            <div class="section-info">
-              <h2 class="section-title">
-                Territories & Rights
-                <span v-if="sectionStatus.territories.complete" class="status-badge complete">
-                  <font-awesome-icon icon="check" />
-                </span>
-              </h2>
-              <p class="section-summary">{{ sectionStatus.territories.summary }}</p>
+        <div class="card collapsible-section" :class="{ expanded: expandedSections.territories, modified: modifiedSections.has('territories') }">
+          <div class="section-header p-lg" @click="toggleSection('territories')">
+            <div class="flex items-center gap-md">
+              <font-awesome-icon :icon="expandedSections.territories ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
+              <div class="flex-1">
+                <h2 class="text-lg font-semibold flex items-center gap-sm">
+                  Territories & Rights
+                  <span v-if="sectionStatus.territories.complete" class="status-badge complete">
+                    <font-awesome-icon icon="check" />
+                  </span>
+                </h2>
+                <p class="text-sm text-secondary mt-xs">{{ sectionStatus.territories.summary }}</p>
+              </div>
             </div>
           </div>
           
-          <div v-if="expandedSections.territories" class="section-content">
-            <div class="territory-options">
+          <div v-if="expandedSections.territories" class="section-content p-lg pt-0">
+            <div class="flex flex-col gap-sm">
               <label class="radio-option">
                 <input 
                   v-model="releaseData.territories.mode" 
@@ -1629,9 +2048,9 @@ const handleSubgenreUpdate = (value) => {
                   value="worldwide"
                   @change="modifiedSections.add('territories')"
                 />
-                <div class="radio-content">
-                  <span class="radio-title">Worldwide</span>
-                  <span class="radio-description">Distribute to all territories</span>
+                <div class="flex flex-col">
+                  <span class="font-medium mb-xs">Worldwide</span>
+                  <span class="text-sm text-secondary">Distribute to all territories</span>
                 </div>
               </label>
               
@@ -1642,27 +2061,219 @@ const handleSubgenreUpdate = (value) => {
                   value="selected"
                   @change="modifiedSections.add('territories')"
                 />
-                <div class="radio-content">
-                  <span class="radio-title">Selected Territories</span>
-                  <span class="radio-description">Choose specific territories</span>
+                <div class="flex flex-col">
+                  <span class="font-medium mb-xs">Selected Territories</span>
+                  <span class="text-sm text-secondary">Choose specific territories</span>
                 </div>
               </label>
             </div>
             
-            <div v-if="releaseData.territories.mode === 'selected'" class="info-message">
+            <div v-if="releaseData.territories.mode === 'selected'" class="flex items-center gap-sm p-md bg-info text-white rounded-md mt-md">
               <font-awesome-icon icon="info-circle" />
               Territory selection will be available in the next update
             </div>
           </div>
         </div>
+
+        <!-- ERN & Delivery Section -->
+        <div class="card collapsible-section" :class="{ expanded: expandedSections.ern, modified: modifiedSections.has('ern') }">
+          <div class="section-header p-lg" @click="toggleSection('ern')">
+            <div class="flex items-center gap-md">
+              <font-awesome-icon :icon="expandedSections.ern ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
+              <div class="flex-1">
+                <h2 class="text-lg font-semibold flex items-center gap-sm">
+                  ERN & Delivery
+                  <span v-if="sectionStatus.ern.complete" class="status-badge complete">
+                    <font-awesome-icon icon="check" />
+                  </span>
+                  <span v-else-if="sectionStatus.ern.errors" class="status-badge error">
+                    <font-awesome-icon icon="exclamation-triangle" />
+                  </span>
+                  <span v-if="isReadyForDelivery" class="ready-badge">
+                    <font-awesome-icon icon="rocket" />
+                    Ready for Delivery
+                  </span>
+                </h2>
+                <p class="text-sm text-secondary mt-xs">{{ sectionStatus.ern.summary }}</p>
+              </div>
+            </div>
+          </div>
+          
+          <div v-if="expandedSections.ern" class="section-content p-lg pt-0">
+            <!-- ERN Configuration -->
+            <div class="mb-xl pb-xl border-b">
+              <h3 class="text-md font-semibold mb-md flex items-center gap-sm">
+                <font-awesome-icon icon="file-code" /> ERN Configuration
+              </h3>
+              <p class="text-sm text-secondary italic mb-md">Configure and generate the DDEX ERN message for this release.</p>
+              
+              <div class="grid grid-cols-2 gap-md grid-cols-sm-1">
+                <div class="form-group">
+                  <label class="form-label">ERN Version</label>
+                  <select v-model="releaseData.ern.version" class="form-select" @change="modifiedSections.add('ern')">
+                    <option value="3.8.2">ERN 3.8.2</option>
+                    <option value="4.2">ERN 4.2</option>
+                    <option value="4.3">ERN 4.3 (Recommended)</option>
+                  </select>
+                </div>
+                
+                <div class="form-group">
+                  <label class="form-label">Profile</label>
+                  <select v-model="releaseData.ern.profile" class="form-select" @change="modifiedSections.add('ern')">
+                    <option value="AudioAlbum">Audio Album</option>
+                    <option value="AudioSingle">Audio Single</option>
+                    <option value="VideoAlbum">Video Album</option>
+                  </select>
+                </div>
+              </div>
+              
+              <!-- Release Readiness Check -->
+              <div class="bg-secondary rounded-lg p-lg mt-lg mb-lg">
+                <h4 class="text-md font-semibold mb-md flex items-center gap-sm">
+                  <font-awesome-icon icon="check-circle" /> Release Readiness
+                </h4>
+                <div class="grid grid-cols-2 gap-md grid-cols-sm-1">
+                  <div class="readiness-item" :class="{ complete: sectionStatus.basic.complete }">
+                    <font-awesome-icon :icon="sectionStatus.basic.complete ? 'check-circle' : 'circle'" />
+                    <span>Basic Information</span>
+                  </div>
+                  <div class="readiness-item" :class="{ complete: sectionStatus.tracks.complete }">
+                    <font-awesome-icon :icon="sectionStatus.tracks.complete ? 'check-circle' : 'circle'" />
+                    <span>Tracks & Audio</span>
+                  </div>
+                  <div class="readiness-item" :class="{ complete: sectionStatus.assets.complete }">
+                    <font-awesome-icon :icon="sectionStatus.assets.complete ? 'check-circle' : 'circle'" />
+                    <span>Cover Image</span>
+                  </div>
+                  <div class="readiness-item" :class="{ complete: sectionStatus.metadata.complete }">
+                    <font-awesome-icon :icon="sectionStatus.metadata.complete ? 'check-circle' : 'circle'" />
+                    <span>Metadata</span>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- ERN Actions -->
+              <div class="flex gap-md flex-col-sm">
+                <button 
+                  @click="validateERN" 
+                  class="btn btn-secondary"
+                  :disabled="isValidatingERN"
+                >
+                  <font-awesome-icon v-if="isValidatingERN" icon="spinner" class="fa-spin" />
+                  <font-awesome-icon v-else icon="check" />
+                  {{ isValidatingERN ? 'Validating...' : 'Validate Release' }}
+                </button>
+                
+                <button 
+                  @click="generateERN" 
+                  class="btn btn-primary"
+                  :disabled="isGeneratingERN"
+                >
+                  <font-awesome-icon v-if="isGeneratingERN" icon="spinner" class="fa-spin" />
+                  <font-awesome-icon v-else icon="file-code" />
+                  {{ isGeneratingERN ? 'Generating...' : 'Generate ERN' }}
+                </button>
+              </div>
+              
+              <!-- ERN Error Display -->
+              <div v-if="ernError" class="ern-error">
+                <font-awesome-icon icon="exclamation-triangle" />
+                <div>
+                  <h4 class="text-md font-semibold mb-xs">Validation Errors</h4>
+                  <p class="text-sm">{{ ernError }}</p>
+                </div>
+              </div>
+              
+              <!-- ERN Success Display -->
+              <div v-if="releaseData.ern.validated && generatedERN" class="ern-success">
+                <font-awesome-icon icon="check-circle" />
+                <div>
+                  <h4 class="text-md font-semibold mb-xs">ERN Generated Successfully</h4>
+                  <p class="text-sm mb-xs">Message ID: <code class="bg-surface p-xs rounded-sm">{{ generatedERN.messageId }}</code></p>
+                  <p class="text-sm">Generated: {{ formatDate(releaseData.ern.lastGeneratedAt) }}</p>
+                </div>
+                <div class="flex gap-sm ml-auto flex-col-sm ml-0-sm mt-md-sm">
+                  <button @click="previewERN" class="btn btn-secondary btn-sm">
+                    <font-awesome-icon icon="eye" />
+                    Preview
+                  </button>
+                  <button @click="downloadERN" class="btn btn-secondary btn-sm">
+                    <font-awesome-icon icon="download" />
+                    Download
+                  </button>
+                </div>
+              </div>
+
+              <!-- Add after ERN Success Display in EditRelease.vue -->
+              <div v-if="releaseData.ern.validated && generatedMEAD" class="mead-success mt-lg">
+                <font-awesome-icon icon="chart-line" />
+                <div>
+                  <h4 class="text-md font-semibold mb-xs">MEAD Generated Successfully</h4>
+                  <p class="text-sm mb-xs">Message ID: <code class="bg-surface p-xs rounded-sm">{{ generatedMEAD.messageId }}</code></p>
+                  <p class="text-sm">Enhanced metadata for discovery and recommendations</p>
+                </div>
+                <div class="flex gap-sm ml-auto flex-col-sm ml-0-sm mt-md-sm">
+                  <button @click="previewMEAD" class="btn btn-secondary btn-sm">
+                    <font-awesome-icon icon="eye" />
+                    Preview MEAD
+                  </button>
+                  <button @click="downloadMEAD" class="btn btn-secondary btn-sm">
+                    <font-awesome-icon icon="download" />
+                    Download
+                  </button>
+                </div>
+              </div>
+
+            </div>
+            
+            <!-- Delivery Section -->
+            <div>
+              <h3 class="text-md font-semibold mb-md flex items-center gap-sm">
+                <font-awesome-icon icon="truck" /> Delivery
+              </h3>
+              <p class="text-sm text-secondary italic mb-md">Once your ERN is generated and validated, you can initiate delivery to DSPs.</p>
+              
+              <div v-if="!isReadyForDelivery" class="bg-secondary rounded-lg p-lg flex gap-md text-secondary flex-col-sm">
+                <font-awesome-icon icon="info-circle" />
+                <div>
+                  <h4 class="text-md font-semibold mb-xs">Requirements for Delivery</h4>
+                  <p class="text-sm">Please ensure all sections are complete and the ERN is validated before initiating delivery.</p>
+                </div>
+              </div>
+              
+              <div v-else class="bg-secondary rounded-lg p-lg">
+                <div class="flex gap-md mb-lg items-center flex-col-sm">
+                  <font-awesome-icon icon="check-circle" class="text-success text-2xl" />
+                  <div>
+                    <h4 class="text-md font-semibold mb-xs text-success">Ready for Delivery</h4>
+                    <p class="text-sm text-secondary">This release meets all requirements and can be delivered to DSPs.</p>
+                  </div>
+                </div>
+                
+                <button 
+                  @click="initiateDelivery" 
+                  class="btn btn-success btn-lg"
+                >
+                  <font-awesome-icon icon="paper-plane" />
+                  Initiate Delivery
+                </button>
+                
+                <p class="text-sm text-secondary italic mt-md">
+                  This will take you to the delivery wizard where you can select DSP targets and schedule the delivery.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
     <!-- Contributor Modal -->
     <div v-if="contributorModal.show" class="modal-overlay" @click="closeContributorModal">
-      <div class="modal-content contributor-modal" @click.stop>
+      <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h2>Add Contributor to Track {{ contributorModal.trackIndex + 1 }}</h2>
+          <h2 class="text-xl">Add Contributor to Track {{ contributorModal.trackIndex + 1 }}</h2>
           <button @click="closeContributorModal" class="btn-icon">
             <font-awesome-icon icon="times" />
           </button>
@@ -1698,7 +2309,7 @@ const handleSubgenreUpdate = (value) => {
           
           <div class="form-group">
             <label class="form-label required">Role</label>
-            <div class="role-search">
+            <div class="mb-md">
               <input 
                 v-model="contributorModal.roleSearch"
                 type="text" 
@@ -1708,8 +2319,8 @@ const handleSubgenreUpdate = (value) => {
               />
             </div>
             
-            <div class="common-roles" v-if="!contributorModal.roleSearch">
-              <span class="common-roles-label">Common roles:</span>
+            <div class="mb-md" v-if="!contributorModal.roleSearch">
+              <span class="block text-sm text-secondary mb-sm">Common roles:</span>
               <button 
                 v-for="role in getCommonRoles(contributorModal.category)"
                 :key="role"
@@ -1731,20 +2342,20 @@ const handleSubgenreUpdate = (value) => {
                 :class="{ selected: contributorModal.role === (result.role || result) }"
                 type="button"
               >
-                <span class="role-name">{{ result.role || result }}</span>
-                <span v-if="result.category" class="role-category">
+                <span class="font-medium">{{ result.role || result }}</span>
+                <span v-if="result.category" class="text-xs text-secondary">
                   {{ formatCategoryName(result.category) }}
                 </span>
               </button>
             </div>
             
-            <div v-if="contributorModal.role" class="selected-role">
+            <div v-if="contributorModal.role" class="flex items-center gap-sm p-sm bg-success-light border rounded-md text-success text-sm">
               <font-awesome-icon icon="check-circle" />
               Selected: <strong>{{ contributorModal.role }}</strong>
             </div>
           </div>
           
-          <div v-if="contributorModal.error" class="form-error">
+          <div v-if="contributorModal.error" class="form-error flex items-center gap-sm">
             <font-awesome-icon icon="exclamation-triangle" />
             {{ contributorModal.error }}
           </div>
@@ -1766,11 +2377,86 @@ const handleSubgenreUpdate = (value) => {
       </div>
     </div>
 
-    <!-- Floating save button for mobile (shows only when scrolled) -->
+    <!-- ERN Preview Modal -->
+    <div v-if="showERNPreview" class="modal-overlay" @click="showERNPreview = false">
+      <div class="modal-content modal-wide" @click.stop>
+        <div class="modal-header">
+          <h2 class="text-xl">ERN Preview</h2>
+          <button @click="showERNPreview = false" class="btn-icon">
+            <font-awesome-icon icon="times" />
+          </button>
+        </div>
+        
+        <div class="modal-body">
+          <div class="p-md bg-secondary rounded-md mb-md">
+            <p class="text-sm mb-xs"><strong>Message ID:</strong> {{ generatedERN?.messageId }}</p>
+            <p class="text-sm mb-xs"><strong>Version:</strong> ERN {{ releaseData.ern.version }}</p>
+            <p class="text-sm"><strong>Profile:</strong> {{ releaseData.ern.profile }}</p>
+          </div>
+          <pre class="ern-preview-content">{{ generatedERN?.ern }}</pre>
+        </div>
+        
+        <div class="modal-footer">
+          <button @click="copyERNToClipboard" class="btn btn-secondary">
+            <font-awesome-icon icon="copy" />
+            Copy to Clipboard
+          </button>
+          <button @click="downloadERN" class="btn btn-primary">
+            <font-awesome-icon icon="download" />
+            Download ERN
+          </button>
+          <button @click="showERNPreview = false" class="btn btn-secondary">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MEAD Preview Modal -->
+    <div v-if="showMEADPreview" class="modal-overlay" @click="showMEADPreview = false">
+      <div class="modal-content modal-wide" @click.stop>
+        <div class="modal-header">
+          <h2 class="text-xl">MEAD Preview - Media Enrichment Data</h2>
+          <button @click="showMEADPreview = false" class="btn-icon">
+            <font-awesome-icon icon="times" />
+          </button>
+        </div>
+        
+        <div class="modal-body">
+          <div class="p-md bg-secondary rounded-md mb-md">
+            <p class="text-sm mb-xs"><strong>Message ID:</strong> {{ generatedMEAD?.messageId }}</p>
+            <p class="text-sm mb-xs"><strong>Version:</strong> MEAD {{ generatedMEAD?.version }}</p>
+            <p class="text-sm mb-xs"><strong>Purpose:</strong> Enhanced metadata for discovery and recommendations</p>
+            <p class="text-sm"><strong>Data Points:</strong> 
+              {{ releaseData.mead.moods.length }} moods, 
+              {{ releaseData.mead.instrumentation.length }} instruments,
+              {{ releaseData.mead.playlistSuitability.length }} playlists
+            </p>
+          </div>
+          <pre class="ern-preview-content">{{ generatedMEAD?.mead }}</pre>
+        </div>
+        
+        <div class="modal-footer">
+          <button @click="copyMEADToClipboard" class="btn btn-secondary">
+            <font-awesome-icon icon="copy" />
+            Copy to Clipboard
+          </button>
+          <button @click="downloadMEAD" class="btn btn-primary">
+            <font-awesome-icon icon="download" />
+            Download MEAD
+          </button>
+          <button @click="showMEADPreview = false" class="btn btn-secondary">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating save button for mobile -->
     <button 
       v-if="hasChanges"
       @click="saveChanges" 
-      class="floating-save-btn mobile-only"
+      class="floating-save-btn"
       :disabled="!canSave"
     >
       <font-awesome-icon v-if="isSaving" icon="spinner" class="fa-spin" />
@@ -1780,111 +2466,15 @@ const handleSubgenreUpdate = (value) => {
 </template>
 
 <style scoped>
+/* Base container */
 .edit-release {
   min-height: calc(100vh - 64px);
   padding-bottom: var(--space-3xl);
   background-color: var(--color-bg);
 }
 
-/* Page Header */
-.page-header {
-  background-color: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-  padding: var(--space-lg) 0;
-  margin-bottom: var(--space-xl);
-}
-
-.header-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-lg);
-}
-
-.header-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.page-title {
-  font-size: var(--text-2xl);
-  font-weight: var(--font-bold);
-  color: var(--color-heading);
-  margin: 0;
-  margin-bottom: var(--space-xs);
-}
-
-.page-subtitle {
-  font-size: var(--text-lg);
-  color: var(--color-text-secondary);
-  margin: 0;
-}
-
-.header-actions {
-  display: flex;
-  gap: var(--space-sm);
-}
-
-/* Save Status Bar */
-.save-status {
-  margin-top: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-}
-
-.save-error {
-  color: var(--color-error);
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.save-success {
-  color: var(--color-success);
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-/* Quick Actions */
-.quick-actions {
-  margin-top: var(--space-md);
-  display: flex;
-  gap: var(--space-sm);
-}
-
-.btn-ghost {
-  background-color: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-}
-
-.btn-ghost:hover {
-  background-color: var(--color-bg-secondary);
-}
-
-/* Container */
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 var(--space-lg);
-}
-
-/* Edit Sections */
-.edit-sections {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
-}
-
-/* Collapsible Sections */
+/* Collapsible sections enhancement */
 .collapsible-section {
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
   transition: all var(--transition-base);
 }
 
@@ -1897,9 +2487,6 @@ const handleSubgenreUpdate = (value) => {
 }
 
 .section-header {
-  display: flex;
-  align-items: center;
-  padding: var(--space-lg);
   cursor: pointer;
   user-select: none;
   transition: background-color var(--transition-base);
@@ -1911,28 +2498,25 @@ const handleSubgenreUpdate = (value) => {
 
 .section-icon {
   width: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-secondary);
   transition: transform var(--transition-base);
 }
 
-.section-info {
-  flex: 1;
-  margin-left: var(--space-md);
+.section-content {
+  animation: slideDown 0.2s ease-out;
 }
 
-.section-title {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  color: var(--color-heading);
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
+/* Status badges */
 .status-badge {
   display: inline-flex;
   align-items: center;
@@ -1959,29 +2543,111 @@ const handleSubgenreUpdate = (value) => {
   color: var(--color-error);
 }
 
-.section-summary {
+/* Form enhancements */
+.form-label.required::after {
+  content: ' *';
+  color: var(--color-error);
+}
+
+.col-span-2 {
+  grid-column: span 2;
+}
+
+/* Track styles */
+.track-number {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-primary);
+  color: white;
+  border-radius: var(--radius-full);
+  font-weight: var(--font-semibold);
   font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  margin: var(--space-xs) 0 0 0;
+  flex-shrink: 0;
 }
 
-.section-content {
-  padding: 0 var(--space-lg) var(--space-lg) var(--space-lg);
-  animation: slideDown 0.2s ease-out;
+.track-contributors {
+  border-top: 1px solid var(--color-border-light);
 }
 
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Contributor tags */
+.contributor-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
 }
 
-/* MEAD Section Styles */
+.contributor-tag.contributor-performer {
+  background-color: rgba(66, 133, 244, 0.1);
+  border-color: rgba(66, 133, 244, 0.3);
+}
+
+.contributor-tag.contributor-producer {
+  background-color: rgba(52, 168, 83, 0.1);
+  border-color: rgba(52, 168, 83, 0.3);
+}
+
+.contributor-tag.contributor-composer {
+  background-color: rgba(251, 188, 4, 0.1);
+  border-color: rgba(251, 188, 4, 0.3);
+}
+
+.contributor-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.contributor-remove:hover {
+  color: var(--color-error);
+}
+
+/* Upload area */
+.upload-area {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  text-align: center;
+  background-color: var(--color-bg-secondary);
+  transition: all var(--transition-base);
+}
+
+.upload-area:hover {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-light);
+}
+
+.upload-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+}
+
+.cover-preview {
+  width: 150px;
+  height: 150px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+}
+
+/* MEAD specific styles */
 .mead-badge {
   display: inline-flex;
   align-items: center;
@@ -1997,28 +2663,6 @@ const handleSubgenreUpdate = (value) => {
 .mead-info-panel {
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
   border: 1px solid rgba(102, 126, 234, 0.2);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  margin-bottom: var(--space-xl);
-}
-
-.mead-benefits h4 {
-  color: var(--color-primary);
-  margin-bottom: var(--space-sm);
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.mead-benefits p {
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-md);
-}
-
-.benefit-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
 }
 
 .benefit-tag {
@@ -2033,48 +2677,6 @@ const handleSubgenreUpdate = (value) => {
   font-weight: var(--font-medium);
 }
 
-.section-description {
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  margin-bottom: var(--space-md);
-  font-style: italic;
-}
-
-.category-description {
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-  margin-bottom: var(--space-sm);
-  line-height: 1.3;
-}
-
-/* Mood Selector */
-.mood-selector {
-  margin-bottom: var(--space-lg);
-}
-
-.mood-categories {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: var(--space-lg);
-  margin-bottom: var(--space-lg);
-}
-
-.mood-category h4 {
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.mood-chips,
-.instrument-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs);
-}
-
 .mood-chip,
 .instrument-chip,
 .playlist-chip {
@@ -2086,11 +2688,6 @@ const handleSubgenreUpdate = (value) => {
   font-size: var(--text-sm);
   cursor: pointer;
   transition: all var(--transition-base);
-}
-
-.mood-chip.small {
-  padding: calc(var(--space-xs) / 2) var(--space-xs);
-  font-size: var(--text-xs);
 }
 
 .mood-chip:hover,
@@ -2108,28 +2705,6 @@ const handleSubgenreUpdate = (value) => {
   color: white;
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-}
-
-.selected-moods,
-.selected-instruments {
-  padding: var(--space-md);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-}
-
-.selected-moods h4,
-.selected-instruments h4 {
-  font-size: var(--text-sm);
-  margin-bottom: var(--space-sm);
-  color: var(--color-text-secondary);
-}
-
-.selected-mood-tags,
-.selected-instrument-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs);
 }
 
 .selected-mood-tag,
@@ -2165,324 +2740,94 @@ const handleSubgenreUpdate = (value) => {
   background: rgba(255, 255, 255, 0.3);
 }
 
-/* Instrumentation Selector */
-.instrumentation-selector {
-  margin-bottom: var(--space-lg);
-}
-
-.instrument-categories {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: var(--space-lg);
-  margin-bottom: var(--space-lg);
-}
-
-.instrument-category h4 {
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* Vocal Characteristics */
-.vocal-characteristics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: var(--space-sm);
-}
-
-.checkbox-option {
+/* Territory options */
+.radio-option {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  cursor: pointer;
-  padding: var(--space-sm);
-  border-radius: var(--radius-sm);
-  transition: background-color var(--transition-base);
-}
-
-.checkbox-option:hover {
-  background-color: var(--color-bg-secondary);
-}
-
-.checkbox-content {
-  font-size: var(--text-sm);
-  color: var(--color-text);
-}
-
-/* Playlist Tags */
-.playlist-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-}
-
-/* Track-Level MEAD */
-.track-mead-list {
-  display: flex;
-  flex-direction: column;
   gap: var(--space-md);
-}
-
-.track-mead-item {
+  padding: var(--space-md);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  overflow: hidden;
+  cursor: pointer;
+  transition: all var(--transition-base);
 }
 
-.track-mead-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-md);
+.radio-option:hover {
+  border-color: var(--color-primary);
   background-color: var(--color-bg-secondary);
-  border-bottom: 1px solid var(--color-border);
 }
 
-.track-mead-header .track-number {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: var(--color-primary);
-  color: white;
-  border-radius: var(--radius-full);
-  font-weight: var(--font-semibold);
-  font-size: var(--text-sm);
-  flex-shrink: 0;
-}
-
-.track-mead-header .track-title {
-  flex: 1;
-  font-weight: var(--font-medium);
-  color: var(--color-text);
-}
-
-.track-mead-content {
-  padding: var(--space-md);
-}
-
-.track-moods {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs);
-}
-
-/* Form Elements */
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-md);
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-}
-
-.form-group.span-2 {
-  grid-column: span 2;
-}
-
-.form-section {
-  margin-bottom: var(--space-xl);
-}
-
-.form-section h3 {
-  font-size: var(--text-md);
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-md);
-  color: var(--color-heading);
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.form-label {
-  font-weight: var(--font-medium);
-  margin-bottom: var(--space-xs);
-  color: var(--color-text);
-  font-size: var(--text-sm);
-}
-
-.form-label.required::after {
-  content: ' *';
-  color: var(--color-error);
-}
-
-.form-hint {
-  display: block;
-  margin-top: var(--space-xs);
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-  font-style: italic;
-}
-
-/* Tracks Section */
-.tracks-header {
-  margin-bottom: var(--space-md);
-}
-
-.tracks-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-}
-
-.track-item {
-  display: flex;
-  gap: var(--space-md);
-  padding: var(--space-md);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  align-items: flex-start;
-}
-
-.track-number {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: var(--color-primary);
-  color: white;
-  border-radius: var(--radius-full);
-  font-weight: var(--font-semibold);
-  font-size: var(--text-sm);
-  flex-shrink: 0;
-}
-
-.track-details {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.track-meta {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: var(--space-sm);
-}
-
-.track-audio {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
-.audio-info {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.empty-tracks {
-  text-align: center;
-  padding: var(--space-xl);
-  color: var(--color-text-secondary);
-}
-
-.empty-tracks svg {
-  font-size: 2rem;
-  margin-bottom: var(--space-sm);
-  color: var(--color-border);
-}
-
-/* Contributor Styles */
-.track-contributors {
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--color-border-light);
-}
-
-.contributors-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-sm);
-}
-
-.contributors-label {
-  font-weight: var(--font-medium);
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.contributors-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs);
-  margin-top: var(--space-sm);
-}
-
-.contributor-tag {
+/* ERN styles */
+.ready-badge {
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
   padding: var(--space-xs) var(--space-sm);
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
+  background: linear-gradient(135deg, #34a853 0%, #4285f4 100%);
+  color: white;
   border-radius: var(--radius-full);
-  font-size: var(--text-sm);
-}
-
-.contributor-tag.contributor-performer {
-  background-color: rgba(66, 133, 244, 0.1);
-  border-color: rgba(66, 133, 244, 0.3);
-}
-
-.contributor-tag.contributor-producer {
-  background-color: rgba(52, 168, 83, 0.1);
-  border-color: rgba(52, 168, 83, 0.3);
-}
-
-.contributor-tag.contributor-composer {
-  background-color: rgba(251, 188, 4, 0.1);
-  border-color: rgba(251, 188, 4, 0.3);
-}
-
-.contributor-name {
-  font-weight: var(--font-medium);
-  color: var(--color-text);
-}
-
-.contributor-role {
-  color: var(--color-text-secondary);
   font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  margin-left: var(--space-sm);
 }
 
-.contributor-remove {
+.readiness-item {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  transition: color var(--transition-fast);
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background-color: var(--color-surface);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
 }
 
-.contributor-remove:hover {
+.readiness-item.complete {
+  color: var(--color-success);
+  background-color: rgba(52, 168, 83, 0.1);
+}
+
+.readiness-item:not(.complete) {
+  color: var(--color-text-secondary);
+}
+
+.ern-error {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background-color: rgba(234, 67, 53, 0.1);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-lg);
+  margin-top: var(--space-lg);
   color: var(--color-error);
 }
 
-.no-contributors {
-  color: var(--color-text-tertiary);
-  font-size: var(--text-sm);
-  font-style: italic;
-  padding: var(--space-sm) 0;
+.ern-success {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background-color: rgba(52, 168, 83, 0.1);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-lg);
+  margin-top: var(--space-lg);
+  color: var(--color-success);
+  align-items: center;
 }
 
-/* Contributor Modal */
+.ern-preview-content {
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Modal styles */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -2500,15 +2845,15 @@ const handleSubgenreUpdate = (value) => {
   background-color: var(--color-surface);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  max-width: 600px;
+  max-width: 650px;
   width: 90%;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
 }
 
-.contributor-modal {
-  width: 650px;
+.modal-wide {
+  max-width: 900px;
 }
 
 .modal-header {
@@ -2521,7 +2866,6 @@ const handleSubgenreUpdate = (value) => {
 
 .modal-header h2 {
   margin: 0;
-  font-size: var(--text-xl);
 }
 
 .modal-body {
@@ -2538,7 +2882,7 @@ const handleSubgenreUpdate = (value) => {
   border-top: 1px solid var(--color-border);
 }
 
-/* Category Tabs */
+/* Category tabs */
 .category-tabs {
   display: flex;
   gap: var(--space-xs);
@@ -2570,22 +2914,7 @@ const handleSubgenreUpdate = (value) => {
   color: white;
 }
 
-/* Role Selection */
-.role-search {
-  margin-bottom: var(--space-md);
-}
-
-.common-roles {
-  margin-bottom: var(--space-md);
-}
-
-.common-roles-label {
-  display: block;
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-sm);
-}
-
+/* Role selection */
 .role-chip {
   display: inline-block;
   padding: var(--space-xs) var(--space-sm);
@@ -2638,151 +2967,7 @@ const handleSubgenreUpdate = (value) => {
   background-color: var(--color-primary-light);
 }
 
-.role-name {
-  font-weight: var(--font-medium);
-  color: var(--color-text);
-}
-
-.role-category {
-  font-size: var(--text-xs);
-  color: var(--color-text-secondary);
-}
-
-.selected-role {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm);
-  background-color: rgba(52, 168, 83, 0.1);
-  border: 1px solid rgba(52, 168, 83, 0.3);
-  border-radius: var(--radius-md);
-  color: var(--color-success);
-  font-size: var(--text-sm);
-}
-
-/* Assets Section */
-.asset-section {
-  margin-bottom: var(--space-lg);
-}
-
-.asset-section h3 {
-  font-size: var(--text-md);
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-md);
-  color: var(--color-heading);
-}
-
-.upload-area {
-  border: 2px dashed var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-xl);
-  text-align: center;
-  background-color: var(--color-bg-secondary);
-  transition: all var(--transition-base);
-}
-
-.upload-area:hover {
-  border-color: var(--color-primary);
-  background-color: var(--color-primary-light);
-}
-
-.upload-label {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-sm);
-  cursor: pointer;
-}
-
-.upload-icon {
-  font-size: 2rem;
-  color: var(--color-text-tertiary);
-}
-
-.upload-hint {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.uploaded-asset {
-  display: flex;
-  gap: var(--space-lg);
-  padding: var(--space-md);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-}
-
-.cover-preview {
-  width: 150px;
-  height: 150px;
-  object-fit: cover;
-  border-radius: var(--radius-md);
-}
-
-.asset-info h4 {
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-xs);
-}
-
-.asset-info p {
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-md);
-  font-size: var(--text-sm);
-}
-
-/* Territory Options */
-.territory-options {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.radio-option {
-  display: flex;
-  align-items: center;
-  padding: var(--space-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-base);
-}
-
-.radio-option:hover {
-  border-color: var(--color-primary);
-  background-color: var(--color-bg-secondary);
-}
-
-.radio-option input[type="radio"] {
-  margin-right: var(--space-md);
-}
-
-.radio-content {
-  display: flex;
-  flex-direction: column;
-}
-
-.radio-title {
-  font-weight: var(--font-medium);
-  margin-bottom: var(--space-xs);
-}
-
-.radio-description {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.info-message {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-md);
-  background-color: var(--color-info);
-  color: white;
-  border-radius: var(--radius-md);
-  margin-top: var(--space-md);
-}
-
-/* Progress Bar */
+/* Progress bar */
 .progress-bar {
   height: 4px;
   background-color: var(--color-border);
@@ -2797,22 +2982,7 @@ const handleSubgenreUpdate = (value) => {
   transition: width var(--transition-base);
 }
 
-/* Loading & Error States */
-.loading-container,
-.error-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-3xl);
-  text-align: center;
-}
-
-.error-container {
-  background-color: var(--color-surface);
-  border-radius: var(--radius-lg);
-}
-
+/* Loading spinner */
 .loading-spinner {
   width: 48px;
   height: 48px;
@@ -2820,30 +2990,38 @@ const handleSubgenreUpdate = (value) => {
   border-top-color: var(--color-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
-  margin-bottom: var(--space-md);
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-.error-container svg {
-  font-size: 3rem;
-  color: var(--color-error);
-  margin-bottom: var(--space-md);
-}
-
-.error-container h2 {
-  color: var(--color-heading);
-  margin-bottom: var(--space-sm);
-}
-
-.error-container p {
+/* Utility button */
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
   color: var(--color-text-secondary);
-  margin-bottom: var(--space-lg);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
 }
 
-/* Floating Save Button */
+.btn-icon:hover {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text);
+}
+
+.btn-icon.text-error:hover {
+  background-color: rgba(234, 67, 53, 0.1);
+  color: var(--color-error);
+}
+
+/* Floating save button */
 .floating-save-btn {
   position: fixed;
   bottom: var(--space-lg);
@@ -2874,142 +3052,6 @@ const handleSubgenreUpdate = (value) => {
   cursor: not-allowed;
 }
 
-/* Utility Classes */
-.btn-icon {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  border-radius: var(--radius-md);
-  transition: all var(--transition-base);
-}
-
-.btn-icon:hover {
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text);
-}
-
-.btn-icon.text-error:hover {
-  background-color: rgba(234, 67, 53, 0.1);
-  color: var(--color-error);
-}
-
-.text-error {
-  color: var(--color-error);
-}
-
-/* Responsive Design */
-@media (max-width: 768px) {
-  .edit-release {
-    padding-bottom: calc(var(--space-3xl) + 80px); /* Account for floating button */
-  }
-  
-  .page-header {
-    padding: var(--space-md) 0;
-  }
-  
-  .page-title {
-    font-size: var(--text-xl);
-  }
-  
-  .page-subtitle {
-    font-size: var(--text-sm);
-  }
-  
-  .header-content {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  
-  .header-actions {
-    justify-content: stretch;
-  }
-  
-  .header-actions .btn {
-    flex: 1;
-  }
-  
-  .quick-actions {
-    display: none;
-  }
-  
-  .container {
-    padding: 0 var(--space-md);
-  }
-  
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .form-group.span-2 {
-    grid-column: span 1;
-  }
-  
-  .track-meta {
-    grid-template-columns: 1fr;
-  }
-  
-  .uploaded-asset {
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-  }
-  
-  .cover-preview {
-    width: 200px;
-    height: 200px;
-  }
-  
-  .floating-save-btn.mobile-only {
-    display: flex;
-  }
-
-  .modal-content {
-    width: 95%;
-    max-height: 90vh;
-  }
-
-  .contributor-modal {
-    width: 95%;
-  }
-
-  .category-tabs {
-    flex-direction: column;
-  }
-  
-  .mood-categories,
-  .instrument-categories {
-    grid-template-columns: 1fr;
-  }
-  
-  .benefit-tags {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  
-  .mead-info-panel {
-    padding: var(--space-md);
-  }
-  
-  .vocal-characteristics {
-    grid-template-columns: 1fr;
-  }
-  
-  .playlist-tags {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  
-  .playlist-chip {
-    text-align: center;
-  }
-}
-
 /* Animation for saving spinner */
 .fa-spin {
   animation: fa-spin 1s linear infinite;
@@ -3018,5 +3060,66 @@ const handleSubgenreUpdate = (value) => {
 @keyframes fa-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* Responsive adjustments */
+.quick-actions {
+  display: flex;
+}
+
+@media (max-width: 768px) {
+  .edit-release {
+    padding-bottom: calc(var(--space-3xl) + 80px);
+  }
+  
+  .quick-actions {
+    display: none;
+  }
+  
+  .col-span-2 {
+    grid-column: span 1;
+  }
+  
+  .grid-cols-sm-1 {
+    grid-template-columns: 1fr !important;
+  }
+  
+  .flex-col-sm {
+    flex-direction: column !important;
+  }
+  
+  .ml-0-sm {
+    margin-left: 0 !important;
+  }
+  
+  .mt-md-sm {
+    margin-top: var(--space-md) !important;
+  }
+  
+  .items-center-sm {
+    align-items: center !important;
+  }
+  
+  .text-center-sm {
+    text-align: center !important;
+  }
+  
+  .floating-save-btn {
+    display: flex;
+  }
+  
+  .modal-content {
+    width: 95%;
+    max-height: 90vh;
+  }
+  
+  .category-tabs {
+    flex-direction: column;
+  }
+  
+  .cover-preview {
+    width: 200px;
+    height: 200px;
+  }
 }
 </style>

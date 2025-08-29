@@ -1,4 +1,8 @@
 // functions/index.js
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
+
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const { onCall, HttpsError, onRequest } = require('firebase-functions/v2/https')
 const { setGlobalOptions } = require('firebase-functions/v2')
@@ -57,6 +61,10 @@ app.use(express.json());
 // Import Deezer API routes
 const deezerRoutes = require('./api/deezer');
 app.use('/deezer', deezerRoutes);
+
+// Import Spotify API routes
+const spotifyRoutes = require('./api/spotify');
+app.use('/spotify', spotifyRoutes);
 
 // Export the Express app as a Cloud Function
 exports.api = onRequest(app);
