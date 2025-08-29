@@ -85,7 +85,8 @@ import {
   faLock,
   faKey,
   faLanguage,
-  faUsers
+  faUsers,
+  faUser
 } from '@fortawesome/free-solid-svg-icons'
 
 // Import brand icons
@@ -172,7 +173,8 @@ library.add(
   faLock,
   faKey,
   faLanguage,
-  faUsers
+  faUsers,
+  faUser
 )
 
 // Add brand icons to the library

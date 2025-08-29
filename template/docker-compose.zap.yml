@@ -1,0 +1,25 @@
+# docker-compose.zap.yml
+services:
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: stardust-zap
+    command: >
+      zap.sh 
+      -daemon 
+      -host 0.0.0.0 
+      -port 8080 
+      -config api.disablekey=true 
+      -config api.addrs.addr.name=.* 
+      -config api.addrs.addr.regex=true
+    ports:
+      - "8080:8080"
+    networks:
+      - stardust-network
+    volumes:
+      - ./zap/sessions:/zap/wrk/sessions
+      - ./zap/reports:/zap/wrk/reports  
+      - ./zap/policies:/zap/wrk/policies
+
+networks:
+  stardust-network:
+    driver: bridge

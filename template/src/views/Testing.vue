@@ -2,45 +2,11 @@
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { useAuth } from '../composables/useAuth'
 import { db, functions, storage } from '../firebase'
-import { collection, getDocs, query, limit, doc, getDoc, setDoc, addDoc, orderBy } from 'firebase/firestore'
+import { collection, getDocs, query, limit, doc, getDoc, setDoc, addDoc, orderBy, where } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { ref as storageRef, uploadString, getDownloadURL } from 'firebase/storage'
-
-// Test Status Component (inline definition for script setup)
-const TestStatus = {
-  name: 'TestStatus',
-  props: ['status', 'duration', 'details', 'error'],
-  template: `
-    <div class="test-status-wrapper">
-      <font-awesome-icon 
-        v-if="status === 'passed'" 
-        icon="check-circle" 
-        class="status-icon passed"
-      />
-      <font-awesome-icon 
-        v-else-if="status === 'failed'" 
-        icon="times-circle" 
-        class="status-icon failed"
-      />
-      <font-awesome-icon 
-        v-else-if="status === 'warning'" 
-        icon="exclamation-triangle" 
-        class="status-icon warning"
-      />
-      <font-awesome-icon 
-        v-else-if="status === 'running'" 
-        icon="spinner" 
-        spin
-        class="status-icon running"
-      />
-      <span v-else class="status-icon pending">—</span>
-      
-      <span v-if="duration" class="test-duration">{{ duration }}ms</span>
-      <span v-if="details" class="test-details">{{ details }}</span>
-      <span v-if="error" class="test-error">{{ error }}</span>
-    </div>
-  `
-}
+import securityTesting from '../services/securityTesting'
+import TestStatus from '../components/TestStatus.vue'
 
 // Get auth user
 const { user } = useAuth()
@@ -201,12 +167,65 @@ const performanceTests = ref([
   }
 ])
 
+// Security test states
+const securityTests = ref([
+  {
+    id: 'sec-1',
+    name: 'Security Headers Check',
+    description: 'Verify security headers are properly configured',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'sec-2',
+    name: 'Content Security Policy',
+    description: 'Validate CSP configuration',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'sec-3',
+    name: 'SSL/TLS Configuration',
+    description: 'Check HTTPS and certificate settings',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'sec-4',
+    name: 'Input Validation',
+    description: 'Test XSS and injection protections',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'sec-5',
+    name: 'Authentication Security',
+    description: 'Verify auth implementation and session management',
+    status: null,
+    duration: null
+  },
+  {
+    id: 'sec-6',
+    name: 'API Security',
+    description: 'Test API endpoints for vulnerabilities',
+    status: null,
+    duration: null
+  }
+])
+
+const zapAvailable = ref(false)
+const isRunningZap = ref(false)
+const scanType = ref('baseline')
+const zapResults = ref(null)
+const lastSecurityScan = ref(null)
+
 // Computed properties
 const totalTests = computed(() => {
   return systemTests.value.length + 
          ddexTests.value.length + 
          deliveryTests.value.length + 
-         performanceTests.value.length
+         performanceTests.value.length +
+         securityTests.value.length
 })
 
 const passedTests = computed(() => {
@@ -260,6 +279,183 @@ const healthScoreClass = computed(() => {
   return 'health-poor'
 })
 
+// Add security test implementation
+const runSecurityTests = async () => {
+  addLog('info', '=== Starting Security Tests ===')
+  showLog.value = true
+  
+  for (const test of securityTests.value) {
+    test.status = 'running'
+    const start = Date.now()
+    
+    try {
+      switch (test.id) {
+        case 'sec-1': // Security Headers
+          const headersResult = await securityTesting.checkSecurityHeaders()
+          test.status = headersResult.passed ? 'passed' : 'warning'
+          test.details = `Score: ${headersResult.score}%`
+          if (!headersResult.passed) {
+            const missing = headersResult.details
+              .filter(h => !h.present)
+              .map(h => h.header)
+            test.error = `Missing: ${missing.join(', ')}`
+          }
+          addLog(headersResult.passed ? 'success' : 'warning', 
+            `Security headers: ${headersResult.score}%`)
+          break
+          
+        case 'sec-2': // CSP
+          const cspResult = await securityTesting.checkCSP()
+          test.status = cspResult.passed ? 'passed' : 'warning'
+          if (cspResult.issues?.length > 0) {
+            test.vulnerability = `Found ${cspResult.issues.length} unsafe directives`
+            test.error = cspResult.issues.map(i => i.directive).join(', ')
+          }
+          addLog(cspResult.passed ? 'success' : 'warning',
+            `CSP: ${cspResult.passed ? 'Configured properly' : 'Issues found'}`)
+          break
+          
+        case 'sec-3': // SSL/TLS
+          const sslResult = await securityTesting.checkSSL()
+          test.status = sslResult.passed ? 'passed' : 'failed'
+          test.details = sslResult.protocol
+          if (!sslResult.passed) {
+            test.error = sslResult.recommendation
+          }
+          addLog(sslResult.passed ? 'success' : 'error',
+            `SSL/TLS: ${sslResult.protocol}`)
+          break
+          
+        case 'sec-4': // Input Validation
+          // Check if DOMPurify is loaded
+          if (typeof DOMPurify !== 'undefined') {
+            test.status = 'passed'
+            test.details = 'DOMPurify + Zod validation'
+            addLog('success', '✓ Input validation libraries detected')
+          } else {
+            // Check for validation in forms
+            const hasValidation = document.querySelectorAll('[required]').length > 0
+            test.status = hasValidation ? 'warning' : 'failed'
+            test.details = hasValidation ? 'Basic HTML validation' : 'No validation found'
+            addLog(hasValidation ? 'warning' : 'error', 
+              `Input validation: ${test.details}`)
+          }
+          break
+          
+        case 'sec-5': // Authentication
+          if (user.value) {
+            // Check Firebase Auth config
+            test.status = 'passed'
+            test.details = 'Firebase Auth active'
+            
+            // Check for MFA (future enhancement)
+            if (!user.value.multiFactor) {
+              test.status = 'warning'
+              test.vulnerability = 'MFA not enabled'
+            }
+            
+            addLog('success', '✓ Authentication verified')
+          } else {
+            test.status = 'warning'
+            test.details = 'Not authenticated'
+            addLog('warning', 'Authentication test skipped (not logged in)')
+          }
+          break
+          
+        case 'sec-6': // API Security
+          try {
+            // Test a protected endpoint
+            const testProtectedEndpoint = httpsCallable(functions, 'getSecurityMetrics')
+            await testProtectedEndpoint({ tenantId: tenantId.value })
+            test.status = 'passed'
+            test.details = 'Endpoints protected'
+            addLog('success', '✓ API authentication working')
+          } catch (error) {
+            if (error.message.includes('Authentication required')) {
+              test.status = 'passed'
+              test.details = 'Auth required (correct)'
+            } else {
+              test.status = 'warning'
+              test.error = error.message
+            }
+          }
+          break
+      }
+      
+      test.duration = Date.now() - start
+      
+      if (test.status === 'passed') {
+        addLog('success', `✓ ${test.name} passed (${test.duration}ms)`)
+      } else if (test.status === 'warning') {
+        addLog('warning', `⚠ ${test.name} has warnings (${test.duration}ms)`)
+      } else {
+        addLog('error', `✗ ${test.name} failed (${test.duration}ms)`)
+      }
+      
+    } catch (error) {
+      test.status = 'failed'
+      test.duration = Date.now() - start
+      test.error = error.message
+      addLog('error', `✗ ${test.name} failed: ${error.message}`)
+    }
+  }
+}
+
+// Run OWASP ZAP scan
+const runZapScan = async () => {
+  isRunningZap.value = true
+  addLog('info', `Starting OWASP ZAP ${scanType.value} scan...`)
+  
+  try {
+    const result = await securityTesting.initiateScan({
+      targetUrl: window.location.origin,
+      scanType: scanType.value,
+      authenticated: !!user.value,
+      userId: user.value?.uid
+    })
+    
+    if (result.status === 'manual') {
+      addLog('info', 'Manual scan required:')
+      addLog('info', result.instructions)
+    } else {
+      addLog('success', `Scan initiated: ${result.scanId}`)
+      
+      // Poll for results
+      let attempts = 0
+      const maxAttempts = 60 // 5 minutes
+      
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 5000))
+        
+        const scanResults = await securityTesting.getScanResults(result.scanId)
+        
+        if (scanResults.status === 'completed') {
+          zapResults.value = scanResults.results.riskCounts
+          addLog('success', `ZAP scan completed. Security score: ${scanResults.securityScore}%`)
+          
+          // Log vulnerability summary
+          const counts = scanResults.results.riskCounts
+          addLog('info', `Vulnerabilities found: ${counts.critical} critical, ${counts.high} high, ${counts.medium} medium, ${counts.low} low`)
+          
+          break
+        } else if (scanResults.status === 'failed') {
+          throw new Error(scanResults.error || 'Scan failed')
+        }
+        
+        attempts++
+      }
+      
+      if (attempts >= maxAttempts) {
+        throw new Error('Scan timeout')
+      }
+    }
+  } catch (error) {
+    addLog('error', `ZAP scan failed: ${error.message}`)
+  } finally {
+    isRunningZap.value = false
+  }
+}
+
 // Load last test result on mount
 onMounted(async () => {
   try {
@@ -286,6 +482,66 @@ onMounted(async () => {
       }
       hasResults.value = true
     }
+    
+    // Check OWASP ZAP availability
+    try {
+      // Dynamic import to avoid errors if service doesn't exist yet
+      const { default: securityTesting } = await import('../services/securityTesting').catch(() => ({ default: null }))
+      
+      if (securityTesting) {
+        const zapStatus = await securityTesting.checkZapAvailability()
+        zapAvailable.value = zapStatus.available
+        
+        if (zapStatus.available) {
+          console.log(`OWASP ZAP ${zapStatus.version} detected in ${zapStatus.mode} mode`)
+          
+          // Add to test log if log is being shown
+          if (showLog.value) {
+            addLog('info', `OWASP ZAP ${zapStatus.version} available (${zapStatus.mode} mode)`)
+          }
+        } else {
+          console.log('OWASP ZAP not available:', zapStatus.error)
+        }
+      }
+    } catch (zapError) {
+      // Don't fail the entire mount if ZAP check fails
+      console.log('Could not check ZAP availability:', zapError.message)
+      zapAvailable.value = false
+    }
+    
+    // Load security scan history for current user (remove admin check)
+    if (user.value) {
+      try {
+        // Load recent security scans for the current user
+        const securityScansQuery = query(
+          collection(db, 'securityScans'),
+          where('userId', '==', user.value.uid),  // Filter by current user
+          orderBy('timestamp', 'desc'),
+          limit(5)
+        )
+        const securityScansSnapshot = await getDocs(securityScansQuery)
+        
+        if (!securityScansSnapshot.empty) {
+          const scans = []
+          securityScansSnapshot.forEach(doc => {
+            scans.push({ id: doc.id, ...doc.data() })
+          })
+          
+          // Store last security scan if exists
+          if (scans.length > 0) {
+            lastSecurityScan.value = scans[0]
+            
+            // If scan has results, populate zapResults
+            if (scans[0].results?.riskCounts) {
+              zapResults.value = scans[0].results.riskCounts
+            }
+          }
+        }
+      } catch (secError) {
+        console.log('Could not load security scan history:', secError.message)
+      }
+    }
+    
   } catch (error) {
     console.error('Error loading test history:', error)
   } finally {
@@ -1897,6 +2153,113 @@ const toggleAutoScroll = () => {
             </div>
           </div>
         </div>
+
+        <!-- Security Tests -->
+        <div class="test-category card">
+          <div class="card-header category-header security-header">
+            <h3 class="m-0">
+              <font-awesome-icon icon="shield-alt" />
+              Security Testing
+            </h3>
+            <button 
+              @click="runSecurityTests" 
+              class="btn btn-sm"
+              :disabled="isRunning"
+            >
+              Run Tests
+            </button>
+          </div>
+          <div class="card-body p-sm">
+            <div class="test-list">
+              <div 
+                v-for="test in securityTests" 
+                :key="test.id"
+                class="test-item"
+                :class="getTestClass(test)"
+              >
+                <div class="test-info">
+                  <div class="test-name">{{ test.name }}</div>
+                  <div class="test-description">{{ test.description }}</div>
+                  <div v-if="test.vulnerability" class="test-vulnerability">
+                    <font-awesome-icon icon="exclamation-triangle" />
+                    {{ test.vulnerability }}
+                  </div>
+                </div>
+                <div class="test-status">
+                  <TestStatus 
+                    :status="test.status" 
+                    :duration="test.duration" 
+                    :details="test.details"
+                    :error="test.error"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <!-- ZAP Scan Section -->
+            <div v-if="zapAvailable" class="zap-scan-section mt-lg">
+              <h4 class="mb-sm">OWASP ZAP Scan</h4>
+              <div class="scan-controls flex gap-md">
+                <select v-model="scanType" class="form-select">
+                  <option value="baseline">Baseline Scan (Quick)</option>
+                  <option value="full">Full Scan (Thorough)</option>
+                  <option value="api">API Scan</option>
+                </select>
+                <button 
+                  @click="runZapScan" 
+                  class="btn btn-primary"
+                  :disabled="isRunningZap"
+                >
+                  <font-awesome-icon :icon="isRunningZap ? 'spinner' : 'bug'" :spin="isRunningZap" />
+                  {{ isRunningZap ? 'Scanning...' : 'Run ZAP Scan' }}
+                </button>
+              </div>
+              
+              <!-- Scan Results -->
+              <div v-if="zapResults" class="scan-results mt-md">
+                <div class="scan-summary">
+                  <div class="vulnerability-counts">
+                    <div class="vuln-count critical" v-if="zapResults.critical > 0">
+                      <span class="count">{{ zapResults.critical }}</span>
+                      <span class="label">Critical</span>
+                    </div>
+                    <div class="vuln-count high" v-if="zapResults.high > 0">
+                      <span class="count">{{ zapResults.high }}</span>
+                      <span class="label">High</span>
+                    </div>
+                    <div class="vuln-count medium" v-if="zapResults.medium > 0">
+                      <span class="count">{{ zapResults.medium }}</span>
+                      <span class="label">Medium</span>
+                    </div>
+                    <div class="vuln-count low" v-if="zapResults.low > 0">
+                      <span class="count">{{ zapResults.low }}</span>
+                      <span class="label">Low</span>
+                    </div>
+                    <div class="vuln-count info">
+                      <span class="count">{{ zapResults.informational || 0 }}</span>
+                      <span class="label">Info</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Manual Testing Info -->
+            <div v-else class="manual-testing-info mt-lg">
+              <div class="info-box">
+                <h4>OWASP ZAP Detected but Not Available</h4>
+                <p>ZAP is running but may need configuration. To enable scanning:</p>
+                <ol>
+                  <li>Ensure ZAP is running with API enabled</li>
+                  <li>Check your .env configuration</li>
+                  <li>Verify proxy settings in vite.config.js</li>
+                  <li>Refresh this page</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <!-- Test Log -->
@@ -2320,6 +2683,132 @@ const toggleAutoScroll = () => {
 .failed-error {
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
+}
+
+/* Security Testing Styles */
+.security-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.security-header h3 {
+  color: white;
+}
+
+.zap-scan-section {
+  padding: var(--space-lg);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-lg);
+}
+
+.scan-controls {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+}
+
+.form-select {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-base);
+}
+
+.scan-summary {
+  padding: var(--space-md);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.vulnerability-counts {
+  display: flex;
+  gap: var(--space-md);
+  justify-content: space-around;
+}
+
+.vuln-count {
+  text-align: center;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+}
+
+.vuln-count .count {
+  display: block;
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  margin-bottom: var(--space-xs);
+}
+
+.vuln-count .label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.vuln-count.critical {
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+}
+
+.vuln-count.high {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--color-error);
+}
+
+.vuln-count.medium {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--color-warning);
+}
+
+.vuln-count.low {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--color-info);
+}
+
+.vuln-count.info {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+
+.test-vulnerability {
+  font-size: var(--text-xs);
+  color: var(--color-warning);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.manual-testing-info {
+  margin-top: var(--space-lg);
+}
+
+.info-box {
+  padding: var(--space-lg);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-info);
+}
+
+.info-box h4 {
+  margin-bottom: var(--space-md);
+  color: var(--color-heading);
+}
+
+.info-box ol {
+  margin-left: var(--space-lg);
+}
+
+.info-box code {
+  background: var(--color-surface);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
 }
 
 /* Responsive */

@@ -6,6 +6,34 @@ export default defineConfig(({ mode }) => {
   // Load env file based on mode
   const env = loadEnv(mode, process.cwd(), '')
   
+  // Build proxy configuration
+  const proxyConfig = {}
+  
+  // Add test proxy when in test mode
+  if (mode === 'test') {
+    proxyConfig['/api/test'] = {
+      target: 'http://localhost:5001',
+      changeOrigin: true,
+      rewrite: (path) => path.replace(/^\/api\/test/, '')
+    }
+  }
+  
+  // Add ZAP proxy for development and test modes
+  if (mode === 'development' || mode === 'test') {
+    proxyConfig['/zap-api'] = {
+      target: 'http://localhost:8080',
+      changeOrigin: true,
+      rewrite: (path) => path.replace(/^\/zap-api/, ''),
+      // Optional: Add headers if needed
+      configure: (proxy, options) => {
+        proxy.on('proxyReq', (proxyReq, req, res) => {
+          // Log proxy requests for debugging (optional)
+          console.log('ZAP API request:', req.url)
+        })
+      }
+    }
+  }
+  
   return {
     plugins: [
       vue()
@@ -24,14 +52,8 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       host: true,
-      // Add proxy for test endpoints when in test mode
-      proxy: mode === 'test' ? {
-        '/api/test': {
-          target: 'http://localhost:5001',
-          changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/api\/test/, '')
-        }
-      } : {}
+      // Use the combined proxy configuration
+      proxy: proxyConfig
     },
     build: {
       // Optimize build for production

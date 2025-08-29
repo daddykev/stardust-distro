@@ -219,6 +219,26 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
 
+    // Security scans collection
+    match /securityScans/{scanId} {
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.userId || 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+      allow create: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      allow update: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      allow delete: if false; // Never delete security scan records
+    }
+
+    // System health collection (for security metrics)
+    match /systemHealth/{document} {
+      allow read: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      allow write: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
     // Default deny all
     match /{document=**} {
       allow read, write: if false;
