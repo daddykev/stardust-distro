@@ -739,9 +739,14 @@ const downloadApiArtworkForUPC = async (upc, coverUrl) => {
     
     console.log(`  Received image: ${result.data.size} bytes`)
     
-    // Convert base64 to blob
-    const base64Response = await fetch(`data:${result.data.contentType};base64,${result.data.base64}`)
-    const blob = await base64Response.blob()
+    // Convert base64 to blob without using fetch
+    const byteCharacters = atob(result.data.base64)
+    const byteNumbers = new Array(byteCharacters.length)
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i)
+    }
+    const byteArray = new Uint8Array(byteNumbers)
+    const blob = new Blob([byteArray], { type: result.data.contentType || 'image/jpeg' })
     
     // Upload to Firebase Storage
     const fileName = `${upc}_cover.jpg`

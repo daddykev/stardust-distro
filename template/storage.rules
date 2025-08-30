@@ -38,6 +38,14 @@ service firebase.storage {
       allow delete: if isOwner(userId);
     }
     
+    // ADD THIS NEW SECTION - Batch paths for migration workflow
+    match /batches/{batchId}/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && 
+        (isValidAudioFile() || isValidImageFile());
+      allow delete: if isAuthenticated();
+    }
+    
     // User-scoped paths only
     match /users/{userId}/{allPaths=**} {
       allow read: if isOwner(userId);
