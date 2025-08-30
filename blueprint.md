@@ -35,7 +35,7 @@ While the codebase is 100% open source (MIT License) and theoretically portable,
 
 ## Development Status
 
-**Alpha Release - v1.0.0** (August 2025)
+**Alpha Release - v1.0.1** (August 2025)
 
 ### ✅ Phase 1: Foundation - COMPLETE
 - Full Vue 3 application with routing and views
@@ -373,6 +373,7 @@ stardust-distro/
 │   │   │   │   ├── apple-5323.js  # Apple 5.3.23 builder ✅
 │   │   │   ├── artists.js         # Artist operations ✅
 │   │   │   ├── assets.js          # Asset management ✅
+│   │   │   ├── batch.js           # Migration batch operations ✅
 │   │   │   ├── catalog.js         # Catalog operations ✅
 │   │   │   ├── delivery.js        # Delivery operations ✅
 │   │   │   ├── deliveryHistory.js # Logger for delivery history ✅
@@ -398,6 +399,7 @@ stardust-distro/
 │   │   ├── views/                 # Page views
 │   │   │   ├── Analytics.vue      # Usage analytics ✅
 │   │   │   ├── Artists.vue        # Artist management ✅
+│   │   │   ├── Batch.vue          # Migration batch manager ✅
 │   │   │   ├── Catalog.vue        # Catalog management ✅
 │   │   │   ├── Dashboard.vue      # Main dashboard ✅
 │   │   │   ├── Deliveries.vue     # Delivery management ✅

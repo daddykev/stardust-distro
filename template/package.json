@@ -1,6 +1,6 @@
 {
   "name": "@stardust-distro/distro-template",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -23,12 +23,7 @@
     "deploy": "npm run build && firebase deploy",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",
     "deploy:functions": "firebase deploy --only functions",
-    "deploy:all": "npm run build && firebase deploy",
-    "zap:start": "docker compose -f docker-compose.zap.yml up -d",
-    "zap:stop": "docker compose -f docker-compose.zap.yml down",
-    "zap:logs": "docker compose -f docker-compose.zap.yml logs -f",
-    "zap:restart": "docker compose -f docker-compose.zap.yml restart",
-    "test:security": "npm run zap:start && sleep 10 && npm run dev"
+    "deploy:all": "npm run build && firebase deploy"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^6.5.1",
