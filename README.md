@@ -7,7 +7,7 @@
 
 > Open-source, npm-installable music distribution platform for the modern music industry.
 
-Stardust Distro enables labels, artists, and distributors to deploy a fully functional, DDEX-compliant distribution system with professional-grade features and comprehensive delivery capabilities.
+Stardust Distro enables labels, artists, and distributors to deploy a fully functional, DDEX-compliant distribution system with enterprise-grade features and comprehensive delivery capabilities.
 
 -----
 
@@ -406,21 +406,20 @@ This means you can:
 
 ## 🔗 Stardust Ecosystem
 
-Stardust Distro is part of the larger Stardust Ecosystem:
+Stardust Distro is part of the Stardust Ecosystem:
 
 - [DDEX Workbench](https://github.com/daddykev/ddex-workbench) - Validation and testing tools
 - [Stardust DSP](https://github.com/daddykev/stardust-dsp) - Streaming platform
 
-Working on unified authentication for seamless workflow integration.
+Each tool is standalone but designed to work together through standard APIs and integrations.
 
 -----
 
 ## 🙏 Acknowledgments
 
-Built with the music industry in mind. Special thanks to:
+Built with a better world in mind. Special thanks to:
 
-- [DDEX](https://ddex.net) for the standards and ongoing support
-- [Deezer](https://developers.deezer.com) for their public API
+- [DDEX](https://ddex.net) for maintaining the standards
 - Early contributors and testers
 - The Vue.js and Firebase teams
 - The open-source community
