@@ -38,7 +38,7 @@ service firebase.storage {
       allow delete: if isOwner(userId);
     }
     
-    // ADD THIS NEW SECTION - Batch paths for migration workflow
+    // Batch paths for migration workflow
     match /batches/{batchId}/{allPaths=**} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated() && 

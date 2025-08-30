@@ -1653,7 +1653,11 @@ const runPerformanceTests = async () => {
         case 'perf-4': // Delivery Processing
           // Query deliveries directly
           if (tenantId.value) {
-            const deliveriesQuery = query(collection(db, 'deliveries'), limit(5))
+            const deliveriesQuery = query(
+              collection(db, 'deliveries'), 
+              where('tenantId', '==', tenantId.value),
+              limit(5)
+            )
             const deliveriesSnapshot = await getDocs(deliveriesQuery)
             const times = []
             deliveriesSnapshot.forEach(doc => {
