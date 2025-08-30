@@ -14,6 +14,7 @@ import Analytics from '../views/Analytics.vue'
 import Testing from '../views/Testing.vue'
 import GenreMaps from '../views/GenreMaps.vue'
 import Migration from '../views/Migration.vue'
+import Batches from '../views/Batch.vue'
 import Artists from '../views/Artists.vue'
 
 const router = createRouter({
@@ -70,6 +71,12 @@ const router = createRouter({
       path: '/migration',
       name: 'migration',
       component: Migration,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/batches',
+      name: 'batches',
+      component: Batches,
       meta: { requiresAuth: true }
     },
     {
