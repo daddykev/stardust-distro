@@ -49,12 +49,6 @@ export function createCommand(program) {
               { name: 'Asia Northeast (Tokyo)', value: 'asia-northeast1' }
             ],
             default: 'us-central1'
-          },
-          {
-            type: 'confirm',
-            name: 'enableAuth',
-            message: 'Enable unified DDEX ecosystem authentication?',
-            default: true
           }
         ]);
 

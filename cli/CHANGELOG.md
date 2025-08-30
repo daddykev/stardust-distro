@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2] - 2025-08-30
+
+### 🕷️ Bug Fixes
+
+- Critical permissions error in Settings
+- Redacted unified auth for Stardust Ecosystem (keeping auth separated)
+
 ## [1.0.1] - 2025-08-30
 
 ### 🎉 New Features

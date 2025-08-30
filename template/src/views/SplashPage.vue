@@ -198,7 +198,7 @@ const copyNpmCommand = () => {
           <div class="hero-badge">
             <span class="badge-text badge-launch">
               <font-awesome-icon icon="rocket" class="badge-icon" />
-              v1.0.1 Alpha Release
+              v1.0.2 Alpha Release
             </span>
             <span class="badge-separator">•</span>
             <span class="badge-text">100% Open Source</span>
@@ -258,7 +258,7 @@ const copyNpmCommand = () => {
             <font-awesome-icon icon="shield-alt" />
             Enterprise-Grade Security
           </h2>
-          <p class="security-score">Security Score: <strong>85/100</strong> • Production Ready</p>
+          <p class="security-score">Production Ready</p>
           
           <div class="security-grid">
             <div v-for="feature in securityFeatures" :key="feature.title" class="security-card">
