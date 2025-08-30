@@ -198,7 +198,7 @@ const copyNpmCommand = () => {
           <div class="hero-badge">
             <span class="badge-text badge-launch">
               <font-awesome-icon icon="rocket" class="badge-icon" />
-              v1.0.0 Alpha Release
+              v1.0.1 Alpha Release
             </span>
             <span class="badge-separator">•</span>
             <span class="badge-text">100% Open Source</span>
