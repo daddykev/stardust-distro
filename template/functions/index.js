@@ -37,17 +37,52 @@ admin.initializeApp()
 const db = admin.firestore()
 const storage = admin.storage()
 
-// Configure CORS
-const corsOptions = {
-  origin: [
-    'https://stardust-distro.org',
-    'https://stardust-distro.web.app',
-    'https://stardust-distro.firebaseapp.com',
-    'https://*.cloudfunctions.net',
+// Get project ID dynamically from Firebase environment
+const projectId = process.env.GCLOUD_PROJECT || 
+                  process.env.FIREBASE_CONFIG ? JSON.parse(process.env.FIREBASE_CONFIG).projectId : 
+                  'my-project';
+
+// Default distributor ID - use project ID if not configured
+const DEFAULT_DISTRIBUTOR_ID = process.env.DISTRIBUTOR_ID || 
+                               process.env.GCLOUD_PROJECT || 
+                               'my-distributor';
+
+/**
+ * Get dynamic CORS origins based on environment
+ */
+function getCorsOrigins() {
+  const origins = [
     'http://localhost:5173',
     'http://localhost:5174',
-    'http://localhost:3000'
-  ],
+    'http://localhost:3000',
+    'http://localhost:5001',
+    'https://*.cloudfunctions.net'
+  ];
+  
+  // Add Firebase hosting URLs
+  if (projectId) {
+    origins.push(
+      `https://${projectId}.web.app`,
+      `https://${projectId}.firebaseapp.com`
+    );
+  }
+  
+  // Add custom domain if configured
+  if (process.env.CUSTOM_DOMAIN) {
+    origins.push(process.env.CUSTOM_DOMAIN);
+  }
+  
+  // Add any additional origins from environment
+  if (process.env.ADDITIONAL_ORIGINS) {
+    origins.push(...process.env.ADDITIONAL_ORIGINS.split(','));
+  }
+  
+  return origins;
+}
+
+// Then use it:
+const corsOptions = {
+  origin: getCorsOrigins(),
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -601,8 +636,8 @@ async function processDelivery(deliveryId, delivery) {
     // Add distributor ID and other DSP-specific data
     if (target.type === 'DSP' || delivery.targetType === 'DSP') {
       deliveryPackage.distributorId = delivery.config?.distributorId || 
-                                     target.config?.distributorId || 
-                                     'stardust-distro'
+                                    target.config?.distributorId || 
+                                    DEFAULT_DISTRIBUTOR_ID
       deliveryPackage.ernXml = delivery.ernXml
       deliveryPackage.releaseTitle = delivery.releaseTitle
       deliveryPackage.releaseArtist = delivery.releaseArtist
@@ -1514,7 +1549,7 @@ async function deliverToDSP(target, deliveryPackage) {
     
     // Log package details
     console.log(`DSP Package Summary:`, {
-      distributorId: deliveryPackage.distributorId,
+      distributorId: deliveryPackage.distributorId || target.config?.distributorId || DEFAULT_DISTRIBUTOR_ID,
       messageId: deliveryPackage.metadata?.messageId,
       messageSubType: deliveryPackage.messageSubType || 'Initial',
       audioFiles: deliveryPackage.audioFiles?.length || 0,
@@ -1766,7 +1801,7 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
     
     // Determine the storage path
     const timestamp = Date.now()
-    const distributorId = deliveryPackage.distributorId || target.config?.distributorId || 'unknown'
+    const distributorId = deliveryPackage.distributorId || target.config?.distributorId || DEFAULT_DISTRIBUTOR_ID
     const basePath = `deliveries/${distributorId}/${timestamp}`
     
     console.log(`Uploading to Storage: ${basePath}`)

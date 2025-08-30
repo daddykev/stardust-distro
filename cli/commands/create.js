@@ -133,9 +133,16 @@ VITE_FIREBASE_REGION=${answers.region}
 
         // Install dependencies
         if (!options.skipInstall) {
-          spinner.start('Installing dependencies...');
+          // Install main dependencies
           execSync('npm install', { cwd: projectPath, stdio: 'ignore' });
-          spinner.succeed('Dependencies installed');
+          
+          // Install functions dependencies
+          const functionsPath = path.join(projectPath, 'functions');
+          if (fs.existsSync(functionsPath)) {
+            spinner.start('Installing Cloud Functions dependencies...');
+            execSync('npm install', { cwd: functionsPath, stdio: 'ignore' });
+            spinner.succeed('Functions dependencies installed');
+          }
         }
 
         // Success message

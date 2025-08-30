@@ -79,19 +79,14 @@ export function initCommand(program) {
         // Get project configuration
         spinner.start('Fetching Firebase configuration...');
         const projectInfo = execSync('firebase apps:list web --json', { encoding: 'utf-8' });
-        const apps = JSON.parse(projectInfo);
-        
-        let appConfig;
-        if (apps.length === 0) {
-          // Create web app
-          const appName = 'Stardust Distro Web App';
-          const createResult = execSync(`firebase apps:create web "${appName}" --json`, { encoding: 'utf-8' });
-          const newApp = JSON.parse(createResult);
-          appConfig = newApp.config;
+        const appsData = JSON.parse(projectInfo);
+        const apps = appsData.result || appsData || []; // Handle different response formats
+
+        if (!Array.isArray(apps) || apps.length === 0) {
+          // Create new app
         } else {
           // Use existing app
-          const configResult = execSync(`firebase apps:sdkconfig web ${apps[0].appId} --json`, { encoding: 'utf-8' });
-          appConfig = JSON.parse(configResult).config;
+          const appId = apps[0].appId || apps[0].name; // Handle different property names
         }
         spinner.succeed('Firebase configuration fetched');
 

@@ -1,7 +1,6 @@
 {
-  "name": "stardust-distro-functions",
-  "description": "Cloud Functions for Stardust Distro",
-  "version": "1.0.0",
+  "name": "music-distro-functions",
+  "description": "Cloud Functions for Music Distribution Platform",
   "scripts": {
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
