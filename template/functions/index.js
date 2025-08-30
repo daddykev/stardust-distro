@@ -3190,3 +3190,38 @@ exports.sendWeeklySummaries = onSchedule({
     throw error
   }
 })
+
+exports.setupAdmin = onCall({
+  cors: true
+}, async (request) => {
+  // This should only be called during initial setup
+  const { email } = request.data;
+  
+  try {
+    const user = await admin.auth().getUserByEmail(email);
+    
+    // Set custom claims
+    await admin.auth().setCustomUserClaims(user.uid, { 
+      admin: true, 
+      role: 'admin' 
+    });
+    
+    // Update user document
+    await admin.firestore()
+      .collection('users')
+      .doc(user.uid)
+      .set({
+        email: user.email,
+        displayName: user.displayName,
+        role: 'admin',
+        updatedAt: admin.firestore.Timestamp.now()
+      }, { merge: true });
+    
+    return { 
+      success: true, 
+      message: 'Admin role set successfully'
+    };
+  } catch (error) {
+    throw new HttpsError('internal', error.message);
+  }
+});

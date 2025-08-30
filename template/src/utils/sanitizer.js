@@ -22,8 +22,31 @@ export const sanitizeText = (text) => {
   
   return DOMPurify.sanitize(text, { 
     ALLOWED_TAGS: [],
-    ALLOWED_ATTR: []
-  });
+    ALLOWED_ATTR: [],
+    STRIP_COMMENTS: true,
+    STRIP_CDATA_SECTIONS: true,
+    SANITIZE_DOM: true,
+    WHOLE_DOCUMENT: false
+  })
+  .replace(/javascript:/gi, '')
+  .replace(/data:/gi, '')
+  .replace(/vbscript:/gi, '')
+  .replace(/on\w+\s*=/gi, '');
+};
+
+export const testXSSPrevention = (testString) => {
+  const sanitized = sanitizeText(testString);
+  
+  // Check if dangerous patterns are removed
+  const dangerousPatterns = [
+    /<script/i,
+    /javascript:/i,
+    /onerror=/i,
+    /onload=/i,
+    /data:text\/html/i
+  ];
+  
+  return !dangerousPatterns.some(pattern => pattern.test(sanitized));
 };
 
 /**
