@@ -24,7 +24,13 @@ service cloud.firestore {
         request.auth.uid == userId;
       allow delete: if false; // Soft delete only
     }
-    
+
+    // Invite codes - public read for validation during signup, admin write
+    match /inviteCodes/{codeId} {
+      allow read: if true; // Anyone can validate codes during signup
+      allow create, update, delete: if isAdmin(); // Only admins can manage codes
+    }
+
     // Batches - user scoped
     match /batches/{batchId} {
       allow read, list: if isAuthenticated() && 
