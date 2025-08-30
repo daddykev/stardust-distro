@@ -3225,3 +3225,67 @@ exports.setupAdmin = onCall({
     throw new HttpsError('internal', error.message);
   }
 });
+
+/**
+ * Proxy download external images (to bypass CSP restrictions)
+ */
+exports.downloadExternalImage = onCall(
+  {
+    timeoutSeconds: 60,
+    memory: '256MiB',
+    maxInstances: 10
+  },
+  async (request) => {
+    // Check authentication
+    if (!request.auth) {
+      throw new HttpsError(
+        'unauthenticated',
+        'User must be authenticated'
+      );
+    }
+
+    const { imageUrl, fileName } = request.data;
+
+    if (!imageUrl) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Image URL is required'
+      );
+    }
+
+    try {
+      console.log(`Downloading image from: ${imageUrl}`);
+      
+      // Fetch the image
+      const response = await fetch(imageUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.status}`);
+      }
+
+      // Get the image as a buffer
+      const buffer = await response.arrayBuffer();
+      
+      // Convert to base64
+      const base64 = Buffer.from(buffer).toString('base64');
+      
+      // Get content type
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      
+      console.log(`Successfully downloaded image: ${buffer.byteLength} bytes`);
+      
+      return {
+        base64,
+        contentType,
+        size: buffer.byteLength,
+        fileName: fileName || 'image.jpg'
+      };
+    } catch (error) {
+      console.error('Error downloading image:', error);
+      throw new HttpsError(
+        'internal',
+        `Failed to download image: ${error.message}`
+      );
+    }
+  }
+);
