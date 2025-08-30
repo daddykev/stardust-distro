@@ -1,4 +1,3 @@
-<!-- src/components/delivery/DeliveryTargetForm.vue -->
 <template>
   <div class="delivery-target-form">
     <form @submit.prevent="save">
@@ -7,702 +6,327 @@
         <h3>Basic Information</h3>
         
         <div class="form-group">
-          <label class="form-label required">Target Name</label>
+          <label for="name">Target Name *</label>
           <input
+            id="name"
             v-model="formData.name"
             type="text"
             class="form-input"
-            placeholder="e.g., Spotify Production"
+            placeholder="e.g., Spotify, Apple Music"
             required
-          />
+          >
         </div>
 
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label required">Type</label>
-            <select v-model="formData.type" class="form-select" required>
-              <option value="">Select Type</option>
-              <option value="Spotify">Spotify</option>
-              <option value="Apple Music">Apple Music</option>
-              <option value="Amazon Music">Amazon Music</option>
-              <option value="YouTube Music">YouTube Music</option>
-              <option value="Deezer">Deezer</option>
-              <option value="Tidal">Tidal</option>
-              <option value="Beatport">Beatport</option>
-              <option value="SoundCloud">SoundCloud</option>
-              <option value="custom">Custom DSP</option>
-            </select>
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">
-              <input
-                v-model="formData.active"
-                type="checkbox"
-                class="form-checkbox"
-              />
-              Active
-            </label>
-            <small class="text-muted">Enable this delivery target</small>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">
-            <input
-              v-model="formData.testMode"
-              type="checkbox"
-              class="form-checkbox"
-            />
-            Test Mode
-          </label>
-          <small class="text-muted">Run deliveries in test mode (no actual delivery)</small>
-        </div>
-      </div>
-
-      <!-- ERN Version Configuration -->
-      <div class="form-section">
-        <h3>ERN Configuration</h3>
-        
-        <div class="form-group">
-          <label class="form-label required">ERN Version</label>
-          <select v-model="formData.ernVersion" class="form-select" required>
-            <option value="4.3">ERN 4.3 (Latest - Recommended)</option>
-            <option value="4.2">ERN 4.2 (Enhanced Encoding)</option>
-            <option value="3.8.2">ERN 3.8.2 (Most Compatible)</option>
-          </select>
-          
-          <!-- Version Compatibility Warning -->
-          <div v-if="versionCompatibilityWarning" class="alert alert-warning mt-sm">
-            <i class="fas fa-exclamation-triangle"></i>
-            {{ versionCompatibilityWarning }}
-          </div>
-          
-          <!-- Version Features Info -->
-          <div class="version-features mt-sm">
-            <small class="text-muted">
-              <strong>{{ ernVersionFeatures[formData.ernVersion].name }}:</strong>
-              {{ ernVersionFeatures[formData.ernVersion].description }}
-            </small>
-          </div>
-        </div>
-
-        <!-- Version Recommendation -->
-        <div v-if="recommendedVersion && formData.type !== 'custom'" class="alert alert-info">
-          <i class="fas fa-info-circle"></i>
-          Recommended ERN version for {{ formData.type }}: <strong>{{ recommendedVersion }}</strong>
-          <button 
-            v-if="formData.ernVersion !== recommendedVersion"
-            type="button"
-            class="btn btn-sm btn-text ml-sm"
-            @click="formData.ernVersion = recommendedVersion"
-          >
-            Use Recommended
-          </button>
-        </div>
-      </div>
-
-      <!-- DDEX Party Configuration -->
-      <div class="form-section">
-        <h3>DDEX Party Configuration</h3>
-        
-        <div class="form-group">
-          <label class="form-label required">Party Name (DSP Name)</label>
-          <input
-            v-model="formData.partyName"
-            type="text"
-            class="form-input"
-            placeholder="e.g., Spotify AB"
-            required
-          />
-          <small class="text-muted">The official company name of the DSP</small>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label required">Party ID (DPID)</label>
-          <input
-            v-model="formData.partyId"
-            type="text"
-            class="form-input"
-            placeholder="e.g., PADPIDA2023XXXXXX"
-            required
-          />
-          <small class="text-muted">The DDEX Party ID assigned to this DSP</small>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Distributor ID (Your DPID)</label>
-          <input
-            v-model="formData.config.distributorId"
-            type="text"
-            class="form-input"
-            placeholder="e.g., PADPIDA2023081501R"
-          />
-          <small class="text-muted">Your DDEX Party ID as the distributor (optional)</small>
-        </div>
-      </div>
-
-      <!-- Genre Mapping Configuration -->
-      <div v-if="formData.type !== 'custom'" class="form-section">
-        <h3>Genre Mapping Configuration</h3>
-        
-        <div class="form-group">
-          <label class="form-label">
-            <input
-              v-model="formData.genreMapping.enabled"
-              type="checkbox"
-              class="form-checkbox"
-            />
-            Enable Genre Mapping
-          </label>
-          <small class="text-muted">
-            Automatically translate genres from our truth source to {{ formData.type || 'DSP' }}-specific genres
-          </small>
-        </div>
-        
-        <div v-if="formData.genreMapping.enabled" class="genre-mapping-config">
-          <!-- Genre Mapping Selection -->
-          <div class="form-group">
-            <label class="form-label">Genre Mapping</label>
-            <div v-if="loadingMappings" class="loading-message">
-              <font-awesome-icon icon="spinner" spin /> Loading available mappings...
-            </div>
-            <select 
-              v-else
-              v-model="formData.genreMapping.mappingId" 
-              class="form-select"
-              @change="onMappingSelected"
+            <label for="protocol">Protocol *</label>
+            <select
+              id="protocol"
+              v-model="formData.protocol"
+              class="form-input"
+              required
             >
-              <option value="">Use built-in mapping (default)</option>
-              <option 
-                v-for="mapping in availableGenreMappings" 
-                :key="mapping.id"
-                :value="mapping.id"
-              >
-                {{ mapping.name }} 
-                ({{ mapping.stats?.totalMapped || 0 }}/{{ mapping.stats?.total || 0 }} genres mapped)
-              </option>
+              <option value="">Select Protocol</option>
+              <option value="FTP">FTP</option>
+              <option value="SFTP">SFTP</option>
+              <option value="S3">Amazon S3</option>
+              <option value="API">REST API</option>
+              <option value="Azure">Azure Blob</option>
             </select>
-            <small class="text-muted">
-              Select a custom genre mapping or use the built-in defaults
-            </small>
           </div>
-          
-          <!-- Strict Mode -->
+
           <div class="form-group">
-            <label class="form-label">
-              <input
-                v-model="formData.genreMapping.strictMode"
-                type="checkbox"
-                class="form-checkbox"
-              />
-              Strict Mode
-            </label>
-            <small class="text-muted">
-              Reject deliveries if a genre cannot be mapped (recommended for production)
-            </small>
+            <label for="type">Target Type</label>
+            <select
+              id="type"
+              v-model="formData.type"
+              class="form-input"
+            >
+              <option value="DSP">DSP (Digital Service Provider)</option>
+              <option value="Distributor">Distributor</option>
+              <option value="Label">Record Label</option>
+              <option value="Other">Other</option>
+            </select>
           </div>
-          
-          <!-- Fallback Genre -->
-          <div class="form-group">
-            <label class="form-label">Fallback Genre Code</label>
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
             <input
-              v-model="formData.genreMapping.fallbackGenre"
+              type="checkbox"
+              v-model="formData.enabled"
+            >
+            <span>Enabled</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- DDEX Configuration -->
+      <div class="form-section">
+        <h3>DDEX Configuration</h3>
+        
+        <div class="form-row">
+          <div class="form-group">
+            <label for="partyId">DDEX Party ID</label>
+            <input
+              id="partyId"
+              v-model="formData.partyId"
               type="text"
               class="form-input"
-              placeholder="e.g., ELECTRONIC-00 or BP-ELECTRONICA-00"
-            />
-            <small class="text-muted">
-              Default genre to use when mapping fails (only used if strict mode is disabled)
-            </small>
-          </div>
-          
-          <!-- Mapping Info Display -->
-          <div v-if="formData.genreMapping.mappingId && getSelectedMapping()" class="mapping-info">
-            <div class="info-card">
-              <h4>Selected Mapping Details</h4>
-              <div class="info-row">
-                <span class="info-label">Coverage:</span>
-                <span class="info-value">
-                  {{ getSelectedMapping()?.stats?.percentage || 0 }}%
-                  ({{ getSelectedMapping()?.stats?.totalMapped || 0 }} genres mapped)
-                </span>
-              </div>
-              <div v-if="getSelectedMapping()?.updatedAt" class="info-row">
-                <span class="info-label">Last Updated:</span>
-                <span class="info-value">
-                  {{ new Date(getSelectedMapping().updatedAt.toDate?.() || getSelectedMapping().updatedAt).toLocaleDateString() }}
-                </span>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Link to Genre Maps -->
-          <div class="form-group">
-            <router-link 
-              :to="`/genre-maps?dsp=${getDSPTypeForMapping()}`" 
-              class="btn btn-sm btn-secondary"
+              placeholder="e.g., PADPIDA2014120301W"
             >
-              <font-awesome-icon icon="edit" /> Manage Genre Mappings
-            </router-link>
-            <small class="text-muted d-block mt-sm">
-              Create or edit custom genre mappings for {{ formData.type || 'this DSP' }}
-            </small>
+          </div>
+
+          <div class="form-group">
+            <label for="partyName">DDEX Party Name</label>
+            <input
+              id="partyName"
+              v-model="formData.partyName"
+              type="text"
+              class="form-input"
+              placeholder="e.g., Spotify AB"
+            >
           </div>
         </div>
-      </div>
 
-      <!-- ERN 4.3 Specific Features -->
-      <div v-if="formData.ernVersion === '4.3'" class="form-section">
-        <h3>ERN 4.3 Advanced Features</h3>
-        
-        <!-- UGC Clip Authorization -->
-        <div class="form-group">
-          <label class="form-label">
-            <input
-              v-model="formData.allowUGCClips"
-              type="checkbox"
-              class="form-checkbox"
-            />
-            Allow UGC Clips
-          </label>
-          <small class="text-muted">Enable user-generated content clips (30-second clips for social media)</small>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="commercialModel">Commercial Model</label>
+            <select
+              id="commercialModel"
+              v-model="formData.commercialModel"
+              class="form-input"
+            >
+              <option value="">Select Model</option>
+              <option value="SubscriptionModel">Subscription</option>
+              <option value="PayAsYouGoModel">Pay As You Go</option>
+              <option value="AdSupportedModel">Ad Supported</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="useType">Use Type</label>
+            <select
+              id="useType"
+              v-model="formData.useType"
+              class="form-input"
+            >
+              <option value="">Select Use Type</option>
+              <option value="OnDemandStream">On Demand Stream</option>
+              <option value="NonInteractiveStream">Non-Interactive Stream</option>
+              <option value="PermanentDownload">Permanent Download</option>
+            </select>
+          </div>
         </div>
 
-        <!-- Immersive Audio Support -->
         <div class="form-group">
-          <label class="form-label">
-            <input
-              v-model="formData.supportsImmersiveAudio"
-              type="checkbox"
-              class="form-checkbox"
-            />
-            Supports Immersive Audio
-          </label>
-          <small class="text-muted">DSP can receive Dolby Atmos and spatial audio tracks</small>
-        </div>
-
-        <!-- MEAD/PIE Hooks -->
-        <div class="form-group">
-          <label class="form-label">MEAD URL (Media Enrichment)</label>
+          <label for="territories">Territories</label>
           <input
-            v-model="formData.meadUrl"
-            type="url"
+            id="territories"
+            v-model="formData.territories"
+            type="text"
             class="form-input"
-            placeholder="https://api.dsp.com/mead/v1"
-          />
-          <small class="text-muted">URL for media enrichment data (lyrics, credits, etc.)</small>
-        </div>
-
-        <!-- Enhanced Deal Structures -->
-        <div class="form-group">
-          <label class="form-label">Deal Type</label>
-          <select v-model="formData.dealType" class="form-select">
-            <option value="standard">Standard Streaming Deal</option>
-            <option value="premium">Premium/Hi-Res Deal</option>
-            <option value="exclusive">Exclusive Window Deal</option>
-            <option value="promotional">Promotional Deal</option>
-          </select>
+            placeholder="e.g., Worldwide, US CA GB"
+          >
         </div>
       </div>
 
-      <!-- ERN 3.8.2 Legacy Features -->
-      <div v-if="formData.ernVersion === '3.8.2'" class="form-section">
-        <h3>ERN 3.8.2 Legacy Configuration</h3>
+      <!-- Protocol-Specific Configuration -->
+      <div class="form-section" v-if="formData.protocol">
+        <h3>{{ formData.protocol }} Configuration</h3>
         
-        <div class="alert alert-info">
-          <i class="fas fa-info-circle"></i>
-          ERN 3.8.2 is recommended for maximum compatibility with older systems. 
-          Ideal for legacy systems and maximum reach.
-        </div>
-
-        <!-- Simplified Deal Structure Notice -->
-        <div class="form-group">
-          <small class="text-muted">
-            <strong>Note:</strong> ERN 3.8.2 uses a simplified deal structure. 
-            Some advanced features like immersive audio and UGC clips are not available.
-          </small>
-        </div>
-      </div>
-
-      <!-- Protocol Configuration -->
-      <div class="form-section">
-        <h3>Delivery Protocol</h3>
-        
-        <div class="form-group">
-          <label class="form-label required">Protocol</label>
-          <select v-model="formData.protocol" class="form-select" required>
-            <option value="ftp">FTP</option>
-            <option value="sftp">SFTP</option>
-            <option value="s3">Amazon S3</option>
-            <option value="api">REST API</option>
-            <option value="azure">Azure Blob Storage</option>
-            <option value="storage">Firebase Storage (Testing)</option>
-          </select>
-        </div>
-
-        <!-- Protocol-specific fields -->
-        <!-- FTP Configuration -->
-        <div v-if="formData.protocol === 'ftp'" class="protocol-config">
+        <!-- FTP/SFTP Config -->
+        <template v-if="formData.protocol === 'FTP' || formData.protocol === 'SFTP'">
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label required">FTP Host</label>
+              <label>Host *</label>
               <input
-                v-model="formData.config.host"
+                v-model="formData.connection.host"
                 type="text"
                 class="form-input"
                 placeholder="ftp.example.com"
                 required
-              />
+              >
             </div>
             <div class="form-group">
-              <label class="form-label">Port</label>
+              <label>Port</label>
               <input
-                v-model.number="formData.config.port"
+                v-model.number="formData.connection.port"
                 type="number"
                 class="form-input"
-                placeholder="21"
-              />
+                :placeholder="formData.protocol === 'FTP' ? '21' : '22'"
+              >
             </div>
           </div>
-          
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label required">Username</label>
+              <label>Username *</label>
               <input
-                v-model="formData.config.username"
+                v-model="formData.connection.username"
                 type="text"
                 class="form-input"
                 required
-              />
+              >
             </div>
             <div class="form-group">
-              <label class="form-label required">Password</label>
+              <label>Password *</label>
               <input
-                v-model="formData.config.password"
+                v-model="formData.connection.password"
                 type="password"
                 class="form-input"
                 required
-              />
+              >
             </div>
           </div>
-          
           <div class="form-group">
-            <label class="form-label">Directory</label>
+            <label>Directory Path</label>
             <input
-              v-model="formData.config.directory"
+              v-model="formData.connection.directory"
               type="text"
               class="form-input"
-              placeholder="/incoming"
-            />
+              placeholder="/uploads/music"
+            >
           </div>
-        </div>
+        </template>
 
-        <!-- SFTP Configuration -->
-        <div v-if="formData.protocol === 'sftp'" class="protocol-config">
+        <!-- S3 Config -->
+        <template v-else-if="formData.protocol === 'S3'">
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label required">SFTP Host</label>
+              <label>Bucket Name *</label>
               <input
-                v-model="formData.config.host"
-                type="text"
-                class="form-input"
-                placeholder="sftp.example.com"
-                required
-              />
-            </div>
-            <div class="form-group">
-              <label class="form-label">Port</label>
-              <input
-                v-model.number="formData.config.port"
-                type="number"
-                class="form-input"
-                placeholder="22"
-              />
-            </div>
-          </div>
-          
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label required">Username</label>
-              <input
-                v-model="formData.config.username"
+                v-model="formData.connection.bucket"
                 type="text"
                 class="form-input"
                 required
-              />
+              >
             </div>
             <div class="form-group">
-              <label class="form-label">Password/Key Passphrase</label>
+              <label>Region *</label>
               <input
-                v-model="formData.config.password"
-                type="password"
+                v-model="formData.connection.region"
+                type="text"
                 class="form-input"
-              />
+                placeholder="us-east-1"
+                required
+              >
             </div>
           </div>
-          
-          <div class="form-group">
-            <label class="form-label">Directory</label>
-            <input
-              v-model="formData.config.directory"
-              type="text"
-              class="form-input"
-              placeholder="/home/user/incoming"
-            />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Private Key (if using key auth)</label>
-            <textarea
-              v-model="formData.config.privateKey"
-              class="form-input"
-              rows="4"
-              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-            ></textarea>
-          </div>
-        </div>
-
-        <!-- S3 Configuration -->
-        <div v-if="formData.protocol === 's3'" class="protocol-config">
-          <div class="form-group">
-            <label class="form-label required">S3 Bucket</label>
-            <input
-              v-model="formData.config.bucket"
-              type="text"
-              class="form-input"
-              placeholder="my-delivery-bucket"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Prefix/Path</label>
-            <input
-              v-model="formData.config.prefix"
-              type="text"
-              class="form-input"
-              placeholder="deliveries/"
-            />
-          </div>
-          
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label required">Access Key ID</label>
+              <label>Access Key ID *</label>
               <input
-                v-model="formData.config.accessKeyId"
+                v-model="formData.connection.accessKeyId"
                 type="text"
                 class="form-input"
                 required
-              />
+              >
             </div>
             <div class="form-group">
-              <label class="form-label required">Secret Access Key</label>
+              <label>Secret Access Key *</label>
               <input
-                v-model="formData.config.secretAccessKey"
+                v-model="formData.connection.secretAccessKey"
                 type="password"
                 class="form-input"
                 required
-              />
+              >
             </div>
           </div>
-          
-          <div class="form-group">
-            <label class="form-label">Region</label>
-            <select v-model="formData.config.region" class="form-select">
-              <option value="us-east-1">US East (N. Virginia)</option>
-              <option value="us-west-2">US West (Oregon)</option>
-              <option value="eu-west-1">EU (Ireland)</option>
-              <option value="eu-central-1">EU (Frankfurt)</option>
-              <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
-            </select>
-          </div>
-        </div>
+        </template>
 
-        <!-- API Configuration -->
-        <div v-if="formData.protocol === 'api'" class="protocol-config">
+        <!-- API Config -->
+        <template v-else-if="formData.protocol === 'API'">
           <div class="form-group">
-            <label class="form-label required">API Endpoint</label>
+            <label>Endpoint URL *</label>
             <input
-              v-model="formData.config.endpoint"
+              v-model="formData.connection.endpoint"
               type="url"
               class="form-input"
-              placeholder="https://api.dsp.com/v1/deliveries"
+              placeholder="https://api.example.com/deliveries"
               required
-            />
+            >
           </div>
-          
           <div class="form-group">
-            <label class="form-label">Authentication Type</label>
-            <select v-model="formData.config.authType" class="form-select">
-              <option value="bearer">Bearer Token</option>
-              <option value="basic">Basic Auth</option>
-              <option value="apikey">API Key</option>
-              <option value="oauth2">OAuth 2.0</option>
-            </select>
-          </div>
-          
-          <div v-if="formData.config.authType === 'bearer'" class="form-group">
-            <label class="form-label required">Bearer Token</label>
+            <label>API Key</label>
             <input
-              v-model="formData.config.bearerToken"
+              v-model="formData.connection.apiKey"
               type="password"
               class="form-input"
-              required
-            />
+              placeholder="Bearer token or API key"
+            >
           </div>
-          
-          <div v-if="formData.config.authType === 'apikey'" class="form-group">
-            <label class="form-label required">API Key</label>
+          <div class="form-group" v-if="formData.type === 'DSP'">
+            <label>Distributor ID *</label>
             <input
-              v-model="formData.config.apiKey"
-              type="password"
+              v-model="formData.config.distributorId"
+              type="text"
               class="form-input"
+              placeholder="e.g., stardust-distro"
               required
-            />
+            >
           </div>
-          
-          <div v-if="formData.config.authType === 'basic'" class="form-row">
+        </template>
+
+        <!-- Azure Config -->
+        <template v-else-if="formData.protocol === 'Azure'">
+          <div class="form-row">
             <div class="form-group">
-              <label class="form-label required">Username</label>
+              <label>Account Name *</label>
               <input
-                v-model="formData.config.username"
+                v-model="formData.connection.accountName"
                 type="text"
                 class="form-input"
                 required
-              />
+              >
             </div>
             <div class="form-group">
-              <label class="form-label required">Password</label>
+              <label>Container Name *</label>
               <input
-                v-model="formData.config.password"
-                type="password"
+                v-model="formData.connection.containerName"
+                type="text"
                 class="form-input"
                 required
-              />
+              >
             </div>
           </div>
-        </div>
-
-        <!-- Azure Configuration -->
-        <div v-if="formData.protocol === 'azure'" class="protocol-config">
           <div class="form-group">
-            <label class="form-label required">Storage Account Name</label>
+            <label>Account Key *</label>
             <input
-              v-model="formData.config.accountName"
-              type="text"
-              class="form-input"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label required">Container Name</label>
-            <input
-              v-model="formData.config.containerName"
-              type="text"
-              class="form-input"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label required">Access Key</label>
-            <input
-              v-model="formData.config.accessKey"
+              v-model="formData.connection.accountKey"
               type="password"
               class="form-input"
               required
-            />
+            >
           </div>
-        </div>
-
-        <!-- Firebase Storage Configuration -->
-        <div v-if="formData.protocol === 'storage'" class="protocol-config">
-          <div class="alert alert-info">
-            <i class="fas fa-info-circle"></i>
-            Files will be delivered to Firebase Storage for testing purposes.
-            They will be stored in: <code>/deliveries/{targetId}/{timestamp}/</code>
-          </div>
-        </div>
+        </template>
       </div>
 
-      <!-- Commercial Model Configuration -->
-      <div class="form-section">
-        <h3>Commercial Models</h3>
+      <!-- Test Connection -->
+      <div class="form-section" v-if="formData.protocol">
+        <button
+          type="button"
+          @click="testConnection"
+          :disabled="isTesting"
+          class="btn btn-secondary"
+        >
+          <font-awesome-icon :icon="isTesting ? 'spinner' : 'plug'" :spin="isTesting" />
+          {{ isTesting ? 'Testing...' : 'Test Connection' }}
+        </button>
         
-        <div class="commercial-models">
-          <div v-for="(model, index) in formData.commercialModels" :key="index" class="commercial-model">
-            <div class="form-row">
-              <div class="form-group">
-                <label class="form-label">Model Type</label>
-                <select v-model="model.type" class="form-select">
-                  <option value="SubscriptionModel">Subscription</option>
-                  <option value="PayAsYouGoModel">Pay As You Go</option>
-                  <option value="AdvertisementSupportedModel">Ad Supported</option>
-                </select>
-              </div>
-              
-              <div class="form-group">
-                <label class="form-label">Usage Types</label>
-                <div class="checkbox-group">
-                  <label>
-                    <input
-                      type="checkbox"
-                      value="OnDemandStream"
-                      v-model="model.usageTypes"
-                    />
-                    Streaming
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      value="PermanentDownload"
-                      v-model="model.usageTypes"
-                    />
-                    Download
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      value="TetheredDownload"
-                      v-model="model.usageTypes"
-                    />
-                    Tethered
-                  </label>
-                </div>
-              </div>
-              
-              <button
-                type="button"
-                @click="removeCommercialModel(index)"
-                class="btn btn-sm btn-danger"
-              >
-                Remove
-              </button>
-            </div>
-          </div>
-          
-          <button
-            type="button"
-            @click="addCommercialModel"
-            class="btn btn-sm btn-secondary"
-          >
-            Add Commercial Model
-          </button>
+        <div v-if="testResult" class="test-result" :class="testResult.success ? 'success' : 'error'">
+          <font-awesome-icon :icon="testResult.success ? 'check-circle' : 'times-circle'" />
+          {{ testResult.message }}
         </div>
       </div>
 
       <!-- Form Actions -->
       <div class="form-actions">
-        <button type="button" @click="cancel" class="btn btn-secondary">
+        <button type="button" @click="$emit('close')" class="btn btn-secondary">
           Cancel
         </button>
-        <button type="button" @click="testConnection" class="btn btn-secondary">
-          Test Connection
-        </button>
-        <button type="submit" class="btn btn-primary">
-          {{ mode === 'edit' ? 'Update' : 'Create' }} Target
+        <button type="submit" :disabled="isSaving" class="btn btn-primary">
+          <font-awesome-icon :icon="isSaving ? 'spinner' : 'save'" :spin="isSaving" />
+          {{ isSaving ? 'Saving...' : 'Save Target' }}
         </button>
       </div>
     </form>
@@ -711,599 +335,330 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+import { httpsCallable } from 'firebase/functions'
+import { functions } from '@/firebase'
 import { useAuth } from '@/composables/useAuth'
-import genreMappingService from '@/services/genreMappings'
 
 const props = defineProps({
-  target: Object,
-  mode: {
-    type: String,
-    default: 'create'
-  }
+  target: Object
 })
 
-const emit = defineEmits(['save', 'cancel', 'test'])
+const emit = defineEmits(['save', 'close'])
 
 const { user } = useAuth()
 
-// State
-const availableGenreMappings = ref([])
-const loadingMappings = ref(false)
-
+// Form data
 const formData = ref({
   name: '',
-  type: '',
-  protocol: 'ftp',
-  active: true,
-  testMode: false,
-  ernVersion: '4.3',
-  partyName: '',
+  protocol: '',
+  type: 'DSP',
+  enabled: true,
+  connection: {},
+  config: {},
   partyId: '',
-  allowUGCClips: false,
-  supportsImmersiveAudio: false,
-  meadUrl: '',
-  dealType: 'standard',
-  config: {
-    host: '',
-    port: null,
-    username: '',
-    password: '',
-    directory: '',
-    privateKey: '',
-    bucket: '',
-    prefix: '',
-    accessKeyId: '',
-    secretAccessKey: '',
-    region: 'us-east-1',
-    endpoint: '',
-    authType: 'bearer',
-    bearerToken: '',
-    apiKey: '',
-    accountName: '',
-    containerName: '',
-    accessKey: '',
-    distributorId: ''
-  },
-  commercialModels: [
-    {
-      type: 'SubscriptionModel',
-      usageTypes: ['OnDemandStream']
-    }
-  ],
-  genreMapping: {
-    enabled: false,
-    mappingId: '',
-    mappingName: '',
-    strictMode: false,
-    fallbackGenre: ''
-  }
+  partyName: '',
+  commercialModel: '',
+  useType: '',
+  territories: ''
 })
 
-// ERN Version Features
-const ernVersionFeatures = {
-  '4.3': {
-    name: 'ERN 4.3',
-    description: 'Latest version with UGC clips, immersive audio, and enhanced metadata support'
-  },
-  '4.2': {
-    name: 'ERN 4.2',
-    description: 'Stable version with improved encoding and deal structures'
-  },
-  '3.8.2': {
-    name: 'ERN 3.8.2',
-    description: 'Legacy version for maximum compatibility with older systems'
-  }
+// State
+const isSaving = ref(false)
+const isTesting = ref(false)
+const testResult = ref(null)
+
+// Initialize form data if editing
+if (props.target) {
+  formData.value = { ...props.target }
 }
 
-// Computed
-const recommendedVersion = computed(() => {
-  const type = formData.value.type
-  if (type === 'Spotify' || type === 'Apple Music') return '4.3'
-  if (type === 'Amazon Music' || type === 'YouTube Music') return '4.2'
-  if (type === 'Beatport' || type === 'SoundCloud') return '4.2'
-  if (type === 'Deezer' || type === 'Tidal') return '4.3'
-  return null
-})
-
-const versionCompatibilityWarning = computed(() => {
-  const type = formData.value.type
-  const version = formData.value.ernVersion
-  
-  if (type === 'Spotify' && version === '3.8.2') {
-    return 'Spotify recommends ERN 4.3 for full feature support'
-  }
-  if (type === 'Apple Music' && version !== '4.3') {
-    return 'Apple Music requires ERN 4.3 for immersive audio delivery'
-  }
-  return null
-})
-
-// Methods
-const loadGenreMappings = async () => {
-  if (!user.value) return
-  
-  loadingMappings.value = true
-  try {
-    // Determine the DSP type based on the form
-    let dspType = 'generic'
-    
-    if (formData.value.type === 'Spotify' || formData.value.name?.toLowerCase().includes('spotify')) {
-      dspType = 'spotify'
-    } else if (formData.value.type === 'Apple Music' || formData.value.name?.toLowerCase().includes('apple')) {
-      dspType = 'apple'
-    } else if (formData.value.type === 'Beatport' || formData.value.name?.toLowerCase().includes('beatport')) {
-      dspType = 'beatport'
-    } else if (formData.value.type === 'Amazon Music' || formData.value.name?.toLowerCase().includes('amazon')) {
-      dspType = 'amazon'
-    }
-    
-    availableGenreMappings.value = await genreMappingService.getTenantMappings(
-      user.value.uid,
-      dspType
-    )
-  } catch (error) {
-    console.error('Error loading genre mappings:', error)
-  } finally {
-    loadingMappings.value = false
-  }
-}
-
-const onMappingSelected = (event) => {
-  const selectedMapping = availableGenreMappings.value.find(
-    m => m.id === formData.value.genreMapping.mappingId
-  )
-  if (selectedMapping) {
-    formData.value.genreMapping.mappingName = selectedMapping.name
-  }
-}
-
-const getSelectedMapping = () => {
-  return availableGenreMappings.value.find(
-    m => m.id === formData.value.genreMapping.mappingId
-  )
-}
-
-const getDSPTypeForMapping = () => {
-  const type = formData.value.type?.toLowerCase() || ''
-  if (type.includes('spotify')) return 'spotify'
-  if (type.includes('apple')) return 'apple'
-  if (type.includes('beatport')) return 'beatport'
-  if (type.includes('amazon')) return 'amazon'
-  return 'generic'
-}
-
-const addCommercialModel = () => {
-  formData.value.commercialModels.push({
-    type: 'SubscriptionModel',
-    usageTypes: ['OnDemandStream']
-  })
-}
-
-const removeCommercialModel = (index) => {
-  formData.value.commercialModels.splice(index, 1)
-}
-
+// Validation
 const validateForm = () => {
-  // Basic validation
-  if (!formData.value.name) {
-    alert('Please enter a target name')
-    return false
-  }
-  
-  if (!formData.value.type) {
-    alert('Please select a target type')
-    return false
-  }
-  
-  if (!formData.value.partyName || !formData.value.partyId) {
-    alert('Please enter DDEX party information')
+  if (!formData.value.name || !formData.value.protocol) {
+    alert('Please fill in all required fields')
     return false
   }
   
   // Protocol-specific validation
-  const protocol = formData.value.protocol
-  const config = formData.value.config
-  
-  if (protocol === 'ftp' || protocol === 'sftp') {
-    if (!config.host || !config.username) {
-      alert('Please enter connection details')
-      return false
-    }
-  }
-  
-  if (protocol === 's3') {
-    if (!config.bucket || !config.accessKeyId || !config.secretAccessKey) {
-      alert('Please enter S3 credentials')
-      return false
-    }
-  }
-  
-  if (protocol === 'api') {
-    if (!config.endpoint) {
-      alert('Please enter API endpoint')
-      return false
-    }
-  }
-  
-  if (protocol === 'azure') {
-    if (!config.accountName || !config.containerName || !config.accessKey) {
-      alert('Please enter Azure storage details')
-      return false
-    }
+  const conn = formData.value.connection
+  switch (formData.value.protocol) {
+    case 'FTP':
+    case 'SFTP':
+      if (!conn.host || !conn.username || !conn.password) {
+        alert('Please provide host, username, and password')
+        return false
+      }
+      break
+    case 'S3':
+      if (!conn.bucket || !conn.region || !conn.accessKeyId || !conn.secretAccessKey) {
+        alert('Please provide all S3 configuration')
+        return false
+      }
+      break
+    case 'API':
+      if (!conn.endpoint) {
+        alert('Please provide API endpoint')
+        return false
+      }
+      if (formData.value.type === 'DSP' && !formData.value.config?.distributorId) {
+        alert('Please provide Distributor ID for DSP targets')
+        return false
+      }
+      break
+    case 'Azure':
+      if (!conn.accountName || !conn.containerName || !conn.accountKey) {
+        alert('Please provide all Azure configuration')
+        return false
+      }
+      break
   }
   
   return true
 }
 
-const save = () => {
-  if (validateForm()) {
-    // Build connection object based on protocol
-    const connection = {}
-    const config = formData.value.config
+// Save target with encryption via Cloud Function
+const save = async () => {
+  if (!validateForm()) return
+  
+  try {
+    isSaving.value = true
     
-    switch (formData.value.protocol) {
-      case 'ftp':
-      case 'sftp':
-        connection.host = config.host
-        connection.port = config.port || (formData.value.protocol === 'ftp' ? 21 : 22)
-        connection.username = config.username
-        connection.password = config.password
-        connection.directory = config.directory || '/'
-        if (formData.value.protocol === 'sftp' && config.privateKey) {
-          connection.privateKey = config.privateKey
-        }
-        break
-        
-      case 's3':
-        connection.bucket = config.bucket
-        connection.prefix = config.prefix || ''
-        connection.accessKeyId = config.accessKeyId
-        connection.secretAccessKey = config.secretAccessKey
-        connection.region = config.region || 'us-east-1'
-        break
-        
-      case 'api':
-        connection.endpoint = config.endpoint
-        connection.authType = config.authType
-        if (config.authType === 'bearer') {
-          connection.bearerToken = config.bearerToken
-        } else if (config.authType === 'apikey') {
-          connection.apiKey = config.apiKey
-        } else if (config.authType === 'basic') {
-          connection.username = config.username
-          connection.password = config.password
-        }
-        break
-        
-      case 'azure':
-        connection.accountName = config.accountName
-        connection.containerName = config.containerName
-        connection.accessKey = config.accessKey
-        break
+    // Build the target data
+    const targetData = {
+      name: formData.value.name,
+      protocol: formData.value.protocol,
+      type: formData.value.type || 'DSP',
+      enabled: formData.value.enabled !== false,
+      
+      // Connection details (will be encrypted server-side)
+      connection: {
+        ...formData.value.connection
+      },
+      
+      // Config details (distributor ID will be encrypted)
+      config: {
+        ...formData.value.config
+      },
+      
+      // DDEX fields
+      partyId: formData.value.partyId,
+      partyName: formData.value.partyName,
+      commercialModel: formData.value.commercialModel,
+      useType: formData.value.useType,
+      territories: formData.value.territories
     }
     
-    // Emit save event with formatted data
-    emit('save', {
-      ...formData.value,
-      connection,
-      config: {
-        distributorId: config.distributorId
-      },
-      genreMapping: formData.value.genreMapping
+    // Use Cloud Function to save with encryption
+    const saveTargetFn = httpsCallable(functions, 'saveDeliveryTarget')
+    const result = await saveTargetFn({
+      ...targetData,
+      targetId: props.target?.id // Include ID if editing
     })
+    
+    if (result.data.success) {
+      emit('save', {
+        id: result.data.id || props.target?.id,
+        ...targetData,
+        // Mask sensitive fields for display
+        connection: {
+          ...targetData.connection,
+          password: targetData.connection?.password ? '***' : undefined,
+          apiKey: targetData.connection?.apiKey ? '***' : undefined,
+          secretAccessKey: targetData.connection?.secretAccessKey ? '***' : undefined,
+          accountKey: targetData.connection?.accountKey ? '***' : undefined
+        }
+      })
+      emit('close')
+    }
+  } catch (error) {
+    console.error('Error saving target:', error)
+    alert('Failed to save delivery target: ' + error.message)
+  } finally {
+    isSaving.value = false
   }
 }
 
-const cancel = () => {
-  emit('cancel')
-}
-
-const testConnection = () => {
-  if (validateForm()) {
-    emit('test', formData.value)
-  }
-}
-
-// Watch for DSP type changes to reload mappings
-watch(() => formData.value.type, () => {
-  loadGenreMappings()
-})
-
-// Initialize
-onMounted(() => {
-  if (props.target) {
-    // Load existing target data
-    formData.value = { 
-      ...props.target,
-      config: {
-        ...formData.value.config,
-        ...props.target.config
-      },
-      genreMapping: props.target.genreMapping || {
-        enabled: false,
-        mappingId: '',
-        mappingName: '',
-        strictMode: false,
-        fallbackGenre: ''
+// Load target with decrypted credentials for editing
+const loadTargetForEdit = async () => {
+  if (!props.target?.id) return
+  
+  try {
+    const getTargetFn = httpsCallable(functions, 'getDeliveryTarget')
+    const result = await getTargetFn({ targetId: props.target.id })
+    
+    if (result.data) {
+      // Populate form with decrypted data
+      formData.value = {
+        name: result.data.name,
+        protocol: result.data.protocol,
+        type: result.data.type || 'DSP',
+        enabled: result.data.enabled !== false,
+        connection: result.data.connection || {},
+        config: result.data.config || {},
+        partyId: result.data.partyId,
+        partyName: result.data.partyName,
+        commercialModel: result.data.commercialModel,
+        useType: result.data.useType,
+        territories: result.data.territories
       }
     }
-    
-    // Map connection back to config for editing
-    if (props.target.connection) {
-      Object.assign(formData.value.config, props.target.connection)
+  } catch (error) {
+    console.error('Error loading target:', error)
+    // Fall back to the props if we can't decrypt
+    if (props.target) {
+      formData.value = { ...props.target }
     }
   }
+}
+
+// Test connection
+const testConnection = async () => {
+  if (!validateForm()) return
   
-  // Load available genre mappings
-  loadGenreMappings()
+  try {
+    isTesting.value = true
+    testResult.value = null
+    
+    // Get the current form data (may include decrypted credentials)
+    const config = {
+      protocol: formData.value.protocol,
+      ...formData.value.connection,
+      ...formData.value.config,
+      testMode: true
+    }
+    
+    // The test function will use the credentials directly
+    const testFn = httpsCallable(functions, 'testDeliveryConnection')
+    const result = await testFn({ 
+      protocol: formData.value.protocol,
+      config: config,
+      testMode: true
+    })
+    
+    testResult.value = result.data
+  } catch (error) {
+    console.error('Connection test failed:', error)
+    testResult.value = {
+      success: false,
+      message: error.message || 'Connection test failed'
+    }
+  } finally {
+    isTesting.value = false
+  }
+}
+
+// Apply DSP preset
+const applyPreset = (dsp) => {
+  // Implementation for DSP presets if needed
+}
+
+// Watch for protocol changes
+watch(() => formData.value.protocol, () => {
+  testResult.value = null
+  formData.value.connection = {}
+})
+
+// Load encrypted data when editing
+onMounted(() => {
+  if (props.target?.id) {
+    loadTargetForEdit()
+  }
 })
 </script>
 
 <style scoped>
 .delivery-target-form {
   max-width: 800px;
-  margin: 0 auto;
 }
 
 .form-section {
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  margin-bottom: var(--space-lg);
+  margin-bottom: 2rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.form-section:last-of-type {
+  border-bottom: none;
 }
 
 .form-section h3 {
-  margin: 0 0 var(--space-lg) 0;
-  color: var(--color-text);
-  font-size: var(--text-lg);
-}
-
-.form-group {
-  margin-bottom: var(--space-md);
-}
-
-.form-label {
-  display: block;
-  margin-bottom: var(--space-xs);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-}
-
-.form-label.required::after {
-  content: ' *';
-  color: var(--color-error);
-}
-
-.form-input,
-.form-select,
-textarea.form-input {
-  width: 100%;
-  padding: var(--space-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background-color: var(--color-bg);
-  color: var(--color-text);
-  font-size: var(--text-base);
-  transition: all var(--transition-base);
-}
-
-.form-input:focus,
-.form-select:focus,
-textarea.form-input:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-light);
-}
-
-.form-checkbox {
-  margin-right: var(--space-xs);
+  margin-bottom: 1.5rem;
+  color: var(--color-text-primary);
+  font-size: 1.1rem;
+  font-weight: 600;
 }
 
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-md);
+  gap: 1rem;
+  margin-bottom: 1rem;
 }
 
-.protocol-config {
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--color-border-light);
+.form-group {
+  margin-bottom: 1rem;
 }
 
-.commercial-model {
-  padding: var(--space-md);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-sm);
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
 }
 
-.checkbox-group {
-  display: flex;
-  gap: var(--space-md);
-}
-
-.checkbox-group label {
+.checkbox-label {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
+  gap: 0.5rem;
   cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.test-result {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.test-result.success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid var(--color-success-border);
+}
+
+.test-result.error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger-border);
 }
 
 .form-actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--space-sm);
-  padding: var(--space-lg);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-  margin-top: var(--space-xl);
+  gap: 1rem;
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--color-border);
 }
 
-.alert {
-  padding: var(--space-md);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-md);
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-sm);
-}
-
-.alert-info {
-  background-color: var(--color-info-light);
-  color: var(--color-info-dark);
-  border: 1px solid var(--color-info);
-}
-
-.alert-warning {
-  background-color: var(--color-warning-light);
-  color: var(--color-warning-dark);
-  border: 1px solid var(--color-warning);
-}
-
-.version-features {
-  padding: var(--space-sm);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-sm);
-}
-
-.text-muted {
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-
-.btn {
-  padding: var(--space-sm) var(--space-md);
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: var(--text-base);
-  font-weight: var(--font-medium);
-  cursor: pointer;
-  transition: all var(--transition-base);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.btn-primary {
-  background-color: var(--color-primary);
-  color: white;
-}
-
-.btn-primary:hover {
-  background-color: var(--color-primary-dark);
-}
-
-.btn-secondary {
-  background-color: var(--color-secondary);
-  color: white;
-}
-
-.btn-secondary:hover {
-  background-color: var(--color-secondary-dark);
-}
-
-.btn-danger {
-  background-color: var(--color-error);
-  color: white;
-}
-
-.btn-danger:hover {
-  background-color: var(--color-error-dark);
-}
-
-.btn-text {
-  background: none;
-  color: var(--color-primary);
-  padding: var(--space-xs);
-}
-
-.btn-text:hover {
-  text-decoration: underline;
-}
-
-.btn-sm {
-  padding: var(--space-xs) var(--space-sm);
-  font-size: var(--text-sm);
-}
-
-/* Genre Mapping Styles */
-.genre-mapping-config {
-  margin-top: var(--space-md);
-  padding-left: var(--space-lg);
-  border-left: 3px solid var(--color-border);
-}
-
-.mapping-info {
-  margin-top: var(--space-md);
-}
-
-.info-card {
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-}
-
-.info-card h4 {
-  margin: 0 0 var(--space-sm) 0;
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.info-row {
-  display: flex;
-  justify-content: space-between;
-  padding: var(--space-xs) 0;
-  font-size: var(--text-sm);
-}
-
-.info-label {
-  color: var(--color-text-secondary);
-}
-
-.info-value {
-  font-weight: var(--font-medium);
-}
-
-.loading-message {
-  padding: var(--space-sm);
-  color: var(--color-text-secondary);
-}
-
-.d-block {
-  display: block;
-}
-
-.mt-sm {
-  margin-top: var(--space-sm);
-}
-
-.ml-sm {
-  margin-left: var(--space-sm);
-}
-
-/* Responsive */
 @media (max-width: 768px) {
   .form-row {
     grid-template-columns: 1fr;
   }
   
-  .checkbox-group {
-    flex-direction: column;
-  }
-  
   .form-actions {
-    flex-direction: column;
+    flex-direction: column-reverse;
   }
   
-  .btn {
+  .form-actions button {
     width: 100%;
-    justify-content: center;
   }
 }
 </style>

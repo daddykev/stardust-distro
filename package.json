@@ -1,6 +1,6 @@
 {
   "name": "stardust-distro",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Open-source DDEX-compliant music distribution platform",
   "workspaces": [
@@ -9,25 +9,24 @@
     "template"
   ],
   "scripts": {
-    "bootstrap": "lerna bootstrap",
-    "build": "lerna run build --stream",
-    "build:packages": "lerna run build --scope=@stardust-distro/*",
-    "build:cli": "lerna run build --scope=@stardust-distro/distro-cli",
-    "build:template": "cd template && npm run build",
-    "dev": "cd template && npm run dev",
-    "dev:all": "lerna run dev --parallel",
-    "test": "lerna run test",
-    "clean": "lerna clean --yes && rm -rf node_modules",
-    "clean:full": "npm run clean && rm -rf template/node_modules cli/node_modules packages/*/node_modules",
-    "publish": "lerna publish",
-    "publish:canary": "lerna publish --canary",
-    "version": "lerna version",
-    "install:all": "npm install && lerna bootstrap",
-    "deploy": "cd template && npm run build && firebase deploy",
-    "cli": "node cli/bin/stardust-distro.js"
+    "bootstrap": "npm install",
+    "build": "npm run build --workspaces --if-present",
+    "build:packages": "npm run build --workspace=packages/*",
+    "build:cli": "npm run build --workspace=cli",
+    "build:template": "npm run build --workspace=template",
+    "dev": "npm run dev --workspace=template",
+    "dev:all": "npm run dev --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "clean": "rm -rf node_modules packages/*/node_modules cli/node_modules template/node_modules",
+    "clean:full": "npm run clean && rm -rf packages/*/dist cli/dist template/dist",
+    "deploy": "npm run build:template && cd template && firebase deploy",
+    "cli": "node cli/bin/stardust-distro.js",
+    "version:patch": "npm version patch --workspaces --no-git-tag-version && npm version patch --no-git-tag-version",
+    "version:minor": "npm version minor --workspaces --no-git-tag-version && npm version minor --no-git-tag-version",
+    "version:major": "npm version major --workspaces --no-git-tag-version && npm version major --no-git-tag-version",
+    "publish:cli": "cd cli && npm publish --access public"
   },
   "devDependencies": {
-    "lerna": "^7.0.0",
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0"
   },

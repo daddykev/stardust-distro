@@ -1,7 +1,7 @@
 {
   "name": "@stardust-distro/cli",
-  "version": "1.0.0",
-  "description": "Deploy your own music distribution platform in under 5 minutes",
+  "version": "1.0.1",
+  "description": "Open-source, npm-installable music distribution platform for the modern music industry",
   "type": "module",
   "main": "index.js",
   "bin": {

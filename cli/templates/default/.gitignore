@@ -162,3 +162,10 @@ credentials.json
 # Public folder build artifacts (if any)
 public/dist/
 public/build/
+
+# OWASP ZAP
+zap/sessions/*
+zap/reports/*
+!zap/sessions/.gitkeep
+!zap/reports/.gitkeep
+!zap/policies/.gitkeep

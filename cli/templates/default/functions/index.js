@@ -14,7 +14,8 @@ const { Upload } = require('@aws-sdk/lib-storage')
 const { BlobServiceClient } = require('@azure/storage-blob')
 const axios = require('axios')
 const FormData = require('form-data')
-const fs = require('fs').promises
+const fs = require('fs');           // streaming APIs
+const fsp = fs.promises;            // promise APIs
 const path = require('path')
 const os = require('os')
 const crypto = require('crypto')
@@ -1049,12 +1050,12 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
       if (file.needsDownload) {
         await downloadFile(file.url, localPath)
         // Calculate MD5 after download
-        fileContent = await fs.readFile(localPath)
+        fileContent = await fsp.readFile(localPath)
         md5Hash = calculateMD5(fileContent)
       } else {
         // Write ERN XML directly
         fileContent = Buffer.from(file.content, 'utf8')
-        await fs.writeFile(localPath, fileContent)
+        await fsp.writeFile(localPath, fileContent)
         md5Hash = calculateMD5(fileContent)
       }
 
@@ -1074,7 +1075,7 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
       console.log(`FTP: Uploaded ${file.name} (MD5: ${md5Hash})`)
 
       // Clean up local file
-      await fs.unlink(localPath)
+      await fsp.unlink(localPath)
     }
 
     await client.close()
@@ -1107,7 +1108,7 @@ async function deliverViaFTP(target, deliveryPackage, deliveryId) {
   } finally {
     // Clean up temp directory
     try {
-      await fs.rmdir(tempDir, { recursive: true })
+      await fsp.rmdir(tempDir, { recursive: true })
     } catch (e) {
       console.error('Cleanup error:', e)
     }
@@ -1154,15 +1155,15 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
               
               let fileContent
               let md5Hash
-              
+                
               // Prepare local file
               if (file.needsDownload) {
                 await downloadFile(file.url, localPath)
-                fileContent = await fs.readFile(localPath)
+                fileContent = await fsp.readFile(localPath)
                 md5Hash = calculateMD5(fileContent)
               } else {
                 fileContent = Buffer.from(file.content, 'utf8')
-                await fs.writeFile(localPath, fileContent)
+                await fsp.writeFile(localPath, fileContent)
                 md5Hash = calculateMD5(fileContent)
               }
 
@@ -1187,7 +1188,7 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
               console.log(`SFTP: Uploaded ${file.name} (MD5: ${md5Hash})`)
 
               // Clean up local file
-              await fs.unlink(localPath)
+              await fsp.unlink(localPath)
             }
 
             conn.end()
@@ -1251,7 +1252,7 @@ async function deliverViaSFTP(target, deliveryPackage, deliveryId) {
       // Clean up temp directory
       setTimeout(async () => {
         try {
-          await fs.rmdir(tempDir, { recursive: true })
+          await fsp.rmdir(tempDir, { recursive: true })
         } catch (e) {
           console.error('Cleanup error:', e)
         }
@@ -3189,3 +3190,102 @@ exports.sendWeeklySummaries = onSchedule({
     throw error
   }
 })
+
+exports.setupAdmin = onCall({
+  cors: true
+}, async (request) => {
+  // This should only be called during initial setup
+  const { email } = request.data;
+  
+  try {
+    const user = await admin.auth().getUserByEmail(email);
+    
+    // Set custom claims
+    await admin.auth().setCustomUserClaims(user.uid, { 
+      admin: true, 
+      role: 'admin' 
+    });
+    
+    // Update user document
+    await admin.firestore()
+      .collection('users')
+      .doc(user.uid)
+      .set({
+        email: user.email,
+        displayName: user.displayName,
+        role: 'admin',
+        updatedAt: admin.firestore.Timestamp.now()
+      }, { merge: true });
+    
+    return { 
+      success: true, 
+      message: 'Admin role set successfully'
+    };
+  } catch (error) {
+    throw new HttpsError('internal', error.message);
+  }
+});
+
+/**
+ * Proxy download external images (to bypass CSP restrictions)
+ */
+exports.downloadExternalImage = onCall(
+  {
+    timeoutSeconds: 60,
+    memory: '256MiB',
+    maxInstances: 10
+  },
+  async (request) => {
+    // Check authentication
+    if (!request.auth) {
+      throw new HttpsError(
+        'unauthenticated',
+        'User must be authenticated'
+      );
+    }
+
+    const { imageUrl, fileName } = request.data;
+
+    if (!imageUrl) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Image URL is required'
+      );
+    }
+
+    try {
+      console.log(`Downloading image from: ${imageUrl}`);
+      
+      // Fetch the image
+      const response = await fetch(imageUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.status}`);
+      }
+
+      // Get the image as a buffer
+      const buffer = await response.arrayBuffer();
+      
+      // Convert to base64
+      const base64 = Buffer.from(buffer).toString('base64');
+      
+      // Get content type
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      
+      console.log(`Successfully downloaded image: ${buffer.byteLength} bytes`);
+      
+      return {
+        base64,
+        contentType,
+        size: buffer.byteLength,
+        fileName: fileName || 'image.jpg'
+      };
+    } catch (error) {
+      console.error('Error downloading image:', error);
+      throw new HttpsError(
+        'internal',
+        `Failed to download image: ${error.message}`
+      );
+    }
+  }
+);

@@ -84,14 +84,14 @@ stardust-distro restore          # Restore from backup
 
 ### For Record Labels
 ```bash
-npx @stardust-distro/cli create atlantic-records-distro
+npx @stardust-distro/cli create my-label
 # → Complete distribution system for your label
 # → Manage thousands of artists and releases
 ```
 
 ### For Aggregators
 ```bash
-npx @stardust-distro/cli create mega-distro-platform
+npx @stardust-distro/cli create my-distro
 # → Multi-tenant architecture
 # → Manage multiple labels/artists
 ```
@@ -116,34 +116,6 @@ npx @stardust-distro/cli create mega-distro-platform
 - **Analytics**: Track deliveries, success rates, performance
 - **Email System**: Automated notifications with Gmail SMTP
 
-## 💡 Example Workflow
-
-```bash
-# 1. Create your platform
-npx @stardust-distro/cli create soundwave-distro
-cd soundwave-distro
-
-# 2. Configure your first DSP
-stardust-distro target add
-# ? Target name: Spotify
-# ? Protocol: API
-# ? Endpoint: https://api.spotify.com/v1/releases
-# ✓ Target configured successfully
-
-# 3. Import your catalog
-stardust-distro import
-# ? Import mode: Metadata-less (audio files only)
-# ? Select files: [200 audio files selected]
-# ✓ Fetching metadata from Deezer...
-# ✓ 200 releases created successfully
-
-# 4. Deploy to production
-stardust-distro deploy
-# ✓ Platform deployed to https://soundwave-distro.web.app
-
-# You're live! 🎉
-```
-
 ## 🔐 Security First
 
 Every platform created includes:
@@ -154,8 +126,6 @@ Every platform created includes:
 - **File Security**: Magic number validation, size limits
 - **Audit Logs**: Complete activity tracking
 
-**Security Score: 85/100** - Enterprise-grade protection built-in.
-
 ## 📈 Performance
 
 Your platform will handle:
@@ -164,10 +134,9 @@ Your platform will handle:
 - ✓ 100+ releases imported in 5 minutes
 - ✓ <5 second ERN generation
 
-## 🆓 Truly Free & Open Source
+## 🆓 Open Source
 
 - **MIT License**: Use commercially, modify freely, no restrictions
-- **No Vendor Lock-in**: Your platform, your rules
 - **Self-Hosted**: Deploy anywhere (Firebase, AWS, your own servers)
 
 ## 📚 Resources
@@ -208,4 +177,4 @@ Your music distribution platform awaits.
 
 **Built with ❤️ for the music industry**
 
-*Part of the [Stardust Ecosystem](https://github.com/daddykev) - Open source tools for modern music distribution*
+*Part of the [Stardust Ecosystem](https://github.com/daddykev) - Open-source tools for modern music distribution*
