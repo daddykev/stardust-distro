@@ -389,7 +389,6 @@ stardust-distro/
 │   │   │   ├── metadataSynthesizer.js. # Metadata synth ✅
 │   │   │   ├── productMetadata.js  # Product metadata operations ✅
 │   │   │   ├── receipts.js        # Enhanced delivery receipts ✅
-│   │   │   ├── securityTesting.js  # OWASP ZAP service ✅
 │   │   │   └── testTargets.js     # Test DSP targets ✅
 │   │   ├── utils/                 # Utils
 │   │   │   ├── releaseClassifier.js  # Classify release by DDEX standards ✅
