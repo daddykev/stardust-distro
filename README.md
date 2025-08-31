@@ -35,24 +35,33 @@ Stardust Distro is a production-ready music distribution platform, built with an
 
 ### Install and Deploy
 
+Create your distribution platform
 ```bash
-# Create your distribution platform
 npx @stardust-distro/cli create my-platform
-
-# Navigate to project
-cd my-platform
-
-# Initialize Firebase (free tier available)
-stardust-distro init
-
-# Start development server
-npm run dev
-# Visit http://localhost:5173
-
-# Deploy to production
-npm run deploy
-# Your platform is live! 🚀
 ```
+
+Navigate to project
+```bash
+cd my-platform
+```
+
+Initialize Firebase (free tier available)
+```bash
+stardust-distro init
+```
+
+Start development server
+```bash
+npm run dev
+```
+
+Visit http://localhost:5173
+
+Deploy to production
+```bash
+npm run deploy
+```
+Your platform is live! 🚀
 
 -----
 
