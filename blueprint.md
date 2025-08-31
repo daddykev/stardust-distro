@@ -285,11 +285,18 @@ stardust-distro/
 │   │   ├── api/                   # Public APIs
 │   │   │   ├── deezer.js          # Deezer API queries ✅
 │   │   │   └── spotify.js         # Spotify API queries ✅
+│   │   ├── delivery/              # Delivery
+│   │   │   ├── processing.js      # Queue processing, locks, and package prep ✅
+│   │   │   └── protocols.js       # FTP/SFTP/S3/API/Azure/Storage) ✅
 │   │   ├── middleware/            # Middleware functions
 │   │   │   ├── auth.js            # To verify authentication ✅
 │   │   │   └── validation.js      # Factory for request validation ✅
 │   │   ├── node_modules/          # Dependencies (git-ignored)
-│   │   ├── utils/                 # Middleware functions
+│   │   ├── services/              # Services
+│   │   │   ├── fingerprinting.js  # Deduplication via MD5/SHA hashing ✅
+│   │   │   └── notifications.js   # Email notifications and weekly summaries ✅
+│   │   ├── utils/                 # Util functions
+│   │   │   ├── helpers.js         # Common utils (MD5, file ops, logging) ✅
 │   │   │   └── validation.js      # Validation schemas for cloud functions ✅
 │   │   ├── encryption.js          # Server-side encrypt-decrypt ✅
 │   │   ├── index.js               # Main functions and exports (v2) ✅
