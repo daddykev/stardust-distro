@@ -621,7 +621,7 @@ const queueDelivery = async () => {
         
         // DSP-specific configuration
         config: {
-          distributorId: target.config?.distributorId || target.distributorId || 'stardust-distro',
+          distributorId: target.config?.distributorId || target.distributorId || import.meta.env.VITE_DISTRIBUTOR_ID || 'default-distributor',
           partyId: target.partyId,
           partyName: target.partyName,
           apiKey: target.config?.apiKey || target.apiKey,

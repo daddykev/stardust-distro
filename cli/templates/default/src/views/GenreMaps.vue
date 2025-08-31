@@ -586,7 +586,7 @@ const saveMappings = async () => {
 const exportMappings = () => {
   const exportData = {
     version: '1.0',
-    source: 'Stardust Distro Genre Truth v1.0',
+    source: 'Genre Truth v1.0',
     target: selectedTargetDSP.value,
     name: mappingName.value || 'Exported Mapping',
     mappings: Object.fromEntries(mappings.value),

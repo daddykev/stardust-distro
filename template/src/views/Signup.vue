@@ -30,7 +30,7 @@ const errorMessage = ref('')
 const isLoading = ref(false)
 const isValidatingCode = ref(false)
 const codeValidated = ref(false)
-const appName = import.meta.env.VITE_APP_NAME || 'Music Distro'
+const appName = import.meta.env.VITE_ORGANIZATION_NAME || 'Music Distro'
 
 // Validate invite code (simplified)
 const validateInviteCode = async (code) => {

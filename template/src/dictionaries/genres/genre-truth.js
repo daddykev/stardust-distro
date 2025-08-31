@@ -1,6 +1,6 @@
 // src/dictionaries/genres/genre-truth.js
 /**
- * Stardust Distro Genre Truth (v1.0)
+ * Genre Truth (v1.0)
  * Based on Apple Music Spec 5.3.9 (frozen as our canonical source)
  * 
  * This serves as our permanent genre taxonomy that maps to all DSPs.

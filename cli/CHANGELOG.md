@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.0.3] - 2025-08-30
+
+### 🔄 Template Genericization & Dynamic Configuration
+
+This release makes the template fully generic and reusable, removing all hard-coded references to "Stardust Distro" in favor of dynamic configuration.
+
+#### **Major Refactoring**
+- **Template Genericization**: Removed all hard-coded "stardust-distro" and "Stardust Distro" references from non-documentation files
+- **Dynamic Configuration**: Template now uses environment variables for all branding and identification
+- **Simplified Environment Variables**:
+  - Consolidated `VITE_APP_NAME` into `VITE_ORGANIZATION_NAME` (single source of truth for branding)
+  - Removed unused `VITE_ORGANIZATION_ID` (keeping only `VITE_DISTRIBUTOR_ID` for DDEX)
+  - Cleaner `.env.example` with only essential configuration
+
+#### **CLI Improvements**
+- **Enhanced `create` command**:
+  - Dynamically processes template files during project creation
+  - Updates `package.json`, `index.html`, and Docker scripts with project name
+  - Generates customized `.env` file based on user input
+  - Removes template lock files to be regenerated fresh
+  - Better error handling with stack traces
+  - Added Firebase Blaze plan requirement warning
+
+#### **Code Updates**
+- **Services**: Updated all service files to use environment variables:
+  - `ern.js`, `mead.js`, `delivery.js`: Use `VITE_ORGANIZATION_NAME` for sender name
+  - `delivery.js`, `ern.js`: Use `VITE_DISTRIBUTOR_ID` for DDEX identification
+  - `emailService.js`: Dynamic organization name in all email templates
+  - `productMetadata.js`: Dynamic Firebase project ID in API URLs
+
+- **Vue Components**:
+  - `NavBar.vue`, `Login.vue`, `Signup.vue`: Use `VITE_ORGANIZATION_NAME` for display
+  - `EditRelease.vue`, `NewDelivery.vue`: Use `VITE_DISTRIBUTOR_ID` for DDEX messages
+
+- **Email Templates**: All email content now uses dynamic organization name
+- **Functions**: Updated Cloud Functions to use dynamic organization names in emails
+
+#### **Developer Experience**
+- Template can now be used as-is for any music distribution platform
+- Single configuration point for organization branding
+- Attribution to original project preserved in package.json names
+- Clearer separation between template and generated project
+
+### 🐛 Bug Fixes
+- Fixed `stardust-distro init` command issues with Firebase app detection
+- Improved handling of different Firebase API response formats
+- Fixed public directory configuration in firebase.json
+
+### 📚 Documentation
+- Added deployment troubleshooting notes
+- Documented Firebase Blaze plan requirement
+- Updated CLI usage instructions
+
 ## [1.0.2] - 2025-08-30
 
 ### 🕷️ Bug Fixes

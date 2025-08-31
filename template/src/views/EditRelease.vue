@@ -922,7 +922,7 @@ const generateERN = async () => {
         // Generate MEAD message
         const meadResult = await meadService.generateMEAD(releaseForMead, {
           senderName: user.value?.organizationName || user.value?.displayName,
-          senderPartyId: 'stardust-distro',
+          senderPartyId: import.meta.env.VITE_DISTRIBUTOR_ID || 'default-distributor',
           recipientName: 'DSP',
           recipientPartyId: 'DSP'
         })

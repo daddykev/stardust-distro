@@ -1,5 +1,5 @@
 {
   "projects": {
-    "default": "stardust-distro"
+    "default": "YOUR_PROJECT_ID"
   }
 }

@@ -16,6 +16,9 @@ const router = useRouter()
 const route = useRoute()
 const { isAuthenticated, userProfile, logout } = useAuth()
 
+// App name
+const appName = computed(() => import.meta.env.VITE_ORGANIZATION_NAME || 'Music Distro')
+
 // Mobile menu state
 const mobileMenuOpen = ref(false)
 
@@ -79,7 +82,7 @@ const isActiveRoute = (path) => {
           <div class="logo">
             <font-awesome-icon icon="truck" />
           </div>
-          <span class="brand-text">Stardust Distro</span>
+          <span class="brand-text">{{ appName }}</span>
         </router-link>
 
         <!-- Desktop Navigation -->

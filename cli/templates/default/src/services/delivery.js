@@ -560,7 +560,7 @@ export class DeliveryService {
           step: 'api_preparation',
           message: 'Configuring DSP-specific payload',
           details: {
-            distributorId: target.config?.distributorId || 'stardust-distro',
+            distributorId: target.config?.distributorId || import.meta.env.VITE_DISTRIBUTOR_ID || 'default-distributor',
             messageId: deliveryPackage.metadata.messageId,
             fileCount: deliveryPackage.files.length
           }
@@ -593,7 +593,7 @@ export class DeliveryService {
         })
 
         const payload = {
-          distributorId: target.config.distributorId || 'stardust-distro',
+          distributorId: target.config.distributorId || import.meta.env.VITE_DISTRIBUTOR_ID || 'default-distributor',
           messageId: deliveryPackage.metadata.messageId,
           releaseTitle: deliveryPackage.releaseTitle,
           releaseArtist: deliveryPackage.releaseArtist,

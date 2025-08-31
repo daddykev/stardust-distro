@@ -608,7 +608,7 @@ class ERNService {
         const release = await catalogService.getRelease(releaseId)
         meadResult = await meadService.generateMEAD(release, {
           senderName: targetConfig.senderName || auth.currentUser?.displayName,
-          senderPartyId: targetConfig.config?.distributorId || 'stardust-distro',
+          senderPartyId: targetConfig.config?.distributorId || import.meta.env.VITE_DISTRIBUTOR_ID || 'default-distributor',
           recipientName: targetConfig.partyName,
           recipientPartyId: targetConfig.partyId
         })

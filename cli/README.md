@@ -162,7 +162,7 @@ See [CONTRIBUTING.md](https://github.com/daddykev/stardust-distro/blob/main/CONT
 
 ## 🚦 Current Status
 
-**v1.0.2 - Alpha Release** (August 2025)
+**v1.0.3 - Alpha Release** (August 2025)
 - ✅ Production ready
 - ✅ All core features complete
 - ✅ Security audit passed

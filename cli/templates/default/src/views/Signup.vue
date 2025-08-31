@@ -30,6 +30,7 @@ const errorMessage = ref('')
 const isLoading = ref(false)
 const isValidatingCode = ref(false)
 const codeValidated = ref(false)
+const appName = import.meta.env.VITE_ORGANIZATION_NAME || 'Music Distro'
 
 // Validate invite code (simplified)
 const validateInviteCode = async (code) => {
@@ -235,7 +236,7 @@ const handleGoogleSignup = async () => {
               <font-awesome-icon icon="truck" />
             </div>
             <h1 class="auth-title">Get Started</h1>
-            <p class="auth-subtitle">Create your Stardust Distro account</p>
+            <p class="auth-subtitle">Create your {{ appName }} account</p>
           </div>
 
           <form @submit.prevent="handleSignup" class="auth-form">

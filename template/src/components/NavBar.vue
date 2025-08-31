@@ -17,7 +17,7 @@ const route = useRoute()
 const { isAuthenticated, userProfile, logout } = useAuth()
 
 // App name
-const appName = computed(() => import.meta.env.VITE_APP_NAME || 'Music Distro')
+const appName = computed(() => import.meta.env.VITE_ORGANIZATION_NAME || 'Music Distro')
 
 // Mobile menu state
 const mobileMenuOpen = ref(false)

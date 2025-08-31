@@ -11,10 +11,60 @@ import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+function processTemplate(projectPath, projectName, organizationName) {
+  // Delete package-lock.json files to be regenerated
+  const lockFiles = [
+    path.join(projectPath, 'package-lock.json'),
+    path.join(projectPath, 'functions', 'package-lock.json')
+  ];
+  
+  lockFiles.forEach(file => {
+    if (fs.existsSync(file)) {
+      fs.unlinkSync(file);
+    }
+  });
+  
+  // Update main package.json
+  const mainPackagePath = path.join(projectPath, 'package.json');
+  if (fs.existsSync(mainPackagePath)) {
+    const pkg = JSON.parse(fs.readFileSync(mainPackagePath, 'utf-8'));
+    pkg.name = projectName;
+    // Update docker scripts with project name
+    if (pkg.scripts) {
+      if (pkg.scripts['docker:build']) {
+        pkg.scripts['docker:build'] = `docker build -f docker/Dockerfile -t ${projectName} .`;
+      }
+      if (pkg.scripts['docker:run']) {
+        pkg.scripts['docker:run'] = `docker run -p 8080:8080 ${projectName}`;
+      }
+    }
+    fs.writeFileSync(mainPackagePath, JSON.stringify(pkg, null, 2));
+  }
+  
+  // Update functions package.json
+  const functionsPackagePath = path.join(projectPath, 'functions', 'package.json');
+  if (fs.existsSync(functionsPackagePath)) {
+    const pkg = JSON.parse(fs.readFileSync(functionsPackagePath, 'utf-8'));
+    pkg.name = `${projectName}-functions`;
+    fs.writeFileSync(functionsPackagePath, JSON.stringify(pkg, null, 2));
+  }
+  
+  // Update index.html title
+  const indexHtmlPath = path.join(projectPath, 'index.html');
+  if (fs.existsSync(indexHtmlPath)) {
+    let html = fs.readFileSync(indexHtmlPath, 'utf-8');
+    html = html.replace(
+      /<title>.*?<\/title>/,
+      `<title>${organizationName || projectName}</title>`
+    );
+    fs.writeFileSync(indexHtmlPath, html);
+  }
+}
+
 export function createCommand(program) {
   program
     .command('create <project-name>')
-    .description('Create a new Stardust Distro project')
+    .description('Create a new music distribution project')
     .option('-t, --template <template>', 'Project template (default, minimal, enterprise)', 'default')
     .option('-e, --edition <edition>', 'Edition (community, enterprise)', 'community')
     .option('--skip-install', 'Skip npm install')
@@ -39,6 +89,12 @@ export function createCommand(program) {
             default: projectName
           },
           {
+            type: 'input',
+            name: 'distributorId',
+            message: 'Distributor ID (for DDEX messages):',
+            default: projectName.toLowerCase().replace(/[^a-z0-9]/g, '-')
+          },
+          {
             type: 'list',
             name: 'region',
             message: 'Default Firebase region:',
@@ -57,44 +113,75 @@ export function createCommand(program) {
         fs.ensureDirSync(projectPath);
         
         // Copy template files
-        const templatePath = path.join(__dirname, '..', 'templates', options.template);
-        await fs.copy(templatePath, projectPath);
+        const templatePath = path.join(__dirname, '..', '..', 'template');
+        
+        // Check if template exists
+        if (!fs.existsSync(templatePath)) {
+          throw new Error(`Template not found at ${templatePath}`);
+        }
+        
+        await fs.copy(templatePath, projectPath, {
+          filter: (src) => {
+            // Skip files we don't want to copy
+            const basename = path.basename(src);
+            if (basename === '.env' || basename === 'node_modules' || basename === 'dist') {
+              return false;
+            }
+            return true;
+          }
+        });
 
-        // Update package.json with project name
-        const packageJsonPath = path.join(projectPath, 'package.json');
-        const packageJson = await fs.readJson(packageJsonPath);
-        packageJson.name = projectName;
-        await fs.writeJson(packageJsonPath, packageJson, { spaces: 2 });
+        // Process template files (update package.json, etc.)
+        processTemplate(projectPath, projectName, answers.organizationName);
 
-        // Create environment file
+        spinner.succeed('Project structure created');
+
+        // Create environment file from template
+        const envExamplePath = path.join(projectPath, '.env.example');
+        const envPath = path.join(projectPath, '.env');
+        
+        // Create .env content with actual values
         const envContent = `
 # Firebase Configuration
 VITE_FIREBASE_API_KEY=your_api_key_here
 VITE_FIREBASE_AUTH_DOMAIN=${projectName}.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=${projectName}
-VITE_FIREBASE_STORAGE_BUCKET=${projectName}.appspot.com
+VITE_FIREBASE_STORAGE_BUCKET=${projectName}.firebasestorage.app
 VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id_here
 VITE_FIREBASE_APP_ID=your_app_id_here
 VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id_here
 
-# DDEX Workbench Integration
+# Organization Configuration
+VITE_ORGANIZATION_NAME="${answers.organizationName}"
+VITE_DISTRIBUTOR_ID=${answers.distributorId}
+
+# Firebase Functions URL
+VITE_FUNCTIONS_URL=https://${answers.region}-${projectName}.cloudfunctions.net
+
+# DDEX Workbench Integration (optional)
 VITE_WORKBENCH_API_KEY=your_workbench_api_key_here
 VITE_WORKBENCH_API_URL=https://api.ddex-workbench.org/v1
 
 # Edition
 VITE_EDITION=${options.edition}
 
-# Organization
-VITE_ORGANIZATION_NAME="${answers.organizationName}"
-
 # Region
 VITE_FIREBASE_REGION=${answers.region}
 `.trim();
 
-        await fs.writeFile(path.join(projectPath, '.env'), envContent);
-        await fs.writeFile(path.join(projectPath, '.env.example'), envContent);
+        // Write .env and .env.example
+        await fs.writeFile(envPath, envContent);
+        
+        // Create a generic .env.example if it doesn't exist
+        if (!fs.existsSync(envExamplePath)) {
+          const exampleContent = envContent
+            .replace(projectName, 'your_project_id')
+            .replace(answers.organizationName, 'Your Organization Name')
+            .replace(answers.distributorId, 'your_distributor_id');
+          await fs.writeFile(envExamplePath, exampleContent);
+        }
 
-        // Create Firebase configuration
+        // Create/Update Firebase configuration
         const firebaseConfig = {
           hosting: {
             public: 'dist',
@@ -120,29 +207,73 @@ VITE_FIREBASE_REGION=${answers.region}
 
         await fs.writeJson(path.join(projectPath, 'firebase.json'), firebaseConfig, { spaces: 2 });
 
-        spinner.succeed('Project structure created');
-
         // Initialize git
         if (!options.skipGit) {
           spinner.start('Initializing git repository...');
           execSync('git init', { cwd: projectPath, stdio: 'ignore' });
+          
+          // Create .gitignore if it doesn't exist
+          const gitignorePath = path.join(projectPath, '.gitignore');
+          if (!fs.existsSync(gitignorePath)) {
+            const gitignoreContent = `
+# Dependencies
+node_modules/
+functions/node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+coverage/
+`.trim();
+            await fs.writeFile(gitignorePath, gitignoreContent);
+          }
+          
           execSync('git add .', { cwd: projectPath, stdio: 'ignore' });
-          execSync('git commit -m "Initial commit from Stardust Distro CLI"', { cwd: projectPath, stdio: 'ignore' });
+          execSync('git commit -m "Initial commit from music distro CLI"', { cwd: projectPath, stdio: 'ignore' });
           spinner.succeed('Git repository initialized');
         }
 
         // Install dependencies
         if (!options.skipInstall) {
-          // Install main dependencies
-          execSync('npm install', { cwd: projectPath, stdio: 'ignore' });
+          spinner.start('Installing dependencies...');
+          execSync('npm install', { cwd: projectPath, stdio: 'inherit' });
           
           // Install functions dependencies
           const functionsPath = path.join(projectPath, 'functions');
           if (fs.existsSync(functionsPath)) {
             spinner.start('Installing Cloud Functions dependencies...');
-            execSync('npm install', { cwd: functionsPath, stdio: 'ignore' });
+            execSync('npm install', { cwd: functionsPath, stdio: 'inherit' });
             spinner.succeed('Functions dependencies installed');
           }
+          
+          spinner.succeed('All dependencies installed');
         }
 
         // Success message
@@ -151,20 +282,30 @@ VITE_FIREBASE_REGION=${answers.region}
         console.log(chalk.cyan(`  cd ${projectName}`));
         if (options.skipInstall) {
           console.log(chalk.cyan('  npm install'));
+          console.log(chalk.cyan('  cd functions && npm install && cd ..'));
         }
-        console.log(chalk.cyan('  stardust-distro init      # Initialize Firebase'));
-        console.log(chalk.cyan('  npm run dev           # Start development server'));
-        console.log(chalk.cyan('  stardust-distro deploy    # Deploy to Firebase'));
+        console.log(chalk.cyan('  # Update .env with your Firebase config'));
+        console.log(chalk.cyan('  firebase login'));
+        console.log(chalk.cyan('  firebase use --add'));
+        console.log(chalk.cyan('  npm run build'));
+        console.log(chalk.cyan('  firebase deploy'));
+        console.log('\nLocal development:');
+        console.log(chalk.cyan('  npm run dev'));
         
         if (options.edition === 'enterprise') {
           console.log('\n' + chalk.yellow('📦 Enterprise Edition'));
-          console.log('Install enterprise plugins with:');
-          console.log(chalk.cyan('  stardust-distro plugin install <plugin-name>'));
+          console.log('Additional enterprise features available.');
         }
+
+        console.log('\n' + chalk.yellow('⚠️  Important: Firebase Blaze plan (pay-as-you-go) required for Cloud Functions and Storage.'));
+        console.log(chalk.gray('The free tier is generous for small to medium operations.'));
 
       } catch (error) {
         spinner.fail('Project creation failed');
         console.error(chalk.red(error.message));
+        if (error.stack) {
+          console.error(chalk.gray(error.stack));
+        }
         process.exit(1);
       }
     });

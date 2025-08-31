@@ -17,7 +17,7 @@ const errorMessage = ref('')
 const successMessage = ref('')
 const isLoading = ref(false)
 const showForgotPassword = ref(false)
-const appName = import.meta.env.VITE_APP_NAME || 'Music Distro'
+const appName = import.meta.env.VITE_ORGANIZATION_NAME || 'Music Distro'
 
 const handleLogin = async () => {
   errorMessage.value = ''

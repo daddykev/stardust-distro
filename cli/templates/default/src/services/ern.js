@@ -318,10 +318,10 @@ class ERNService {
       const config = {
         // Basic identifiers
         messageId,
-        senderId: targetConfig.config?.distributorId || 'stardust-distro',
-        senderName: targetConfig.senderName || user.displayName || 'Stardust Distro',
-        senderPartyId: targetConfig.config?.distributorId || 'stardust-distro',
-        messageSender: targetConfig.senderName || user.displayName || 'Stardust Distro',
+        senderId: targetConfig.config?.distributorId || import.meta.env.VITE_DISTRIBUTOR_ID || 'default-sender',
+        senderName: targetConfig.senderName || user.displayName || import.meta.env.VITE_ORGANIZATION_NAME || 'Music Distributor',
+        senderPartyId: targetConfig.config?.distributorId || import.meta.env.VITE_DISTRIBUTOR_ID || 'default-sender',
+        messageSender: targetConfig.senderName || user.displayName || import.meta.env.VITE_ORGANIZATION_NAME || 'Music Distributor',
         recipientId: targetConfig.partyId,
         recipientName: targetConfig.partyName,
         recipientPartyId: targetConfig.partyId,
@@ -608,7 +608,7 @@ class ERNService {
         const release = await catalogService.getRelease(releaseId)
         meadResult = await meadService.generateMEAD(release, {
           senderName: targetConfig.senderName || auth.currentUser?.displayName,
-          senderPartyId: targetConfig.config?.distributorId || 'stardust-distro',
+          senderPartyId: targetConfig.config?.distributorId || import.meta.env.VITE_DISTRIBUTOR_ID || 'default-distributor',
           recipientName: targetConfig.partyName,
           recipientPartyId: targetConfig.partyId
         })

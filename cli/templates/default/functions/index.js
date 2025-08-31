@@ -37,17 +37,52 @@ admin.initializeApp()
 const db = admin.firestore()
 const storage = admin.storage()
 
-// Configure CORS
-const corsOptions = {
-  origin: [
-    'https://stardust-distro.org',
-    'https://stardust-distro.web.app',
-    'https://stardust-distro.firebaseapp.com',
-    'https://*.cloudfunctions.net',
+// Get project ID dynamically from Firebase environment
+const projectId = process.env.GCLOUD_PROJECT || 
+                  process.env.FIREBASE_CONFIG ? JSON.parse(process.env.FIREBASE_CONFIG).projectId : 
+                  'my-project';
+
+// Default distributor ID - use project ID if not configured
+const DEFAULT_DISTRIBUTOR_ID = process.env.DISTRIBUTOR_ID || 
+                               process.env.GCLOUD_PROJECT || 
+                               'my-distributor';
+
+/**
+ * Get dynamic CORS origins based on environment
+ */
+function getCorsOrigins() {
+  const origins = [
     'http://localhost:5173',
     'http://localhost:5174',
-    'http://localhost:3000'
-  ],
+    'http://localhost:3000',
+    'http://localhost:5001',
+    'https://*.cloudfunctions.net'
+  ];
+  
+  // Add Firebase hosting URLs
+  if (projectId) {
+    origins.push(
+      `https://${projectId}.web.app`,
+      `https://${projectId}.firebaseapp.com`
+    );
+  }
+  
+  // Add custom domain if configured
+  if (process.env.CUSTOM_DOMAIN) {
+    origins.push(process.env.CUSTOM_DOMAIN);
+  }
+  
+  // Add any additional origins from environment
+  if (process.env.ADDITIONAL_ORIGINS) {
+    origins.push(...process.env.ADDITIONAL_ORIGINS.split(','));
+  }
+  
+  return origins;
+}
+
+// Then use it:
+const corsOptions = {
+  origin: getCorsOrigins(),
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -601,8 +636,8 @@ async function processDelivery(deliveryId, delivery) {
     // Add distributor ID and other DSP-specific data
     if (target.type === 'DSP' || delivery.targetType === 'DSP') {
       deliveryPackage.distributorId = delivery.config?.distributorId || 
-                                     target.config?.distributorId || 
-                                     'stardust-distro'
+                                    target.config?.distributorId || 
+                                    DEFAULT_DISTRIBUTOR_ID
       deliveryPackage.ernXml = delivery.ernXml
       deliveryPackage.releaseTitle = delivery.releaseTitle
       deliveryPackage.releaseArtist = delivery.releaseArtist
@@ -1514,7 +1549,7 @@ async function deliverToDSP(target, deliveryPackage) {
     
     // Log package details
     console.log(`DSP Package Summary:`, {
-      distributorId: deliveryPackage.distributorId,
+      distributorId: deliveryPackage.distributorId || target.config?.distributorId || DEFAULT_DISTRIBUTOR_ID,
       messageId: deliveryPackage.metadata?.messageId,
       messageSubType: deliveryPackage.messageSubType || 'Initial',
       audioFiles: deliveryPackage.audioFiles?.length || 0,
@@ -1525,7 +1560,7 @@ async function deliverToDSP(target, deliveryPackage) {
     
     // Prepare the DSP-specific payload - clean undefined values
     const payload = cleanForFirestore({
-      distributorId: deliveryPackage.distributorId || target.config?.distributorId || 'stardust-distro',
+      distributorId: deliveryPackage.distributorId || target.config?.distributorId || process.env.DISTRIBUTOR_ID || 'default-distributor',
       messageId: deliveryPackage.metadata?.messageId || deliveryPackage.messageId,
       messageType: deliveryPackage.metadata?.messageType || 'NewReleaseMessage',
       messageSubType: deliveryPackage.messageSubType || 'Initial',
@@ -1766,7 +1801,7 @@ async function deliverViaStorage(target, deliveryPackage, deliveryId) {
     
     // Determine the storage path
     const timestamp = Date.now()
-    const distributorId = deliveryPackage.distributorId || target.config?.distributorId || 'unknown'
+    const distributorId = deliveryPackage.distributorId || target.config?.distributorId || DEFAULT_DISTRIBUTOR_ID
     const basePath = `deliveries/${distributorId}/${timestamp}`
     
     console.log(`Uploading to Storage: ${basePath}`)
@@ -2953,7 +2988,7 @@ async function sendNotification(delivery, type, data) {
                     <p><strong>Files Delivered:</strong> ${data?.filesDelivered || 'Unknown'}</p>
                   </div>
                   <p><a href="https://yourdomain.com/deliveries/${delivery.id}" style="display: inline-block; padding: 12px 24px; background: #1a73e8; color: white; text-decoration: none; border-radius: 6px;">View Details</a></p>
-                  <p>Best regards,<br>The Stardust Distro Team</p>
+                  <p>Best regards,<br>The ${organizationName || 'Platform'} Team</p>
                 </div>
               `
               textBody = `Delivery successful! "${delivery.releaseTitle}" was delivered to ${delivery.targetName}. View details at https://yourdomain.com/deliveries/${delivery.id}`
@@ -2971,7 +3006,7 @@ async function sendNotification(delivery, type, data) {
                   </div>
                   <p>Please check your delivery target configuration and try again.</p>
                   <p><a href="https://yourdomain.com/deliveries/${delivery.id}" style="display: inline-block; padding: 12px 24px; background: #1a73e8; color: white; text-decoration: none; border-radius: 6px;">View Logs</a></p>
-                  <p>Best regards,<br>The Stardust Distro Team</p>
+                  <p>Best regards,<br>The ${organizationName || 'Platform'} Team</p>
                 </div>
               `
               textBody = `Delivery failed. "${delivery.releaseTitle}" could not be delivered to ${delivery.targetName}. Error: ${data?.error || 'Unknown'}. View logs at https://yourdomain.com/deliveries/${delivery.id}`
@@ -2989,7 +3024,7 @@ async function sendNotification(delivery, type, data) {
                     <p><strong>Next Retry:</strong> ${nextRetry}</p>
                   </div>
                   <p>No action required. We'll notify you when the retry completes.</p>
-                  <p>Best regards,<br>The Stardust Distro Team</p>
+                  <p>Best regards,<br>The ${organizationName || 'Platform'} Team</p>
                 </div>
               `
               textBody = `Delivery retry scheduled for "${delivery.releaseTitle}". Attempt ${data?.attemptNumber || 1} of 3. Next retry ${nextRetry}.`
@@ -3035,11 +3070,11 @@ exports.onUserCreated = onDocumentCreated({
     await db.collection('mail').add({
       to: user.email,
       message: {
-        subject: 'Welcome to Stardust Distro! 🚀',
+        subject: `Welcome to ${organizationName || 'the platform'}! 🚀`,
         html: `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
             <div style="background: linear-gradient(135deg, #1a73e8 0%, #4285f4 100%); color: white; padding: 40px; text-align: center; border-radius: 10px 10px 0 0;">
-              <h1 style="margin: 0; font-size: 28px;">Welcome to Stardust Distro! 🚀</h1>
+              <h1 style="margin: 0; font-size: 28px;">Welcome to ${organizationName || 'the platform'}! 🚀</h1>
             </div>
             <div style="background: white; padding: 40px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 10px 10px;">
               <p>Hi ${user.displayName || user.organizationName || 'there'},</p>
@@ -3055,14 +3090,14 @@ exports.onUserCreated = onDocumentCreated({
                 <a href="https://yourdomain.com/dashboard" style="display: inline-block; padding: 14px 30px; background: #1a73e8; color: white; text-decoration: none; border-radius: 6px; font-weight: 500;">Open Dashboard</a>
               </p>
               <p>If you have any questions, feel free to reach out!</p>
-              <p>Best regards,<br>The Stardust Distro Team</p>
+              <p>Best regards,<br>The ${organizationName || 'Platform'} Team</p>
             </div>
             <div style="text-align: center; padding: 20px; color: #666; font-size: 12px;">
-              <p>© 2025 Stardust Distro. All rights reserved.</p>
+              <p>© 2025 ${organizationName || 'Your Organization'}. All rights reserved.</p>
             </div>
           </div>
         `,
-        text: `Welcome to Stardust Distro!
+        text: `Welcome to ${organizationName || 'the platform'}!
 
 Hi ${user.displayName || user.organizationName || 'there'},
 
@@ -3077,7 +3112,7 @@ Get Started:
 Open Dashboard: https://yourdomain.com/dashboard
 
 Best regards,
-The Stardust Distro Team`
+The ${organizationName || 'Platform'} Team`
       },
       createdAt: admin.firestore.Timestamp.now()
     })
@@ -3145,7 +3180,7 @@ exports.sendWeeklySummaries = onSchedule({
         await db.collection('mail').add({
           to: user.email,
           message: {
-            subject: `📊 Your Weekly Stardust Distro Summary`,
+            subject: `📊 Your Weekly ${organizationName || 'Platform'} Summary`,
             html: `
               <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2 style="color: #1a73e8;">📊 Weekly Summary</h2>
@@ -3168,7 +3203,7 @@ exports.sendWeeklySummaries = onSchedule({
                 ${stats.failed > 0 ? `<p style="color: #ea4335;">⚠️ You have ${stats.failed} failed deliveries that may need attention.</p>` : ''}
                 <p><a href="https://yourdomain.com/analytics" style="display: inline-block; padding: 12px 24px; background: #1a73e8; color: white; text-decoration: none; border-radius: 6px; margin: 20px 0;">View Full Analytics</a></p>
                 <p>Keep up the great work!</p>
-                <p>Best regards,<br>The Stardust Distro Team</p>
+                <p>Best regards,<br>The ${organizationName || 'Platform'} Team</p>
               </div>
             `,
             text: `Weekly Summary\n\nTotal Deliveries: ${stats.total}\nSuccess Rate: ${successRate}%\nSuccessful: ${stats.successful}\nFailed: ${stats.failed}\n\nView full analytics: https://yourdomain.com/analytics`

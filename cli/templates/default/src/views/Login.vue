@@ -17,6 +17,7 @@ const errorMessage = ref('')
 const successMessage = ref('')
 const isLoading = ref(false)
 const showForgotPassword = ref(false)
+const appName = import.meta.env.VITE_ORGANIZATION_NAME || 'Music Distro'
 
 const handleLogin = async () => {
   errorMessage.value = ''
@@ -145,7 +146,7 @@ const handleForgotPassword = async () => {
               <font-awesome-icon icon="truck" />
             </div>
             <h1 class="auth-title">Welcome Back</h1>
-            <p class="auth-subtitle">Sign in to your Stardust Distro account</p>
+            <p class="auth-subtitle">Sign in to your {{ appName }} account</p>
           </div>
 
           <form @submit.prevent="handleLogin" class="auth-form">

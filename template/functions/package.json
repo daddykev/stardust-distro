@@ -1,6 +1,6 @@
 {
   "name": "music-distro-functions",
-  "description": "Cloud Functions for Music Distribution Platform",
+  "description": "Cloud functions for music distribution platform",
   "scripts": {
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
