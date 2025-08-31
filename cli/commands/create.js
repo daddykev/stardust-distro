@@ -113,7 +113,7 @@ export function createCommand(program) {
         fs.ensureDirSync(projectPath);
         
         // Copy template files
-        const templatePath = path.join(__dirname, '..', '..', 'template');
+        const templatePath = path.join(__dirname, '..', 'templates', options.template || 'default');
         
         // Check if template exists
         if (!fs.existsSync(templatePath)) {

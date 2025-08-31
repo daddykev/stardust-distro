@@ -6,15 +6,17 @@ node_modules/
 .DS_Store
 test/
 
-# Template build artifacts
-templates/default/dist/
-templates/default/node_modules/
-templates/default/.env
-templates/default/.env.local
-templates/default/.firebase/
-templates/default/firebase-debug.log
-templates/default/functions/node_modules/
-templates/default/functions/.env
+# IMPORTANT: Don't ignore the template directory itself!
+# Only ignore build artifacts WITHIN the template
+template/dist/
+template/node_modules/
+template/.env
+template/.env.local
+template/.firebase/
+template/firebase-debug.log
+template/functions/node_modules/
+template/functions/.env
+template/functions/*.serviceaccount.json
 
 # Editor
 .vscode/

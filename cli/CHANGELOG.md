@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.4] - 2025-08-30
+
+### 🐛 Bug Fixes
+
+- **Critical CLI Template Path Issue**: Fixed template not found error when CLI is installed globally via npm
+  - Corrected template path resolution in `create.js` command
+  - Template now correctly loads from `cli/templates/default` instead of looking for non-existent `../template` directory
+  - Fixes: "Template not found at /opt/homebrew/lib/node_modules/@stardust-distro/template" error
+
+### 🔧 Technical Changes
+
+- Ensures CLI works correctly when installed globally via `npm install -g @stardust-distro/cli`
+
 ## [1.0.3] - 2025-08-30
 
 ### 🔄 Template Genericization & Dynamic Configuration
@@ -172,3 +185,4 @@ First stable release of Stardust Distro.
 npx @stardust-distro/cli create my-platform
 cd my-platform
 npm run dev
+```
