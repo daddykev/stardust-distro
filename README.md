@@ -6,9 +6,9 @@
 [![Firebase](https://img.shields.io/badge/Firebase-v9-FFA000.svg)](https://firebase.google.com/)
 [![Status](https://img.shields.io/badge/Status-Alpha-orange.svg)](https://github.com/daddykev/stardust-distro)
 
-> Open-source, npm-installable music distribution platform for the modern music industry.
+> Open-source, npm-installable music distribution platform for the modern age.
 
-Stardust Distro enables labels, artists, and distributors to deploy a fully functional, DDEX-compliant distribution system with enterprise-grade features and delivery capabilities.
+Stardust Distro enables artists, labels, and distributors to deploy a fully functional, DDEX-compliant distribution system with enterprise-grade features and global delivery capabilities.
 
 -----
 
@@ -45,22 +45,16 @@ Navigate to project
 cd my-platform
 ```
 
-Initialize Firebase (free tier available)
+Initialize Firebase
 ```bash
 stardust-distro init
 ```
-
-Start development server
-```bash
-npm run dev
-```
-
-Visit http://localhost:5173
 
 Deploy to production
 ```bash
 npm run deploy
 ```
+
 Your platform is live! 🚀
 
 -----
