@@ -35,9 +35,8 @@ npx create-stardust-distro my-music-distro
 cd my-music-distro
 npm run init
 
-# IMPORTANT: Set your Firebase project
-cp .firebaserc.example .firebaserc
-# Edit .firebaserc with your Firebase project ID
+# IMPORTANT: Update your Firebase project ID
+# Edit .firebaserc and replace "YOUR_PROJECT_ID" with your actual project ID
 
 npm run deploy
 ```
@@ -129,17 +128,19 @@ npm run init
 
 ### Step 4: Configure Firebase Project (Critical Step!)
 
-Before deploying, you MUST configure your Firebase project ID:
+Before deploying, you MUST update your Firebase project ID in the `.firebaserc` file:
 
 ```bash
-# Copy the example file
-cp .firebaserc.example .firebaserc
+# Open .firebaserc in your editor
+# It will look like this:
+{
+  "projects": {
+    "default": "YOUR_PROJECT_ID"
+  }
+}
 
-# Edit .firebaserc and replace "your-project-id-here" with your actual Firebase project ID
-```
-
-Your `.firebaserc` file should look like:
-```json
+# Replace "YOUR_PROJECT_ID" with your actual Firebase project ID
+# For example:
 {
   "projects": {
     "default": "my-label-distro-12345"
@@ -153,10 +154,11 @@ Your `.firebaserc` file should look like:
 
 Alternatively, you can set this using the Firebase CLI:
 ```bash
-# Set the default project
+# Set the default project (this will update .firebaserc automatically)
 firebase use your-project-id-here
 
-# This will create/update the .firebaserc file automatically
+# Verify it's set correctly
+firebase use
 ```
 
 ### Step 5: Deploy to Production
@@ -173,7 +175,7 @@ npm run deploy
 # ✓ Configure Storage rules
 ```
 
-⚠️ **If deployment fails with "No project active" error**, you forgot to set up `.firebaserc` in Step 4!
+⚠️ **If deployment fails with "No project active" error**, you forgot to update `.firebaserc` in Step 4!
 
 ### Step 6: Initial Setup
 
@@ -267,13 +269,13 @@ npm run emulators
 
 **Firebase deployment fails**
 - Ensure you're logged in: `firebase login`
-- **Check `.firebaserc` is configured with your project ID**
+- **Check `.firebaserc` has your actual project ID, not the placeholder**
 - Check you've upgraded to Blaze plan
 - Verify all services are enabled
 
 **"No project active" error**
-- You need to create `.firebaserc` file with your project ID
-- Or run: `firebase use your-project-id`
+- Open `.firebaserc` and ensure "YOUR_PROJECT_ID" is replaced with your actual project ID
+- Or run: `firebase use your-project-id` to set it automatically
 - Verify with: `firebase use` (should show your project)
 
 **Email notifications not working**
