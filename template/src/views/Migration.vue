@@ -25,8 +25,9 @@ const batchReleases = ref([])
 const newlyCreatedReleases = ref(new Set())
 
 // UI State
-const activeTab = ref('overview') // 'overview', 'metadata', 'assets', 'complete'
+const activeTab = ref('all') // 'all', 'incomplete', 'complete'
 const selectedRelease = ref(null)
+const expandedRelease = ref(null) // Track which release is expanded
 const isLoading = ref(false)
 const error = ref(null)
 const successMessage = ref(null)
@@ -59,6 +60,12 @@ const catalogedBatchReleases = computed(() =>
   batchReleases.value.filter(r => r.cataloged)
 )
 
+const filteredReleases = computed(() => {
+  if (activeTab.value === 'incomplete') return incompleteBatchReleases.value
+  if (activeTab.value === 'complete') return completeBatchReleases.value
+  return batchReleases.value
+})
+
 const selectedReleaseCompleteness = computed(() => {
   if (!selectedRelease.value) return null
   
@@ -86,6 +93,16 @@ const loadBatch = async () => {
     error.value = 'Failed to load batch'
   } finally {
     isLoading.value = false
+  }
+}
+
+const toggleReleaseExpansion = (release) => {
+  if (expandedRelease.value?.upc === release.upc) {
+    expandedRelease.value = null
+    selectedRelease.value = null
+  } else {
+    expandedRelease.value = release
+    selectedRelease.value = release
   }
 }
 
@@ -266,15 +283,6 @@ const fetchMetadataForUPCs = async (upcs) => {
   }
 }
 
-const selectRelease = (release) => {
-  selectedRelease.value = release
-  
-  // If this is a newly created release, highlight it
-  if (newlyCreatedReleases.value.has(release.upc)) {
-    activeTab.value = 'metadata'
-  }
-}
-
 const updateReleaseMetadata = async (field, value) => {
   if (!selectedRelease.value) return
   
@@ -290,6 +298,7 @@ const updateReleaseMetadata = async (field, value) => {
   
   // Update selected release reference
   selectedRelease.value = batchReleases.value.find(r => r.upc === selectedRelease.value.upc)
+  expandedRelease.value = selectedRelease.value
 }
 
 const handleCoverUpload = async (event) => {
@@ -319,6 +328,7 @@ const handleCoverUpload = async (event) => {
     
     await loadBatch()
     selectedRelease.value = batchReleases.value.find(r => r.upc === selectedRelease.value.upc)
+    expandedRelease.value = selectedRelease.value
     
     successMessage.value = 'Cover art uploaded successfully'
     setTimeout(() => { successMessage.value = null }, 3000)
@@ -372,6 +382,7 @@ const handleTrackAudioUpload = async (event, trackIndex) => {
     
     await loadBatch()
     selectedRelease.value = batchReleases.value.find(r => r.upc === selectedRelease.value.upc)
+    expandedRelease.value = selectedRelease.value
     
     delete uploadProgress.value[fileName]
     successMessage.value = `Audio uploaded for track ${trackIndex + 1}`
@@ -580,13 +591,12 @@ const handleBulkAudioUpload = async (event) => {
     
     successMessage.value = message
     
-    // Auto-select the first newly created release if any
+    // Auto-expand the first newly created release if any
     if (newlyCreatedReleases.value.size > 0) {
       const firstNewUPC = Array.from(newlyCreatedReleases.value)[0]
       const newRelease = batchReleases.value.find(r => r.upc === firstNewUPC)
       if (newRelease) {
-        selectRelease(newRelease)
-        activeTab.value = 'assets'
+        toggleReleaseExpansion(newRelease)
       }
     }
     
@@ -833,6 +843,8 @@ const downloadApiArtwork = async (release) => {
     })
     
     await loadBatch()
+    selectedRelease.value = batchReleases.value.find(r => r.upc === release.upc)
+    expandedRelease.value = selectedRelease.value
     
     successMessage.value = 'Cover art downloaded from API'
     setTimeout(() => { successMessage.value = null }, 3000)
@@ -944,7 +956,7 @@ watch(() => route.query.batchId, (newBatchId) => {
   <div class="migration-batch section">
     <div class="container">
       <!-- Header -->
-      <div class="batch-header mb-xl">
+      <div class="batch-header mb-lg">
         <div class="flex justify-between items-center mb-md">
           <div>
             <router-link to="/batches" class="text-primary mb-sm inline-block">
@@ -958,42 +970,40 @@ watch(() => route.query.batchId, (newBatchId) => {
               {{ batch?.description || 'Import and manage releases in this batch' }}
             </p>
           </div>
-          <div class="flex gap-md">
-            <button 
-              @click="showImportDialog" 
-              class="btn btn-primary"
-            >
-              <font-awesome-icon icon="plus" />
-              Add Releases
-            </button>
-          </div>
+          <button 
+            @click="showImportDialog" 
+            class="btn btn-primary"
+          >
+            <font-awesome-icon icon="plus" />
+            Add Releases
+          </button>
         </div>
 
-        <!-- Batch Stats -->
-        <div v-if="batch" class="stats-row grid grid-cols-6 gap-md">
-          <div class="stat-card">
+        <!-- Compact KPIs -->
+        <div v-if="batch" class="stats-grid">
+          <div class="stat-card-compact">
             <div class="stat-value">{{ batch.stats?.totalReleases || 0 }}</div>
-            <div class="stat-label">Total</div>
+            <div class="stat-label">TOTAL</div>
           </div>
-          <div class="stat-card">
-            <div class="stat-value text-warning">{{ batch.stats?.incompleteReleases || 0 }}</div>
-            <div class="stat-label">Incomplete</div>
+          <div class="stat-card-compact text-warning">
+            <div class="stat-value">{{ batch.stats?.incompleteReleases || 0 }}</div>
+            <div class="stat-label">INCOMPLETE</div>
           </div>
-          <div class="stat-card">
-            <div class="stat-value text-success">{{ batch.stats?.completeReleases || 0 }}</div>
-            <div class="stat-label">Complete</div>
+          <div class="stat-card-compact text-success">
+            <div class="stat-value">{{ batch.stats?.completeReleases || 0 }}</div>
+            <div class="stat-label">COMPLETE</div>
           </div>
-          <div class="stat-card">
-            <div class="stat-value text-info">{{ batch.stats?.catalogedReleases || 0 }}</div>
-            <div class="stat-label">Cataloged</div>
+          <div class="stat-card-compact text-info">
+            <div class="stat-value">{{ batch.stats?.catalogedReleases || 0 }}</div>
+            <div class="stat-label">CATALOGED</div>
           </div>
-          <div class="stat-card">
-            <div class="stat-value text-error">{{ batch.stats?.pendingAudio || 0 }}</div>
-            <div class="stat-label">Need Audio</div>
+          <div class="stat-card-compact text-error">
+            <div class="stat-value">{{ batch.stats?.pendingAudio || 0 }}</div>
+            <div class="stat-label">NEED AUDIO</div>
           </div>
-          <div class="stat-card">
-            <div class="stat-value text-error">{{ batch.stats?.pendingArtwork || 0 }}</div>
-            <div class="stat-label">Need Art</div>
+          <div class="stat-card-compact text-error">
+            <div class="stat-value">{{ batch.stats?.pendingArtwork || 0 }}</div>
+            <div class="stat-label">NEED ART</div>
           </div>
         </div>
       </div>
@@ -1032,352 +1042,231 @@ watch(() => route.query.batchId, (newBatchId) => {
         </div>
       </div>
 
-      <!-- Main Content Grid -->
-      <div class="grid grid-cols-12 gap-xl">
-        <!-- Release List (Left) -->
-        <div class="col-span-4">
-          <div class="card">
-            <div class="card-header">
-              <h3>Releases in Batch</h3>
-            </div>
-            <div class="card-body p-0">
-              <!-- Tabs for filtering -->
-              <div class="release-tabs flex border-b">
-                <button 
-                  @click="activeTab = 'all'"
-                  class="tab-btn"
-                  :class="{ active: activeTab === 'all' }"
-                >
-                  All ({{ batchReleases.length }})
-                </button>
-                <button 
-                  @click="activeTab = 'incomplete'"
-                  class="tab-btn"
-                  :class="{ active: activeTab === 'incomplete' }"
-                >
-                  Incomplete ({{ incompleteBatchReleases.length }})
-                </button>
-                <button 
-                  @click="activeTab = 'complete'"
-                  class="tab-btn"
-                  :class="{ active: activeTab === 'complete' }"
-                >
-                  Complete ({{ completeBatchReleases.length }})
-                </button>
-              </div>
-
-              <!-- Release List -->
-              <div class="release-list">
-                <div 
-                  v-for="release in (activeTab === 'incomplete' ? incompleteBatchReleases : activeTab === 'complete' ? completeBatchReleases : batchReleases)"
-                  :key="release.upc"
-                  class="release-item"
-                  :class="{ 
-                    active: selectedRelease?.upc === release.upc,
-                    cataloged: release.cataloged
-                  }"
-                  @click="selectRelease(release)"
-                >
-                  <div class="flex gap-md">
-                    <!-- Cover Thumbnail -->
-                    <div class="release-thumbnail">
-                      <img 
-                        v-if="release.coverArt?.url"
-                        :src="release.coverArt.url"
-                        :alt="release.metadata?.title"
-                      />
-                      <div v-else class="thumbnail-placeholder">
-                        <font-awesome-icon icon="image" />
-                      </div>
-                    </div>
-
-                    <!-- Release Info -->
-                    <div class="flex-1 min-w-0">
-                      <h4 class="release-title">
-                        {{ release.metadata?.title || 'Untitled' }}
-                        <span v-if="release.cataloged" class="badge badge-info ml-xs">
-                          Cataloged
-                        </span>
-                      </h4>
-                      <p class="release-artist">{{ release.metadata?.artist || 'Unknown Artist' }}</p>
-                      <p class="release-upc">{{ release.upc }}</p>
-                      
-                      <!-- Completeness Indicators -->
-                      <div class="completeness-indicators flex gap-xs mt-xs">
-                        <span 
-                          class="indicator"
-                          :class="{ complete: release.metadata?.title }"
-                          title="Metadata"
-                        >
-                          <font-awesome-icon icon="info-circle" />
-                        </span>
-                        <span 
-                          class="indicator"
-                          :class="{ complete: release.coverArt }"
-                          title="Cover Art"
-                        >
-                          <font-awesome-icon icon="image" />
-                        </span>
-                        <span 
-                          class="indicator"
-                          :class="{ complete: release.hasAllAudio }"
-                          title="Audio Files"
-                        >
-                          <font-awesome-icon icon="music" />
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="batchReleases.length === 0" class="empty-list p-xl text-center">
-                  <font-awesome-icon icon="inbox" class="text-3xl text-border mb-md" />
-                  <p class="text-secondary">No releases in batch yet</p>
-                  <button @click="showImportDialog" class="btn btn-primary btn-sm mt-md">
-                    Add Releases
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Bulk Upload Section -->
-          <div class="card mt-lg">
-            <div class="card-header">
-              <h4>Bulk Audio Upload</h4>
-            </div>
-            <div class="card-body">
-              <p class="text-sm text-secondary mb-md">
-                Upload DDEX-named audio files to automatically match them to releases
-              </p>
-              <div class="upload-area-compact">
-                <label class="upload-label-compact">
-                  <input 
-                    type="file"
-                    accept="audio/*"
-                    multiple
-                    @change="handleBulkAudioUpload"
-                    :disabled="processingAssets"
-                  />
-                  <font-awesome-icon icon="upload" />
-                  <span>Upload Audio Files</span>
-                </label>
-              </div>
-              <p class="text-xs text-tertiary mt-sm">
-                Format: UPC_DD_TT.wav (e.g., 123456789012_01_01.wav)
-              </p>
-            </div>
-          </div>
+      <!-- Releases in Batch - Full Width -->
+      <div class="card mb-xl">
+        <div class="card-header">
+          <h3>Releases in Batch</h3>
+        </div>
+        
+        <!-- Tabs for filtering -->
+        <div class="release-tabs flex border-b">
+          <button 
+            @click="activeTab = 'all'"
+            class="tab-btn"
+            :class="{ active: activeTab === 'all' }"
+          >
+            All ({{ batchReleases.length }})
+          </button>
+          <button 
+            @click="activeTab = 'incomplete'"
+            class="tab-btn"
+            :class="{ active: activeTab === 'incomplete' }"
+          >
+            Incomplete ({{ incompleteBatchReleases.length }})
+          </button>
+          <button 
+            @click="activeTab = 'complete'"
+            class="tab-btn"
+            :class="{ active: activeTab === 'complete' }"
+          >
+            Complete ({{ completeBatchReleases.length }})
+          </button>
         </div>
 
-        <!-- Release Details (Right) -->
-        <div class="col-span-8">
-          <div v-if="selectedRelease" class="card">
-            <div class="card-header">
-              <h3>{{ selectedRelease.metadata?.title || 'Release Details' }}</h3>
-              <div class="release-actions">
-                <button 
-                  v-if="!selectedRelease.cataloged && batchService.isReleaseComplete(selectedRelease)"
-                  @click="moveReleaseToCatalog(selectedRelease)"
-                  class="btn btn-success btn-sm"
-                  :disabled="isLoading"
-                >
-                  <font-awesome-icon icon="check" />
-                  Move to Catalog
-                </button>
-              </div>
-            </div>
-            
-            <!-- Detail Tabs -->
-            <div class="detail-tabs flex border-b">
-              <button 
-                class="tab-btn"
-                :class="{ active: activeTab === 'metadata' }"
-                @click="activeTab = 'metadata'"
-              >
-                Metadata
-              </button>
-              <button 
-                class="tab-btn"
-                :class="{ active: activeTab === 'assets' }"
-                @click="activeTab = 'assets'"
-              >
-                Assets
-              </button>
-            </div>
+        <div class="release-list-container">
+          <!-- Empty State -->
+          <div v-if="filteredReleases.length === 0" class="empty-list p-xl text-center">
+            <font-awesome-icon icon="inbox" class="text-3xl text-border mb-md" />
+            <p class="text-secondary">No releases in this filter</p>
+          </div>
 
-            <!-- Tab Content -->
-            <div class="card-body">
-              <!-- Metadata Tab -->
-              <div v-if="activeTab === 'metadata'" class="metadata-section">
-                <div class="form-group">
-                  <label class="form-label">UPC</label>
-                  <input 
-                    type="text"
-                    class="form-input"
-                    :value="selectedRelease.upc"
-                    @input="updateReleaseMetadata('upc', $event.target.value)"
+          <!-- Release List -->
+          <div v-for="release in filteredReleases" :key="release.upc">
+            <!-- Release Row -->
+            <div 
+              class="release-row"
+              :class="{ 
+                active: expandedRelease?.upc === release.upc,
+                cataloged: release.cataloged
+              }"
+              @click="toggleReleaseExpansion(release)"
+            >
+              <div class="release-row-content">
+                <!-- Cover Thumbnail -->
+                <div class="release-thumbnail">
+                  <img 
+                    v-if="release.coverArt?.url"
+                    :src="release.coverArt.url"
+                    :alt="release.metadata?.title"
+                  />
+                  <div v-else class="thumbnail-placeholder">
+                    <font-awesome-icon icon="image" />
+                  </div>
+                </div>
+
+                <!-- Release Info -->
+                <div class="release-info">
+                  <h4 class="release-title">
+                    {{ release.metadata?.title || 'Untitled' }}
+                    <span v-if="release.cataloged" class="badge badge-info ml-xs">
+                      Cataloged
+                    </span>
+                  </h4>
+                  <p class="release-artist">{{ release.metadata?.artist || 'Unknown Artist' }}</p>
+                  <p class="release-upc">{{ release.upc }}</p>
+                </div>
+
+                <!-- Status Indicators -->
+                <div class="release-status">
+                  <div class="completeness-indicators">
+                    <span 
+                      class="indicator"
+                      :class="{ complete: release.metadata?.title }"
+                      title="Metadata"
+                    >
+                      <font-awesome-icon icon="info-circle" />
+                    </span>
+                    <span 
+                      class="indicator"
+                      :class="{ complete: release.coverArt }"
+                      title="Cover Art"
+                    >
+                      <font-awesome-icon icon="image" />
+                    </span>
+                    <span 
+                      class="indicator"
+                      :class="{ complete: release.hasAllAudio }"
+                      title="Audio Files"
+                    >
+                      <font-awesome-icon icon="music" />
+                    </span>
+                  </div>
+                  <font-awesome-icon 
+                    :icon="expandedRelease?.upc === release.upc ? 'chevron-up' : 'chevron-down'"
+                    class="expand-icon"
                   />
                 </div>
+              </div>
+            </div>
 
-                <div class="grid grid-cols-2 gap-md">
-                  <div class="form-group">
-                    <label class="form-label">Title</label>
-                    <input 
-                      type="text"
-                      class="form-input"
-                      :value="selectedRelease.metadata?.title"
-                      @input="updateReleaseMetadata('title', $event.target.value)"
-                    />
-                  </div>
-
-                  <div class="form-group">
-                    <label class="form-label">Artist</label>
-                    <input 
-                      type="text"
-                      class="form-input"
-                      :value="selectedRelease.metadata?.artist"
-                      @input="updateReleaseMetadata('artist', $event.target.value)"
-                    />
-                  </div>
-
-                  <div class="form-group">
-                    <label class="form-label">Label</label>
-                    <input 
-                      type="text"
-                      class="form-input"
-                      :value="selectedRelease.metadata?.label"
-                      @input="updateReleaseMetadata('label', $event.target.value)"
-                    />
-                  </div>
-
-                  <div class="form-group">
-                    <label class="form-label">Release Date</label>
-                    <input 
-                      type="date"
-                      class="form-input"
-                      :value="selectedRelease.metadata?.releaseDate"
-                      @input="updateReleaseMetadata('releaseDate', $event.target.value)"
-                    />
-                  </div>
-
-                  <div class="form-group">
-                    <label class="form-label">Genre</label>
-                    <input 
-                      type="text"
-                      class="form-input"
-                      :value="selectedRelease.metadata?.genre"
-                      @input="updateReleaseMetadata('genre', $event.target.value)"
-                    />
+            <!-- Expanded Details (Inline) -->
+            <div v-if="expandedRelease?.upc === release.upc" class="release-details">
+              <div class="details-grid">
+                <!-- Metadata Section -->
+                <div class="details-section">
+                  <h4 class="section-title">Metadata</h4>
+                  <div class="form-grid">
+                    <div class="form-group">
+                      <label class="form-label">Title</label>
+                      <input 
+                        type="text"
+                        class="form-input"
+                        :value="release.metadata?.title"
+                        @input="updateReleaseMetadata('title', $event.target.value)"
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label">Artist</label>
+                      <input 
+                        type="text"
+                        class="form-input"
+                        :value="release.metadata?.artist"
+                        @input="updateReleaseMetadata('artist', $event.target.value)"
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label">Label</label>
+                      <input 
+                        type="text"
+                        class="form-input"
+                        :value="release.metadata?.label"
+                        @input="updateReleaseMetadata('label', $event.target.value)"
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label">Release Date</label>
+                      <input 
+                        type="date"
+                        class="form-input"
+                        :value="release.metadata?.releaseDate"
+                        @input="updateReleaseMetadata('releaseDate', $event.target.value)"
+                      />
+                    </div>
                   </div>
                 </div>
 
-                <!-- Track List -->
-                <div class="tracks-section mt-xl">
-                  <h4 class="mb-md">Tracks ({{ selectedRelease.tracks?.length || 0 }})</h4>
-                  <div class="tracks-list">
-                    <div 
-                      v-for="(track, idx) in selectedRelease.tracks"
-                      :key="idx"
-                      class="track-item"
-                    >
-                      <div class="track-number">{{ track.position }}</div>
-                      <div class="track-info flex-1">
-                        <div class="track-title">{{ track.title }}</div>
-                        <div class="track-details">
-                          {{ track.artist }} • {{ track.isrc || 'No ISRC' }}
-                        </div>
+                <!-- Assets Section -->
+                <div class="details-section">
+                  <h4 class="section-title">Assets</h4>
+                  
+                  <!-- Cover Art -->
+                  <div class="asset-group">
+                    <label class="asset-label">Cover Art</label>
+                    <div class="asset-content">
+                      <div v-if="release.coverArt" class="cover-preview-small">
+                        <img :src="release.coverArt.url" :alt="release.metadata?.title" />
                       </div>
-                      <div class="track-status">
+                      <div v-else class="asset-actions">
+                        <label class="btn btn-secondary btn-sm">
+                          <input 
+                            type="file"
+                            accept="image/*"
+                            @change="handleCoverUpload"
+                            style="display: none"
+                            :disabled="processingAssets"
+                          />
+                          <font-awesome-icon icon="upload" />
+                          Upload
+                        </label>
+                        <button 
+                          v-if="release.metadata?.coverUrl"
+                          @click="downloadApiArtwork(release)"
+                          class="btn btn-primary btn-sm"
+                          :disabled="processingAssets"
+                        >
+                          <font-awesome-icon icon="download" />
+                          Use API
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Audio Files Status -->
+                  <div class="asset-group">
+                    <label class="asset-label">Audio Files</label>
+                    <div class="asset-content">
+                      <div class="audio-status">
+                        <span v-if="release.hasAllAudio" class="text-success">
+                          <font-awesome-icon icon="check-circle" />
+                          All tracks have audio
+                        </span>
+                        <span v-else class="text-warning">
+                          {{ release.tracks?.filter(t => t.audioFile).length || 0 }} / {{ release.tracks?.length || 0 }} tracks
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Tracks Section -->
+                <div class="details-section tracks-section">
+                  <h4 class="section-title">Tracks ({{ release.tracks?.length || 0 }})</h4>
+                  <div class="tracks-compact-list">
+                    <div 
+                      v-for="(track, idx) in release.tracks"
+                      :key="idx"
+                      class="track-compact-item"
+                    >
+                      <span class="track-number">{{ track.position }}</span>
+                      <div class="track-info">
+                        <span class="track-title">{{ track.title }}</span>
+                        <span class="track-artist">{{ track.artist }}</span>
+                      </div>
+                      <div class="track-actions">
                         <span v-if="track.audioFile" class="text-success">
                           <font-awesome-icon icon="check-circle" />
                         </span>
-                        <span v-else class="text-error">
-                          <font-awesome-icon icon="times-circle" />
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Assets Tab -->
-              <div v-if="activeTab === 'assets'" class="assets-section">
-                <!-- Cover Art -->
-                <div class="cover-section mb-xl">
-                  <h4 class="mb-md">Cover Art</h4>
-                  
-                  <div v-if="selectedRelease.coverArt" class="current-cover">
-                    <img 
-                      :src="selectedRelease.coverArt.url"
-                      :alt="selectedRelease.metadata?.title"
-                      class="cover-preview"
-                    />
-                    <p class="text-sm text-secondary mt-sm">
-                      Uploaded {{ formatDate(selectedRelease.coverArt.uploadedAt) }}
-                      <span v-if="selectedRelease.coverArt.source === 'api'" class="badge badge-info ml-sm">
-                        From API
-                      </span>
-                    </p>
-                  </div>
-
-                  <div v-else class="no-cover">
-                    <div class="cover-placeholder-large">
-                      <font-awesome-icon icon="image" />
-                    </div>
-                    
-                    <div class="cover-actions mt-md">
-                      <label class="btn btn-secondary btn-sm">
-                        <input 
-                          type="file"
-                          accept="image/*"
-                          @change="handleCoverUpload"
-                          style="display: none"
-                          :disabled="processingAssets"
-                        />
-                        <font-awesome-icon icon="upload" />
-                        Upload Cover
-                      </label>
-                      
-                      <button 
-                        v-if="selectedRelease.metadata?.coverUrl"
-                        @click="downloadApiArtwork(selectedRelease)"
-                        class="btn btn-primary btn-sm"
-                        :disabled="processingAssets"
-                      >
-                        <font-awesome-icon icon="download" />
-                        Use API Cover
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Audio Files -->
-                <div class="audio-section">
-                  <h4 class="mb-md">Audio Files</h4>
-                  
-                  <div class="audio-list">
-                    <div 
-                      v-for="(track, idx) in selectedRelease.tracks"
-                      :key="idx"
-                      class="audio-item"
-                    >
-                      <div class="audio-info">
-                        <div class="audio-title">
-                          {{ track.position }}. {{ track.title }}
-                        </div>
-                        <div v-if="track.audioFile" class="audio-details text-sm text-secondary">
-                          {{ track.audioFile.format }} • 
-                          {{ (track.audioFile.size / 1024 / 1024).toFixed(2) }} MB
-                        </div>
-                      </div>
-                      
-                      <div class="audio-actions">
-                        <div v-if="track.audioFile" class="text-success">
-                          <font-awesome-icon icon="check-circle" />
-                          Uploaded
-                        </div>
-                        <label v-else class="btn btn-secondary btn-sm">
+                        <label v-else class="btn-upload-small">
                           <input 
                             type="file"
                             accept="audio/*"
@@ -1386,42 +1275,70 @@ watch(() => route.query.batchId, (newBatchId) => {
                             :disabled="processingAssets"
                           />
                           <font-awesome-icon icon="upload" />
-                          Upload
                         </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Upload Progress -->
-                  <div v-if="Object.keys(uploadProgress).length > 0" class="upload-progress-section mt-md">
-                    <div 
-                      v-for="(progress, fileName) in uploadProgress"
-                      :key="fileName"
-                      class="progress-item"
-                    >
-                      <div class="flex justify-between text-sm mb-xs">
-                        <span>{{ fileName }}</span>
-                        <span>{{ Math.round(progress) }}%</span>
-                      </div>
-                      <div class="progress-bar">
-                        <div class="progress-fill" :style="{ width: `${progress}%` }"></div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
+
+              <!-- Action Bar -->
+              <div class="details-actions">
+                <button 
+                  v-if="!release.cataloged && batchService.isReleaseComplete(release)"
+                  @click="moveReleaseToCatalog(release)"
+                  class="btn btn-success"
+                  :disabled="isLoading"
+                >
+                  <font-awesome-icon icon="check" />
+                  Move to Catalog
+                </button>
+                <button 
+                  v-else-if="!release.cataloged"
+                  class="btn btn-secondary"
+                  disabled
+                >
+                  Complete all fields to catalog
+                </button>
+              </div>
             </div>
           </div>
+        </div>
+      </div>
 
-          <!-- Empty State -->
-          <div v-else class="card">
-            <div class="card-body text-center p-3xl">
-              <font-awesome-icon icon="music" class="text-5xl text-border mb-lg" />
-              <h3 class="text-xl font-semibold mb-md">Select a Release</h3>
-              <p class="text-secondary">
-                Choose a release from the list to view and edit its details
-              </p>
-            </div>
+      <!-- Bulk Audio Upload - Full Width -->
+      <div class="card">
+        <div class="card-header">
+          <h4>Bulk Audio Upload</h4>
+        </div>
+        <div class="card-body">
+          <p class="mb-md">
+            Upload DDEX-named audio files to automatically match them to releases. 
+            Files will be matched by UPC and track number.
+          </p>
+          
+          <div class="upload-drop-zone">
+            <label class="drop-zone-label">
+              <input 
+                type="file"
+                accept="audio/*"
+                multiple
+                @change="handleBulkAudioUpload"
+                :disabled="processingAssets"
+              />
+              
+              <div v-if="!processingAssets" class="drop-zone-content">
+                <font-awesome-icon icon="upload" class="upload-icon" />
+                <p class="upload-text">Drop audio files here or click to browse</p>
+                <span class="btn btn-primary">Choose Files...</span>
+                <p class="format-hint">Required format: UPC_DD_TT.wav (e.g., 123456789012_01_01.wav)</p>
+              </div>
+              
+              <div v-else class="drop-zone-content">
+                <font-awesome-icon icon="spinner" spin class="upload-icon text-primary" />
+                <p class="upload-text">Processing files...</p>
+              </div>
+            </label>
           </div>
         </div>
       </div>
@@ -1554,55 +1471,354 @@ watch(() => route.query.batchId, (newBatchId) => {
 </template>
 
 <style scoped>
-/* Grid Layout */
-.grid-cols-12 {
+/* Compact Stats Grid */
+.stats-grid {
   display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: var(--space-xl);
-}
-
-.col-span-4 {
-  grid-column: span 4;
-}
-
-.col-span-8 {
-  grid-column: span 8;
-}
-
-/* Stats */
-.stats-row {
-  display: grid;
-}
-
-.stat-card {
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background-color: var(--color-bg-secondary);
   border-radius: var(--radius-lg);
-  padding: var(--space-md);
+}
+
+.stat-card-compact {
   text-align: center;
 }
 
-.stat-value {
+.stat-card-compact .stat-value {
   font-size: var(--text-2xl);
   font-weight: var(--font-bold);
+  line-height: 1;
+}
+
+.stat-card-compact .stat-label {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  margin-top: var(--space-xs);
+  letter-spacing: 0.5px;
+}
+
+/* Release List */
+.release-list-container {
+  max-height: none;
+}
+
+.release-row {
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.release-row:hover {
+  background-color: var(--color-bg-secondary);
+}
+
+.release-row.active {
+  background-color: var(--color-primary-light);
+}
+
+.release-row.cataloged {
+  opacity: 0.7;
+}
+
+.release-row-content {
+  display: flex;
+  align-items: center;
+  padding: var(--space-lg);
+  gap: var(--space-lg);
+}
+
+.release-thumbnail {
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.release-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumbnail-placeholder {
+  width: 100%;
+  height: 100%;
+  background-color: var(--color-bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+}
+
+.release-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.release-title {
+  font-weight: var(--font-semibold);
+  font-size: var(--text-lg);
   margin-bottom: var(--space-xs);
 }
 
-.stat-label {
-  font-size: var(--text-xs);
+.release-artist {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-xs);
+}
+
+.release-upc {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.release-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.expand-icon {
+  color: var(--color-text-secondary);
+  transition: transform var(--transition-base);
+}
+
+/* Expanded Details */
+.release-details {
+  background-color: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-xl);
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-xl);
+  margin-bottom: var(--space-lg);
+}
+
+.details-section {
+  padding: var(--space-lg);
+  background-color: var(--color-surface);
+  border-radius: var(--radius-lg);
+}
+
+.details-section.tracks-section {
+  grid-column: span 2;
+}
+
+.section-title {
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-md);
   color: var(--color-text-secondary);
   text-transform: uppercase;
+  font-size: var(--text-sm);
+  letter-spacing: 0.5px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.asset-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.asset-label {
+  font-weight: var(--font-medium);
+  min-width: 100px;
+  font-size: var(--text-sm);
+}
+
+.asset-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.asset-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.cover-preview-small {
+  width: 50px;
+  height: 50px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.cover-preview-small img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Compact Tracks List */
+.tracks-compact-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-sm);
+}
+
+.track-compact-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.track-number {
+  font-weight: var(--font-semibold);
+  color: var(--color-text-secondary);
+  min-width: 24px;
+}
+
+.track-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.track-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-artist {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-actions {
+  display: flex;
+  align-items: center;
+}
+
+.btn-upload-small {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-primary);
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.btn-upload-small:hover {
+  background-color: var(--color-primary-hover);
+}
+
+/* Details Actions */
+.details-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Bulk Upload Section */
+.upload-drop-zone {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg-secondary);
+  transition: all var(--transition-base);
+  padding: var(--space-2xl);
+}
+
+.upload-drop-zone:hover {
+  border-color: var(--color-primary);
+  background-color: rgba(26, 115, 232, 0.05);
+}
+
+.drop-zone-label {
+  display: block;
+  cursor: pointer;
+}
+
+.drop-zone-label input[type="file"] {
+  display: none;
+}
+
+.drop-zone-content {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.upload-icon {
+  font-size: 2.5rem;
+  color: var(--color-text-tertiary);
+}
+
+.upload-text {
+  font-size: var(--text-lg);
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.format-hint {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+/* Completeness Indicators */
+.completeness-indicators {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.indicator {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  transition: all var(--transition-base);
+}
+
+.indicator.complete {
+  background-color: var(--color-success);
+  color: white;
 }
 
 /* Tabs */
-.release-tabs,
-.detail-tabs {
+.release-tabs {
   display: flex;
   border-bottom: 1px solid var(--color-border);
 }
 
 .tab-btn {
-  padding: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
@@ -1619,289 +1835,6 @@ watch(() => route.query.batchId, (newBatchId) => {
 .tab-btn.active {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
-}
-
-/* Release List */
-.release-list {
-  max-height: 600px;
-  overflow-y: auto;
-}
-
-.release-item {
-  padding: var(--space-md);
-  border-bottom: 1px solid var(--color-border);
-  cursor: pointer;
-  transition: all var(--transition-base);
-}
-
-.release-item:hover {
-  background-color: var(--color-bg-secondary);
-}
-
-.release-item.active {
-  background-color: var(--color-primary-light);
-  border-left: 3px solid var(--color-primary);
-}
-
-.release-item.cataloged {
-  opacity: 0.7;
-  background-color: var(--color-bg-tertiary);
-}
-
-.release-thumbnail {
-  width: 50px;
-  height: 50px;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.release-thumbnail img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.thumbnail-placeholder {
-  width: 100%;
-  height: 100%;
-  background-color: var(--color-bg-secondary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-tertiary);
-}
-
-.release-title {
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.release-artist {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-xs);
-}
-
-.release-upc {
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
-}
-
-/* Completeness Indicators */
-.completeness-indicators {
-  display: flex;
-  gap: var(--space-xs);
-}
-
-.indicator {
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-full);
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-xs);
-  transition: all var(--transition-base);
-}
-
-.indicator.complete {
-  background-color: var(--color-success);
-  color: white;
-}
-
-/* Release Actions */
-.release-actions {
-  display: flex;
-  gap: var(--space-sm);
-}
-
-/* Tracks Section */
-.tracks-list {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.track-item {
-  display: flex;
-  align-items: center;
-  padding: var(--space-md);
-  border-bottom: 1px solid var(--color-border);
-  gap: var(--space-md);
-}
-
-.track-item:last-child {
-  border-bottom: none;
-}
-
-.track-number {
-  width: 30px;
-  font-weight: var(--font-semibold);
-  color: var(--color-text-secondary);
-}
-
-.track-title {
-  font-weight: var(--font-medium);
-  margin-bottom: var(--space-xs);
-}
-
-.track-details {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-/* Cover Section */
-.cover-preview {
-  max-width: 300px;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-}
-
-.cover-placeholder-large {
-  width: 300px;
-  height: 300px;
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 4rem;
-  color: var(--color-text-tertiary);
-}
-
-.cover-actions {
-  display: flex;
-  gap: var(--space-md);
-}
-
-/* Audio Section */
-.audio-list {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.audio-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-md);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.audio-item:last-child {
-  border-bottom: none;
-}
-
-.audio-title {
-  font-weight: var(--font-medium);
-  margin-bottom: var(--space-xs);
-}
-
-/* Upload Areas */
-.upload-area {
-  border: 2px dashed var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-2xl);
-  text-align: center;
-  background-color: var(--color-bg-secondary);
-  transition: all var(--transition-base);
-}
-
-.upload-area:hover {
-  border-color: var(--color-primary);
-  background-color: var(--color-primary-light);
-}
-
-.upload-area-compact {
-  border: 2px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-  text-align: center;
-  background-color: var(--color-bg-secondary);
-  transition: all var(--transition-base);
-}
-
-.upload-area-compact:hover {
-  border-color: var(--color-primary);
-  background-color: var(--color-primary-light);
-}
-
-.upload-label,
-.upload-label-compact {
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.upload-label-compact {
-  flex-direction: row;
-  justify-content: center;
-}
-
-.upload-icon {
-  font-size: 3rem;
-  color: var(--color-text-tertiary);
-}
-
-/* Import Type Selector */
-.import-type-selector {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-md);
-}
-
-.import-type-option {
-  cursor: pointer;
-}
-
-.import-type-option input[type="radio"] {
-  display: none;
-}
-
-.option-content {
-  border: 2px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  text-align: center;
-  transition: all var(--transition-base);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-md);
-}
-
-.import-type-option input[type="radio"]:checked + .option-content {
-  border-color: var(--color-primary);
-  background-color: var(--color-primary-light);
-}
-
-.option-content h4 {
-  font-weight: var(--font-semibold);
-  margin: 0;
-}
-
-/* Progress Bar */
-.progress-bar {
-  height: 6px;
-  background-color: var(--color-border);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--color-primary), var(--color-success));
-  transition: width var(--transition-base);
 }
 
 /* Messages */
@@ -1926,11 +1859,25 @@ watch(() => route.query.batchId, (newBatchId) => {
   color: var(--color-success);
 }
 
+/* Progress Bar */
+.progress-bar {
+  height: 6px;
+  background-color: var(--color-border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-success));
+  transition: width var(--transition-base);
+}
+
 /* Badge */
 .badge {
-  padding: var(--space-xs) var(--space-sm);
+  padding: 2px 6px;
   border-radius: var(--radius-full);
-  font-size: var(--text-xs);
+  font-size: 10px;
   font-weight: var(--font-medium);
   text-transform: uppercase;
 }
@@ -1938,6 +1885,12 @@ watch(() => route.query.batchId, (newBatchId) => {
 .badge-info {
   background-color: var(--color-primary-light);
   color: var(--color-primary);
+}
+
+/* Empty State */
+.empty-list {
+  padding: var(--space-3xl);
+  text-align: center;
 }
 
 /* Modal */
@@ -1992,25 +1945,116 @@ watch(() => route.query.batchId, (newBatchId) => {
   border-top: 1px solid var(--color-border);
 }
 
+/* Import Type Selector */
+.import-type-selector {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-md);
+}
+
+.import-type-option {
+  cursor: pointer;
+}
+
+.import-type-option input[type="radio"] {
+  display: none;
+}
+
+.option-content {
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  text-align: center;
+  transition: all var(--transition-base);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.import-type-option input[type="radio"]:checked + .option-content {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-light);
+}
+
+.option-content h4 {
+  font-weight: var(--font-semibold);
+  margin: 0;
+}
+
+/* Upload Area */
+.upload-area {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2xl);
+  text-align: center;
+  background-color: var(--color-bg-secondary);
+  transition: all var(--transition-base);
+}
+
+.upload-area:hover {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-light);
+}
+
+.upload-label {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.upload-icon {
+  font-size: 3rem;
+  color: var(--color-text-tertiary);
+}
+
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
+}
+
+.btn-icon:hover {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text);
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
-  .grid-cols-12 {
+  .stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .details-grid {
     grid-template-columns: 1fr;
   }
   
-  .col-span-4,
-  .col-span-8 {
+  .details-section.tracks-section {
     grid-column: span 1;
   }
   
-  .import-type-selector {
+  .tracks-compact-list {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 768px) {
-  .stats-row {
-    grid-template-columns: repeat(3, 1fr);
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .import-type-selector {
+    grid-template-columns: 1fr;
   }
 }
 </style>
