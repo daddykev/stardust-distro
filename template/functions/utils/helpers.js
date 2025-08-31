@@ -3,6 +3,7 @@ const crypto = require('crypto')
 const axios = require('axios')
 const fs = require('fs')
 const admin = require('firebase-admin')
+const { onCall, HttpsError } = require('firebase-functions/v2/https')
 
 const db = admin.firestore()
 
@@ -138,11 +139,115 @@ function calculateStringSimilarity(str1, str2) {
   return Math.round((matches / len) * 100)
 }
 
+/**
+ * Setup admin role for initial user
+ */
+const setupAdmin = onCall({
+  cors: true
+}, async (request) => {
+  // This should only be called during initial setup
+  const { email } = request.data;
+  
+  try {
+    const user = await admin.auth().getUserByEmail(email);
+    
+    // Set custom claims
+    await admin.auth().setCustomUserClaims(user.uid, { 
+      admin: true, 
+      role: 'admin' 
+    });
+    
+    // Update user document
+    await admin.firestore()
+      .collection('users')
+      .doc(user.uid)
+      .set({
+        email: user.email,
+        displayName: user.displayName,
+        role: 'admin',
+        updatedAt: admin.firestore.Timestamp.now()
+      }, { merge: true });
+    
+    return { 
+      success: true, 
+      message: 'Admin role set successfully'
+    };
+  } catch (error) {
+    throw new HttpsError('internal', error.message);
+  }
+});
+
+/**
+ * Proxy download external images (to bypass CSP restrictions)
+ */
+const downloadExternalImage = onCall(
+  {
+    timeoutSeconds: 60,
+    memory: '256MiB',
+    maxInstances: 10
+  },
+  async (request) => {
+    // Check authentication
+    if (!request.auth) {
+      throw new HttpsError(
+        'unauthenticated',
+        'User must be authenticated'
+      );
+    }
+
+    const { imageUrl, fileName } = request.data;
+
+    if (!imageUrl) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Image URL is required'
+      );
+    }
+
+    try {
+      console.log(`Downloading image from: ${imageUrl}`);
+      
+      // Fetch the image
+      const response = await fetch(imageUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.status}`);
+      }
+
+      // Get the image as a buffer
+      const buffer = await response.arrayBuffer();
+      
+      // Convert to base64
+      const base64 = Buffer.from(buffer).toString('base64');
+      
+      // Get content type
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      
+      console.log(`Successfully downloaded image: ${buffer.byteLength} bytes`);
+      
+      return {
+        base64,
+        contentType,
+        size: buffer.byteLength,
+        fileName: fileName || 'image.jpg'
+      };
+    } catch (error) {
+      console.error('Error downloading image:', error);
+      throw new HttpsError(
+        'internal',
+        `Failed to download image: ${error.message}`
+      );
+    }
+  }
+);
+
 module.exports = {
   calculateMD5,
   addDeliveryLog,
   downloadFile,
   extractFileExtension,
   extractFileName,
-  calculateStringSimilarity
+  calculateStringSimilarity,
+  setupAdmin,
+  downloadExternalImage
 }
