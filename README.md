@@ -1,6 +1,7 @@
 # Stardust Distro
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![npm version](https://img.shields.io/npm/v/@stardust-distro/cli.svg)](https://www.npmjs.com/package/@stardust-distro/cli)
 [![Vue 3](https://img.shields.io/badge/Vue-3.x-4FC08D.svg)](https://vuejs.org/)
 [![Firebase](https://img.shields.io/badge/Firebase-v9-FFA000.svg)](https://firebase.google.com/)
 [![Status](https://img.shields.io/badge/Status-Alpha-orange.svg)](https://github.com/daddykev/stardust-distro)
@@ -17,103 +18,41 @@ Stardust Distro is a production-ready music distribution platform, built with an
 
 ### Complete Platform, Zero Compromises
 
-A complete, production-ready distribution platform that includes:
-
-- **Full Catalog Management** - Unlimited releases, tracks, and assets with smart duplicate detection
-- **Multi-Format Generation** - Full support for DDEX ERN (3.8.2, 4.2, 4.3) and Apple Music XML (5.3.23 spec)
-- **All Delivery Protocols** - FTP, SFTP, S3, API, and Azure with automatic retry logic
-- **Powerful Catalog Migration** - Smart bulk import tool, syncs metadata and cover art via API
-- **Genre Intelligence** - DSP-specific genre mapping with 200+ hierarchical genres
-- **Mobile-First Design** - Full functionality on all devices, including smartphones
-- **Real-time Monitoring** - Comprehensive logging, delivery tracking, and performance metrics
-- **Production Testing Suite** - 17 built-in tests for system health, DDEX compliance, and protocols
-- **Professional Operations** - Auto-save, bulk operations, idempotency, and delivery scheduling
-
------
-
-## 🚀 Current Development Status
-
-**Alpha Release - v1.0.4** (August 2025)
-
-### 🎉 Phase 6: Production Launch Essentials - COMPLETE
-
-We're excited to announce that Phase 6 is now complete and tested, bringing the platform to v1.0.0 alpha release! The final major features have been implemented:
-
-#### ✨ Latest Additions
-
-**Catalog Migration System**
-- **Dual-Mode Import Wizard**: Choose between traditional CSV import or our fast "metadata-less" mode
-- **Standard Mode**: Upload CSV with metadata → Bulk upload DDEX-named files → Auto-match and create releases
-- **Metadata-less Mode**: Upload audio files → Fetch essential metadata from API → Saves missing cover art
-- **Smart Product Matching**: Automatic UPC-based file matching with intelligent error handling
-- **Resume Capability**: Import jobs persist in Firestore - close your browser and resume anytime
-- **Visual Progress**: Real-time progress tracking with animated indicators and statistics
-
-**Multi-Format Support**
-- DDEX ERN support (3.8.2, 4.2, 4.3)
-- Apple Music XML generation (5.3.23 spec)
-- Enhanced delivery receipts with reconciliation dashboard
-- DSP acknowledgment tracking across all protocols
-
-**Advanced Genre Classification**
-- Genre Truth System with 200+ hierarchical genres
-- Multi-DSP genre dictionaries (Apple Music, Beatport, Amazon)
-- Visual genre mapping interface with drag-and-drop feel
-- Auto-suggest based on string similarity
-- Import/export genre mappings as JSON
-
-**Core Reliability Features**
-- Delivery status notifications (success/failure/retry)
-- Idempotency protection prevents duplicate deliveries
-- Content fingerprinting detects duplicate files on upload
-- Audio similarity detection with percentage matching
-- Transaction locks ensure single processing
-- Enhanced error recovery and retry logic
-
-### ✅ Complete Development Timeline
-
-**Phase 1-5**: Foundation through Production Testing ✅
-- Full Vue 3 application with Firebase backend
-- Complete catalog and asset management
-- ERN generation with DDEX compliance
-- All delivery protocols implemented
-- Production testing suite with 100% pass rate
-
-**Phase 6**: Production Launch Essentials ✅
-- Genre classification and mapping system ✅
-- Idempotency and deduplication ✅
-- Content fingerprinting ✅
-- Multi-version ERN and Apple support ✅
-- Complete catalog migration tools ✅
-- Email notification system ✅
-- Comprehensive documentation ✅
-
-### 🚧 Remaining Pre-Launch Tasks
-- [x] Security audit
-- [x] NPM package publication
-- [x] GitHub release preparation
-- [x] Launch announcement
+- ✅ **Full Catalog Management** - Unlimited releases, tracks, and assets with smart duplicate detection
+- ✅ **Multi-Format Generation** - Full support for DDEX ERN (3.8.2, 4.2, 4.3) and Apple Music XML (5.3.23 spec)
+- ✅ **All Delivery Protocols** - FTP, SFTP, S3, API, and Azure with automatic retry logic
+- ✅ **Powerful Catalog Migration** - Smart bulk import tool, syncs metadata and cover art via API
+- ✅ **Genre Intelligence** - DSP-specific genre mapping with 200+ hierarchical genres
+- ✅ **Mobile-First Design** - Full functionality on all devices, including smartphones
+- ✅ **Real-time Monitoring** - Comprehensive logging, delivery tracking, and performance metrics
+- ✅ **Production Testing Suite** - 17 built-in tests for system health, DDEX compliance, and protocols
+- ✅ **Professional Operations** - Auto-save, bulk operations, idempotency, and delivery scheduling
+- ✅ **Multi-Tenant Architecture** - Single installation serves multiple labels with isolated data
 
 -----
 
-## 📖 Documentation
+## 🚀 Quick Start
 
-### Technical Blueprint
-📋 **[View Technical Blueprint](blueprint.md)** - Complete development overview, architecture, and implementation status
+### Install and Deploy
 
-### Platform Guides
-Our comprehensive documentation covers every aspect of the platform:
+```bash
+# Create your distribution platform
+npx @stardust-distro/cli create my-platform
 
-- 🚀 **[Getting Started Guide](template/docs/getting-started.md)** - Quick setup and initial configuration
-- ⚙️ **[Configuration Guide](template/docs/configuration.md)** - Platform settings and customization
-- 📦 **[Release Creation Guide](template/docs/release-creation.md)** - Step-by-step release wizard walkthrough
-- 🎵 **[Catalog Import Guide](template/docs/catalog-import.md)** - Bulk import and migration procedures  
-- 🚚 **[Delivery Setup Guide](template/docs/delivery-setup.md)** - DSP connections and target configuration
-- 🎯 **[Genre Mapping Guide](template/docs/genre-mapping.md)** - DSP taxonomy mapping and management
-- 🧪 **[Testing Guide](template/docs/testing-guide.md)** - Production testing suite documentation
-- 📋 **[DDEX Standards Guide](template/docs/DDEX.md)** - DDEX compliance and ERN implementation
-- 🔧 **[API Reference](template/docs/api-reference.md)** - Cloud Functions and service documentation
-- ❓ **[Troubleshooting Guide](template/docs/troubleshooting.md)** - Common issues and solutions
+# Navigate to project
+cd my-platform
+
+# Initialize Firebase (free tier available)
+stardust-distro init
+
+# Start development server
+npm run dev
+# Visit http://localhost:5173
+
+# Deploy to production
+npm run deploy
+# Your platform is live! 🚀
+```
 
 -----
 
@@ -124,16 +63,16 @@ Our comprehensive documentation covers every aspect of the platform:
 **Two Ways to Import Your Catalog:**
 
 **📊 Standard Mode (CSV + Assets)**
-1. Upload your catalog CSV with flexible field mapping
-2. Bulk upload DDEX-named audio files and cover art
-3. System automatically matches and creates releases
-4. Support for multi-track releases and various CSV formats
+- Upload catalog CSV with flexible field mapping
+- Bulk upload DDEX-named audio files and cover art
+- System automatically matches and creates releases
+- Support for multi-track releases and various CSV formats
 
 **🎵 "Metadata-less" Mode (Assets Only)**
-1. Upload audio files (no metadata needed)
-2. System extracts UPCs and queries API
-3. Automatically downloads cover art
-4. Creates valid releases with complete metadata
+- Upload audio files (no metadata needed)
+- System extracts UPCs and queries API
+- Automatically downloads cover art
+- Creates valid releases with complete metadata
 
 **Key Features:**
 - Resume interrupted imports anytime
@@ -185,40 +124,15 @@ Our comprehensive documentation covers every aspect of the platform:
 - Real-time log streaming
 - Performance benchmarking
 
------
+### 🔥 Firebase-Powered Infrastructure
 
-## 🚀 Quick Start
-
-### Install and Deploy
-
-```bash
-# Create your distribution platform
-npx @stardust-distro/cli create my-platform
-
-# Navigate to project
-cd my-platform
-
-# Initialize Firebase (free tier available)
-stardust-distro init
-
-# Start development server
-npm run dev
-# Visit http://localhost:5173
-
-# Deploy to production
-npm run deploy
-# Your platform is live! 🚀
-```
-
------
-
-## 🛡️ Security First Approach
-
-Stardust Distro prioritizes security with enterprise-grade protection:
-- **Zero Trust Architecture**: Every request validated and authenticated
-- **Defense in Depth**: Multiple security layers from frontend to backend
-- **OWASP Compliance**: Following security best practices
-- **Active Security Monitoring**: Real-time threat detection and logging
+Built on Google Cloud Platform's Firebase, providing:
+- **Auto-scaling**: Handles growth from 1 to 1M+ users automatically
+- **99.95% Uptime SLA**: Google's infrastructure reliability
+- **Global CDN**: Content delivery at edge locations worldwide
+- **Serverless Functions**: Pay only for what you use
+- **Real-time Database**: Live updates across all connected clients
+- **Managed Security**: Enterprise-grade auth with zero configuration
 
 -----
 
@@ -242,6 +156,44 @@ Stardust Distro prioritizes security with enterprise-grade protection:
 - Manages exabyte-scale asset libraries
 - Processes scheduled deliveries every minute
 - Sends 500+ emails daily (Gmail free tier)
+
+-----
+
+## 🛡️ Security & Compliance
+
+Stardust Distro implements enterprise-grade security across all layers:
+
+### Key Security Features
+✅ **100% Protected** - All Cloud Functions require authentication  
+✅ **Input Validation** - DOMPurify + Zod schemas on every input  
+✅ **Data Encryption** - All credentials encrypted with Cloud KMS  
+✅ **Rate Limiting** - Intelligent throttling prevents abuse  
+✅ **Tenant Isolation** - Complete data separation with RBAC  
+✅ **File Security** - Magic number validation, not just extensions  
+
+**Security Status**: 🟢 **PRODUCTION READY** - Enterprise-grade protection verified  
+See [Security Documentation](template/docs/security.md) for detailed audit report.
+
+-----
+
+## 📖 Documentation
+
+### Technical Blueprint
+📋 **[View Technical Blueprint](blueprint.md)** - Complete development overview, architecture, and implementation status
+
+### Platform Guides
+Our comprehensive documentation covers every aspect of the platform:
+
+- 🚀 **[Getting Started Guide](template/docs/getting-started.md)** - Quick setup and initial configuration
+- ⚙️ **[Configuration Guide](template/docs/configuration.md)** - Platform settings and customization
+- 📦 **[Release Creation Guide](template/docs/release-creation.md)** - Step-by-step release wizard walkthrough
+- 🎵 **[Catalog Import Guide](template/docs/catalog-import.md)** - Bulk import and migration procedures  
+- 🚚 **[Delivery Setup Guide](template/docs/delivery-setup.md)** - DSP connections and target configuration
+- 🎯 **[Genre Mapping Guide](template/docs/genre-mapping.md)** - DSP taxonomy mapping and management
+- 🧪 **[Testing Guide](template/docs/testing-guide.md)** - Production testing suite documentation
+- 📋 **[DDEX Standards Guide](template/docs/DDEX.md)** - DDEX compliance and ERN implementation
+- 🔧 **[API Reference](template/docs/api-reference.md)** - Cloud Functions and service documentation
+- ❓ **[Troubleshooting Guide](template/docs/troubleshooting.md)** - Common issues and solutions
 
 -----
 
@@ -288,6 +240,43 @@ npm run deploy
 
 -----
 
+## 🚀 Current Development Status
+
+**Alpha Release - v1.0.4** (August 2025)
+
+#### ✨ Latest Additions
+
+**Catalog Migration System**
+- **Dual-Mode Import Wizard**: Choose between traditional CSV import or our fast "metadata-less" mode
+- **Standard Mode**: Upload CSV with metadata → Bulk upload DDEX-named files → Auto-match and create releases
+- **Metadata-less Mode**: Upload audio files → Fetch essential metadata from API → Saves missing cover art
+- **Smart Product Matching**: Automatic UPC-based file matching with intelligent error handling
+- **Resume Capability**: Import jobs persist in Firestore - close your browser and resume anytime
+- **Visual Progress**: Real-time progress tracking with animated indicators and statistics
+
+**Multi-Format Support**
+- DDEX ERN support (3.8.2, 4.2, 4.3)
+- Apple Music XML generation (5.3.23 spec)
+- Enhanced delivery receipts with reconciliation dashboard
+- DSP acknowledgment tracking across all protocols
+
+**Advanced Genre Classification**
+- Genre Truth System with 200+ hierarchical genres
+- Multi-DSP genre dictionaries (Apple Music, Beatport, Amazon)
+- Visual genre mapping interface with drag-and-drop feel
+- Auto-suggest based on string similarity
+- Import/export genre mappings as JSON
+
+**Core Reliability Features**
+- Delivery status notifications (success/failure/retry)
+- Idempotency protection prevents duplicate deliveries
+- Content fingerprinting detects duplicate files on upload
+- Audio similarity detection with percentage matching
+- Transaction locks ensure single processing
+- Enhanced error recovery and retry logic
+
+-----
+
 ## 📅 Upcoming Development
 
 ### Phase 7: Post-Launch Essentials (Q4-2025)
@@ -312,72 +301,6 @@ npm run deploy
 - 🌐 Additional DSP integrations
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
------
-
-## 🔐 Security
-
-### Security Audit: Passed ✅ (Production Ready)
-All critical security items implemented and deployed to production!
-
-### ✅ Core Security Features - COMPLETE
-- **Input Validation & Sanitization** (100% coverage) - DOMPurify + Zod schemas on all inputs
-- **Authentication & Authorization** - Firebase Auth with role-based access control (RBAC)
-- **Rate Limiting** - 100 req/min for reads, 20 req/min for writes
-- **Cloud Functions Protection** - 100% of functions require authentication
-- **Credential Encryption** - All sensitive data encrypted with Cloud KMS
-- **File Security** - Magic number validation, size limits (10MB images, 500MB audio)
-- **Tenant Isolation** - Complete data isolation with helper functions
-
-### ✅ Security Implementation - COMPLETE
-**Frontend Security:**
-- Zod validation schemas for all forms
-- DOMPurify XSS prevention on all string inputs
-- File type validation by magic numbers (not extensions)
-- Sanitized filenames prevent directory traversal
-- File size enforcement before upload
-
-**Backend Security:**
-- Authentication middleware on ALL Cloud Functions v2
-- Rate limiting middleware prevents abuse
-- Input validation middleware with size limits
-- Request sanitization before processing
-- Clean Firestore writes (no undefined values)
-- Structured logging for audit trails
-
-**Infrastructure Security:**
-- Firestore Rules with tenant isolation and RBAC ✅ Deployed
-- Storage Rules with file type/size validation ✅ Deployed
-- Security headers configured (X-Frame-Options, CSP, HSTS) ✅ Deployed
-- User-scoped storage paths
-- Immutable audit logs
-- Transaction locks prevent race conditions
-
-### 📊 Security Metrics
-- **npm vulnerabilities**: 2 moderate (dev-only, acceptable)
-- **Cloud Functions protected**: 100%
-- **Input validation coverage**: 100%
-- **Encrypted credentials**: 100%
-- **Security rules deployed**: ✅ Production (August 27, 2025)
-- **Security headers deployed**: ✅ Production (August 27, 2025)
-- **Repository security**: ✅ Verified clean (August 27, 2025)
-
-### 🚦 Launch Readiness
-- **Can Launch**: ✅ **YES - FULLY CLEARED FOR v1.0**
-- **Security Level**: 🟢 **ENTERPRISE-GRADE**
-- **Production Status**: **SECURED & DEPLOYED**
-- **Security Audit**: ✅ **COMPLETE**
-
-### 🔜 Post-Launch Security Enhancements
-- Multi-factor authentication (MFA)
-- Email verification requirement
-- Firebase App Check integration
-- OWASP ZAP security testing
-- GDPR compliance package
-- Security incident response plan
-- Quarterly security audits
-
-See [Security Audit Report](template/docs/security.md) for details.
 
 -----
 
@@ -414,12 +337,4 @@ Built with a better world in mind. Special thanks to:
 - The Vue.js and Firebase teams
 - The open-source community
 
------
-
-**Join us in building the future of music distribution. Open source, professional grade, production ready.**
-
 *Star ⭐ the repo to follow our progress!*
-
-**🎉 Phase 6 Complete!** The platform is now live with comprehensive catalog migration, email notifications, genre mapping, and reliability features.
-
-**Next:** Phase 7 will add post-launch operational excellence including backup/restore, GDPR compliance, circuit breakers, and health monitoring.
