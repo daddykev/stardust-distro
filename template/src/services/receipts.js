@@ -172,7 +172,7 @@ export class ReceiptService {
           ...details,
           bucket: result.bucket || 'default',
           basePath: result.basePath || 'unknown',
-          projectId: result.projectId || 'stardust-distro'
+          projectId: result.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID || 'unknown-project'
         }
         
       default:

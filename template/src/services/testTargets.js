@@ -13,7 +13,7 @@ class TestTargetsService {
         enabled: true,
         config: {
           path: '/test-deliveries',
-          bucket: 'stardust-distro.appspot.com'
+          bucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || 'your-project.appspot.com'
         }
       },
 
@@ -67,7 +67,7 @@ class TestTargetsService {
         protocol: 'API',
         enabled: true,
         config: {
-          endpoint: 'https://us-central1-stardust-distro.cloudfunctions.net/testAPIEndpoint',
+          endpoint: process.env.VITE_FUNCTIONS_URL ? `${process.env.VITE_FUNCTIONS_URL}/testAPIEndpoint` : 'https://your-api-endpoint.cloudfunctions.net/testAPIEndpoint',
           authType: 'Bearer',
           apiKey: 'test-api-key-123',
           headers: {

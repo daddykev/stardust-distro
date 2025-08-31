@@ -149,8 +149,8 @@ class ProductMetadataService {
   async fetchFromSource(upc, source) {
     try {
       const apiUrl = process.env.NODE_ENV === 'development' 
-        ? 'http://localhost:5001/stardust-distro/us-central1/api'
-        : 'https://us-central1-stardust-distro.cloudfunctions.net/api'
+        ? `http://localhost:5001/${import.meta.env.VITE_FIREBASE_PROJECT_ID}/us-central1/api`
+        : `${import.meta.env.VITE_FUNCTIONS_URL}/api`
       
       switch (source) {
         case 'spotify':

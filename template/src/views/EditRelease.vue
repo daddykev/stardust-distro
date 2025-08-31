@@ -887,7 +887,7 @@ const generateERN = async () => {
       profile: releaseData.value.ern.profile,
       testMode: false,
       senderName: user.value?.organizationName || user.value?.displayName,
-      senderPartyId: 'stardust-distro' // Default for now
+      senderPartyId: import.meta.env.VITE_DISTRIBUTOR_ID || 'default-sender'
     })
     
     generatedERN.value = result

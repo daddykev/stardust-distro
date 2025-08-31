@@ -68,7 +68,7 @@ export class ERN42Builder {
     if (config.senderPartyId) {
       sender.ele('PartyId').txt(config.senderPartyId)
     }
-    sender.ele('PartyName').ele('FullName').txt(config.messageSender || config.senderName || 'Stardust Distro')
+    sender.ele('PartyName').ele('FullName').txt(config.messageSender || config.senderName || import.meta.env.VITE_ORGANIZATION_NAME || 'Music Distributor')
     
     // Recipient
     const recipient = header.ele('MessageRecipient')

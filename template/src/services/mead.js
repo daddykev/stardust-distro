@@ -25,8 +25,8 @@ class MEADService {
         messageId,
         timestamp,
         release,
-        senderName: options.senderName || auth.currentUser?.displayName || 'Stardust Distro',
-        senderPartyId: options.senderPartyId || 'stardust-distro',
+        senderName: options.senderName || auth.currentUser?.displayName || import.meta.env.VITE_ORGANIZATION_NAME || 'Music Distributor',
+        senderPartyId: options.senderPartyId || import.meta.env.VITE_DISTRIBUTOR_ID || 'default-sender',
         recipientName: options.recipientName || 'DSP',
         recipientPartyId: options.recipientPartyId || 'DSP'
       })

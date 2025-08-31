@@ -261,7 +261,7 @@
               v-model="formData.config.distributorId"
               type="text"
               class="form-input"
-              placeholder="e.g., stardust-distro"
+              placeholder="e.g., your-distributor-id"
               required
             >
           </div>

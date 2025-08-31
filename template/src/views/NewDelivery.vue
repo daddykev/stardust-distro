@@ -160,7 +160,7 @@ const loadData = async () => {
           console.warn(`Target ${target.name} missing distributorId, using default`)
           target.config = {
             ...target.config,
-            distributorId: 'stardust-distro'
+            distributorId: import.meta.env.VITE_DISTRIBUTOR_ID || 'default-distributor'
           }
         }
         
@@ -378,7 +378,7 @@ const generateERNs = async () => {
             
             const meadResult = await meadService.generateMEAD(release, {
               senderName: user.value?.organizationName || user.value?.displayName,
-              senderPartyId: target.config?.distributorId || 'stardust-distro',
+              senderPartyId: target.config?.distributorId || import.meta.env.VITE_DISTRIBUTOR_ID || 'default-sender',
               recipientName: target.partyName || target.name,
               recipientPartyId: target.partyId || target.id
             })

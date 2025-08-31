@@ -1560,7 +1560,7 @@ async function deliverToDSP(target, deliveryPackage) {
     
     // Prepare the DSP-specific payload - clean undefined values
     const payload = cleanForFirestore({
-      distributorId: deliveryPackage.distributorId || target.config?.distributorId || 'stardust-distro',
+      distributorId: deliveryPackage.distributorId || target.config?.distributorId || process.env.DISTRIBUTOR_ID || 'default-distributor',
       messageId: deliveryPackage.metadata?.messageId || deliveryPackage.messageId,
       messageType: deliveryPackage.metadata?.messageType || 'NewReleaseMessage',
       messageSubType: deliveryPackage.messageSubType || 'Initial',
