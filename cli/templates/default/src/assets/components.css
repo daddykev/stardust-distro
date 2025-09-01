@@ -5,6 +5,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: var(--space-xs); /* ADD THIS LINE - creates space between icon and text */
   padding: var(--space-sm) var(--space-lg);
   font-size: var(--text-base);
   font-weight: var(--font-medium);

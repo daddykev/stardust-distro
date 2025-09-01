@@ -1,6 +1,6 @@
 # Getting Started with Stardust Distro 🚀
 
-Welcome to Stardust Distro! This guide will walk you through setting up your own professional, open-source music distribution platform. In about 15-20 minutes, you'll go from zero to a fully deployed system ready to deliver your music catalog to DSPs worldwide.
+Welcome to Stardust Distro! This guide will walk you through setting up your own professional, open-source music distribution platform. In about 15-20 minutes, you'll go from zero to a fully deployed system ready to deliver.
 
 ## What is Stardust Distro?
 
@@ -34,6 +34,10 @@ For the fastest setup, use our one-command installer:
 npx create-stardust-distro my-music-distro
 cd my-music-distro
 npm run init
+
+# IMPORTANT: Update your Firebase project ID
+# Edit .firebaserc and replace "YOUR_PROJECT_ID" with your actual project ID
+
 npm run deploy
 ```
 
@@ -122,7 +126,42 @@ npm run init
 # 3. Initial admin email (optional)
 ```
 
-### Step 4: Deploy to Production
+### Step 4: Configure Firebase Project (Critical Step!)
+
+Before deploying, you MUST update your Firebase project ID in the `.firebaserc` file:
+
+```bash
+# Open .firebaserc in your editor
+# It will look like this:
+{
+  "projects": {
+    "default": "YOUR_PROJECT_ID"
+  }
+}
+
+# Replace "YOUR_PROJECT_ID" with your actual Firebase project ID
+# For example:
+{
+  "projects": {
+    "default": "my-label-distro-12345"
+  }
+}
+```
+
+**Important**: The project ID must match exactly what's shown in your Firebase Console. You can find it in:
+- Firebase Console → Project Settings → General → Project ID
+- Or in your Firebase configuration object as `projectId`
+
+Alternatively, you can set this using the Firebase CLI:
+```bash
+# Set the default project (this will update .firebaserc automatically)
+firebase use your-project-id-here
+
+# Verify it's set correctly
+firebase use
+```
+
+### Step 5: Deploy to Production
 
 ```bash
 # Build and deploy everything
@@ -136,7 +175,9 @@ npm run deploy
 # ✓ Configure Storage rules
 ```
 
-### Step 5: Initial Setup
+⚠️ **If deployment fails with "No project active" error**, you forgot to update `.firebaserc` in Step 4!
+
+### Step 6: Initial Setup
 
 1. **Visit your live site**: `https://your-project-id.web.app`
 
@@ -228,8 +269,14 @@ npm run emulators
 
 **Firebase deployment fails**
 - Ensure you're logged in: `firebase login`
+- **Check `.firebaserc` has your actual project ID, not the placeholder**
 - Check you've upgraded to Blaze plan
 - Verify all services are enabled
+
+**"No project active" error**
+- Open `.firebaserc` and ensure "YOUR_PROJECT_ID" is replaced with your actual project ID
+- Or run: `firebase use your-project-id` to set it automatically
+- Verify with: `firebase use` (should show your project)
 
 **Email notifications not working**
 - Check SMTP configuration in Firebase Extensions

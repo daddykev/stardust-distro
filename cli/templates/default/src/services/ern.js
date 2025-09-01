@@ -139,21 +139,22 @@ class ERNService {
    */
   async getGenreNameForDSP(genreCode, dspType) {
     try {
+      let dspKey = 'genre-truth'
+      
       if (dspType?.toLowerCase().includes('beatport')) {
-        const { BEATPORT_GENRES } = await import('../dictionaries/genres/beatport-202505')
-        return BEATPORT_GENRES.byCode[genreCode]?.name || genreCode
+        dspKey = 'beatport'
       } else if (dspType?.toLowerCase().includes('apple')) {
-        const { APPLE_GENRES } = await import('../dictionaries/genres/apple-539')
-        return APPLE_GENRES.byCode[genreCode]?.name || genreCode
+        dspKey = 'apple'
       } else if (dspType?.toLowerCase().includes('amazon')) {
-        const { AMAZON_GENRES } = await import('../dictionaries/genres/amazon-201805')
-        return AMAZON_GENRES.byCode[genreCode]?.name || genreCode
+        dspKey = 'amazon'
       }
+      
+      const genres = await genreService.getGenresForDSP(dspKey)
+      return genres.byCode?.[genreCode]?.name || genreCode
     } catch (error) {
       console.warn(`Could not load genre name for ${genreCode} from ${dspType} dictionary`)
+      return genreCode
     }
-    
-    return genreCode // Return code if name not found
   }
 
   /**

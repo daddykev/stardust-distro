@@ -1,21 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { watch } from 'vue'
-import SplashPage from '../views/SplashPage.vue'
-import Login from '../views/Login.vue'
-import Signup from '../views/Signup.vue'
-import Dashboard from '../views/Dashboard.vue'
-import Settings from '../views/Settings.vue'
-import Catalog from '../views/Catalog.vue'
-import NewRelease from '../views/NewRelease.vue'
-import EditRelease from '../views/EditRelease.vue'
-import Deliveries from '../views/Deliveries.vue'
-import Analytics from '../views/Analytics.vue'
-import Testing from '../views/Testing.vue'
-import GenreMaps from '../views/GenreMaps.vue'
-import Migration from '../views/Migration.vue'
-import Batches from '../views/Batch.vue'
-import Artists from '../views/Artists.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -23,60 +8,90 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      component: SplashPage
+      component: () => import('../views/SplashPage.vue')
     },
     {
       path: '/login',
       name: 'login',
-      component: Login,
+      component: () => import('../views/Login.vue'),
       meta: { requiresGuest: true }
     },
     {
       path: '/signup',
       name: 'signup',
-      component: Signup,
+      component: () => import('../views/Signup.vue'),
       meta: { requiresGuest: true }
     },
     {
       path: '/dashboard',
       name: 'dashboard',
-      component: Dashboard,
+      component: () => import('../views/Dashboard.vue'),
       meta: { requiresAuth: true }
     },
     {
-      path: '/genre-maps',
-      name: 'genre-maps',
-      component: GenreMaps,
+      path: '/settings',
+      name: 'settings',
+      component: () => import('../views/Settings.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/catalog',
+      name: 'catalog',
+      component: () => import('../views/Catalog.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/releases/new',
+      name: 'new-release',
+      component: () => import('../views/NewRelease.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/releases/edit/:id',
+      name: 'edit-release',
+      component: () => import('../views/EditRelease.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/deliveries',
+      name: 'deliveries',
+      component: () => import('../views/Deliveries.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/analytics',
+      name: 'analytics',
+      component: () => import('../views/Analytics.vue'),
       meta: { requiresAuth: true }
     },
     {
       path: '/testing',
       name: 'testing',
-      component: Testing,
-      meta: { requiresAuth: true }
-    },    
-    {
-      path: '/catalog',
-      name: 'catalog',
-      component: Catalog,
+      component: () => import('../views/Testing.vue'),
       meta: { requiresAuth: true }
     },
     {
-      path: '/artists',
-      name: 'artists',
-      component: Artists,
+      path: '/genre-maps',
+      name: 'genre-maps',
+      component: () => import('../views/GenreMaps.vue'),
       meta: { requiresAuth: true }
     },
     {
       path: '/migration',
       name: 'migration',
-      component: Migration,
+      component: () => import('../views/Migration.vue'),
       meta: { requiresAuth: true }
     },
     {
       path: '/batches',
       name: 'batches',
-      component: Batches,
+      component: () => import('../views/Batch.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/artists',
+      name: 'artists',
+      component: () => import('../views/Artists.vue'),
       meta: { requiresAuth: true }
     },
     {
@@ -86,39 +101,9 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
-      path: '/releases/new',
-      name: 'new-release',
-      component: NewRelease,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/releases/edit/:id',
-      name: 'edit-release',
-      component: EditRelease,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/deliveries',
-      name: 'deliveries',
-      component: Deliveries,
-      meta: { requiresAuth: true }
-    },
-    {
       path: '/deliveries/new',
       name: 'new-delivery',
       component: () => import('../views/NewDelivery.vue'),
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/analytics',
-      name: 'analytics',
-      component: Analytics,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/settings',
-      name: 'settings',
-      component: Settings,
       meta: { requiresAuth: true }
     },
     // 404 Not Found page

@@ -8,6 +8,7 @@ import {
   getMetadata
 } from 'firebase/storage'
 import fingerprintService from './fingerprints'
+import metadataService from './assetMetadata'
 import { 
   sanitizeFileName, 
   validateFileType, 
@@ -112,7 +113,7 @@ export class AssetService {
   }
 
   /**
-   * Upload cover image with security validation and duplicate detection
+   * Upload cover image with security validation, duplicate detection, and metadata extraction
    */
   async uploadCoverImage(file, userId, releaseId, onProgress = null) {
     try {
@@ -129,6 +130,44 @@ export class AssetService {
 
       const path = this.generatePath(userId, releaseId, 'images', `cover_${file.name}`)
       const result = await this.uploadFile(file, path, onProgress, true)
+      
+      // Extract enhanced metadata
+      if (result.url) {
+        try {
+          const metadata = await metadataService.getImageMetadata(
+            result.url,
+            file.name,
+            file.size
+          )
+          result.metadata = metadata
+          
+          // Check if image meets requirements
+          if (!metadata.quality?.meetsRequirements?.coverArt) {
+            console.warn('Cover image does not meet 3000x3000 requirement')
+            // Optionally alert the user
+            const proceed = confirm(
+              'This image does not meet the recommended 3000x3000 minimum resolution for cover art. ' +
+              'Continue anyway?'
+            )
+            if (!proceed) {
+              // Delete the uploaded file
+              try {
+                const storageRef = ref(storage, path)
+                await deleteObject(storageRef)
+              } catch (error) {
+                console.error('Error deleting file:', error)
+              }
+              throw new Error('Upload cancelled due to resolution requirements')
+            }
+          }
+          
+          // Get quality badge
+          result.qualityBadge = metadataService.getImageQualityBadge(metadata)
+        } catch (error) {
+          console.error('Failed to extract image metadata:', error)
+          // Don't fail the upload if metadata extraction fails
+        }
+      }
       
       // If duplicate detected, ask user
       if (result.duplicateInfo) {
@@ -154,7 +193,9 @@ export class AssetService {
             type: 'cover',
             reused: true,
             originalFingerprint: result.duplicateInfo.fingerprint,
-            dimensions: await this.getImageDimensions(file)
+            dimensions: result.metadata?.dimensions || await this.getImageDimensions(file),
+            metadata: result.metadata,
+            qualityBadge: result.qualityBadge
           }
         }
       }
@@ -162,7 +203,7 @@ export class AssetService {
       return {
         ...result,
         type: 'cover',
-        dimensions: await this.getImageDimensions(file)
+        dimensions: result.metadata?.dimensions || await this.getImageDimensions(file)
       }
     } catch (error) {
       console.error('Cover image upload failed:', error)
@@ -171,7 +212,7 @@ export class AssetService {
   }
 
   /**
-   * Upload audio file with security validation, duplicate detection and audio fingerprinting
+   * Upload audio file with security validation, duplicate detection, audio fingerprinting, and metadata extraction
    */
   async uploadAudioFile(file, userId, releaseId, trackId, onProgress = null) {
     try {
@@ -188,6 +229,44 @@ export class AssetService {
 
       const path = this.generatePath(userId, releaseId, 'audio', `track_${trackId}_${file.name}`)
       const result = await this.uploadFile(file, path, onProgress, true)
+      
+      // Extract enhanced metadata
+      if (result.url) {
+        try {
+          const metadata = await metadataService.getAudioMetadata(
+            result.url,
+            file.name,
+            file.size
+          )
+          result.metadata = metadata
+          
+          // Check audio quality
+          const qualityBadge = metadataService.getAudioQualityBadge(metadata)
+          result.qualityBadge = qualityBadge
+          
+          // Log quality warnings
+          if (metadata.format?.bitrate && metadata.format.bitrate < 128000) {
+            console.warn(`Low bitrate detected: ${metadataService.formatBitrate(metadata.format.bitrate)}`)
+            const proceed = confirm(
+              `This audio file has a low bitrate (${metadataService.formatBitrate(metadata.format.bitrate)}). ` +
+              `This may result in poor audio quality. Continue anyway?`
+            )
+            if (!proceed) {
+              // Delete the uploaded file
+              try {
+                const storageRef = ref(storage, path)
+                await deleteObject(storageRef)
+              } catch (error) {
+                console.error('Error deleting file:', error)
+              }
+              throw new Error('Upload cancelled due to low bitrate')
+            }
+          }
+        } catch (error) {
+          console.error('Failed to extract audio metadata:', error)
+          // Don't fail the upload if metadata extraction fails
+        }
+      }
       
       // Check for exact duplicates first
       if (result.duplicateInfo) {
@@ -249,8 +328,19 @@ export class AssetService {
       return {
         ...result,
         trackId,
-        format: this.getAudioFormat(fileValidation.mimeTypes[0] || file.type),
-        duration: await this.getAudioDuration(file)
+        format: result.metadata?.format?.codec || this.getAudioFormat(fileValidation.mimeTypes[0] || file.type),
+        duration: result.metadata?.format?.duration || await this.getAudioDuration(file),
+        // Add enhanced metadata fields
+        bitrate: result.metadata?.format?.bitrate,
+        sampleRate: result.metadata?.format?.sampleRate,
+        bitsPerSample: result.metadata?.format?.bitsPerSample,
+        channels: result.metadata?.format?.numberOfChannels,
+        channelLayout: result.metadata?.format?.channelLayout,
+        lossless: result.metadata?.format?.lossless,
+        fileSize: result.metadata?.format?.fileSize || file.size,
+        mimeType: result.metadata?.format?.mimeType || file.type,
+        isHighResolution: result.metadata?.quality?.isHighResolution || false,
+        embeddedTags: result.metadata?.tags || null
       }
     } catch (error) {
       console.error('Audio file upload failed:', error)
@@ -287,6 +377,32 @@ export class AssetService {
       try {
         const path = this.generatePath(userId, releaseId, type, file.name)
         const result = await this.uploadFile(file, path, null, false) // Skip individual fingerprinting
+        
+        // Extract metadata based on file type
+        if (result.url) {
+          try {
+            if (type === 'images' || file.type.startsWith('image/')) {
+              const metadata = await metadataService.getImageMetadata(
+                result.url,
+                file.name,
+                file.size
+              )
+              result.metadata = metadata
+              result.qualityBadge = metadataService.getImageQualityBadge(metadata)
+            } else if (type === 'audio' || file.type.startsWith('audio/')) {
+              const metadata = await metadataService.getAudioMetadata(
+                result.url,
+                file.name,
+                file.size
+              )
+              result.metadata = metadata
+              result.qualityBadge = metadataService.getAudioQualityBadge(metadata)
+            }
+          } catch (error) {
+            console.error(`Failed to extract metadata for ${file.name}:`, error)
+          }
+        }
+        
         uploads.push(result)
       } catch (error) {
         console.error(`Failed to upload ${file.name}:`, error)

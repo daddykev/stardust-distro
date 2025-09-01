@@ -7,6 +7,7 @@ import deliveryService from '../services/delivery'
 import ReconciliationDashboard from '../components/ReconciliationDashboard.vue'
 import { db } from '../firebase'
 import { doc, onSnapshot } from 'firebase/firestore'
+import ERNVisualization from '@/components/delivery/ERNVisualization.vue';
 
 const router = useRouter()
 const { user } = useAuth()
@@ -30,6 +31,11 @@ const isRefreshing = ref(false)
 const filterStatus = ref('')
 const filterTarget = ref('')
 const searchQuery = ref('')
+
+// D3 refs
+const showVisualization = ref(false);
+const visualizationDelivery = ref(null);
+const visualizationContent = ref('');
 
 // Listeners
 let logsUnsubscribe = null
@@ -309,6 +315,27 @@ const formatDuration = (ms) => {
     return `${minutes}m ${seconds % 60}s`
   } else {
     return `${seconds}s`
+  }
+}
+
+async function visualizeERN(delivery) {
+  try {
+    visualizationDelivery.value = delivery;
+    
+    // If ERN is stored as a string
+    if (typeof delivery.ernXml === 'string') {
+      visualizationContent.value = delivery.ernXml;
+    } 
+    // If ERN needs to be fetched
+    else if (delivery.ernUrl) {
+      const response = await fetch(delivery.ernUrl);
+      visualizationContent.value = await response.text();
+    }
+    
+    showVisualization.value = true;
+  } catch (error) {
+    console.error('Error loading ERN for visualization:', error);
+    toast.error('Failed to load ERN content');
   }
 }
 
@@ -606,6 +633,14 @@ onUnmounted(() => {
                   ERN
                 </button>
                 <button 
+                  v-if="delivery.ernXml"
+                  @click="visualizeERN(delivery)"
+                  class="btn btn-sm btn-secondary"
+                >
+                  <font-awesome-icon icon="project-diagram" />
+                  Visualize
+                </button>
+                <button 
                   v-if="delivery.receipt || delivery.status === 'completed'"
                   @click="downloadReceipt(delivery)"
                   class="btn btn-sm btn-secondary"
@@ -833,6 +868,34 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- Visualization Modal -->
+    <div v-if="showVisualization" class="modal-overlay modal-overlay-opaque" @click="showVisualization = false">
+      <div class="modal-content modal-xl modal-visualization" @click.stop>
+        <div class="modal-header">
+          <h2 class="text-xl font-semibold">
+            ERN Visualization - {{ visualizationDelivery?.releaseName }}
+          </h2>
+          <button @click="showVisualization = false" class="btn-icon">
+            <font-awesome-icon icon="times" />
+          </button>
+        </div>
+        
+        <div class="modal-body">
+          <ERNVisualization 
+            v-if="visualizationContent"
+            :xml-content="visualizationContent" 
+          />
+        </div>
+        
+        <div class="modal-footer">
+          <button @click="showVisualization = false" class="btn btn-primary">
+            Close
+          </button>
+        </div>
+      </div>
+    </div> 
+    
   </div>
 </template>
 
@@ -1258,6 +1321,37 @@ onUnmounted(() => {
   color: var(--color-text-secondary);
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+.modal-overlay-opaque {
+  background-color: rgba(0, 0, 0, 0.75) !important; /* Reduced from 0.9 to 0.75 */
+  backdrop-filter: blur(4px); /* Reduced blur for a lighter feel */
+}
+
+/* Optional: Different opacity for light/dark themes */
+[data-theme="light"] .modal-overlay-opaque {
+  background-color: rgba(0, 0, 0, 0.65) !important; /* Even lighter for light mode */
+}
+
+[data-theme="dark"] .modal-overlay-opaque {
+  background-color: rgba(0, 0, 0, 0.85) !important; /* Slightly darker for dark mode */
+}
+
+.modal-visualization {
+  background: var(--color-surface) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--color-border);
+}
+
+.modal-xl {
+  max-width: 90vw;
+  width: 1200px;
+}
+
+.modal-xl .modal-body {
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--color-surface); /* Ensure solid background */
 }
 
 /* Responsive Filters */

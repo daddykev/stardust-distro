@@ -264,6 +264,31 @@ class BatchService {
       archivedAt: serverTimestamp()
     })
   }
+
+  /**
+   * Remove a release from a batch
+   */
+  async removeReleaseFromBatch(batchId, upc) {
+    try {
+      const batch = await this.getBatch(batchId)
+      
+      // Filter out the release with the matching UPC
+      const updatedReleases = (batch.releases || []).filter(r => r.upc !== upc)
+      
+      // Update stats
+      const stats = this.calculateBatchStats(updatedReleases)
+      
+      await this.updateBatch(batchId, {
+        releases: updatedReleases,
+        stats
+      })
+      
+      return true
+    } catch (error) {
+      console.error('Error removing release from batch:', error)
+      throw error
+    }
+  }
 }
 
 export default new BatchService()
