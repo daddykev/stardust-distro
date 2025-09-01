@@ -310,7 +310,8 @@ stardust-distro/
 │   │   │   └── themes.css         # CSS custom properties, light/dark themes ✅
 │   │   ├── components/            # UI components
 │   │   │   ├── delivery/          # Delivery management
-│   │   │   │   └── DeliveryTargetForm.vue  # Target configuration ✅
+│   │   │   │   ├── DeliveryTargetForm.vue  # Target configuration ✅
+│   │   │   │   └── ERNVisualization.vue  # D3 Tidy tree visualization of XML ✅
 │   │   │   ├── ArtistForm.vue     # Create and edit artist profiles ✅
 │   │   │   ├── DuplicateWarning.vue  # Fingerprint analysis tool ✅
 │   │   │   ├── GenreSelector.vue  # Unified genre selector tool ✅
