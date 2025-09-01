@@ -85,15 +85,29 @@ function getCorsOrigins() {
     );
   }
   
-  // Add custom domain if configured
+  // Add custom domain from environment variable
   if (process.env.CUSTOM_DOMAIN) {
-    origins.push(process.env.CUSTOM_DOMAIN);
+    const customDomain = process.env.CUSTOM_DOMAIN;
+    origins.push(customDomain);
+    
+    // Also add www subdomain if the domain doesn't already include www
+    if (!customDomain.includes('www.')) {
+      try {
+        const url = new URL(customDomain);
+        origins.push(`${url.protocol}//www.${url.host}`);
+      } catch (e) {
+        // If URL parsing fails, just add www. prefix
+        origins.push(customDomain.replace('https://', 'https://www.'));
+      }
+    }
   }
   
   // Add any additional origins from environment
   if (process.env.ADDITIONAL_ORIGINS) {
     origins.push(...process.env.ADDITIONAL_ORIGINS.split(','));
   }
+  
+  console.log('CORS Origins configured:', origins);
   
   return origins;
 }
