@@ -6,8 +6,8 @@ import { useCatalog } from '../composables/useCatalog'
 import batchService from '../services/batch'
 import productMetadataService from '../services/productMetadata'
 import metadataSynthesizer from '../services/metadataSynthesizer'
-import metadataService from '../services/assetMetadata' // Add this import
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
+import metadataService from '../services/assetMetadata'
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { storage } from '../firebase'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 
@@ -22,13 +22,13 @@ const batchId = ref(route.query.batchId || null)
 const batch = ref(null)
 const batchReleases = ref([])
 
-// ADD THIS REF - it was missing!
+// Track newly created releases
 const newlyCreatedReleases = ref(new Set())
 
 // UI State
 const activeTab = ref('all') // 'all', 'incomplete', 'complete'
 const selectedRelease = ref(null)
-const expandedRelease = ref(null) // Track which release is expanded
+const expandedRelease = ref(null)
 const isLoading = ref(false)
 const error = ref(null)
 const successMessage = ref(null)
@@ -245,7 +245,7 @@ const fetchMetadataForUPCs = async (upcs) => {
               duration: track.duration?.synthesized || 0,
               audioFile: null
             })),
-            coverArt: null, // Will be populated if user uploads or downloads from API
+            coverArt: null,
             hasAllAudio: false,
             cataloged: false,
             sources: productMetadata.quality?.sources || []
@@ -358,7 +358,6 @@ const handleCoverUpload = async (event) => {
         fileName,
         path: storagePath,
         uploadedAt: new Date().toISOString(),
-        // Add enhanced metadata
         fileSize: file.size,
         fileType: file.type.split('/')[1]?.toUpperCase() || 'JPEG',
         dimensions: imageMetadata?.dimensions || { width: 0, height: 0 },
@@ -419,7 +418,6 @@ const handleTrackAudioUpload = async (event, trackIndex) => {
         format: audioMetadata?.format?.codec || file.name.split('.').pop().toUpperCase(),
         size: file.size,
         uploadedAt: new Date().toISOString(),
-        // Add enhanced metadata
         duration: audioMetadata?.format?.duration || track.duration || 0,
         bitrate: audioMetadata?.format?.bitrate,
         sampleRate: audioMetadata?.format?.sampleRate,
@@ -452,7 +450,8 @@ const handleTrackAudioUpload = async (event, trackIndex) => {
   }
 }
 
-const handleBulkAudioUpload = async (event) => {
+// UPDATED: Renamed and enhanced to handle both audio and images
+const handleBulkAssetUpload = async (event) => {
   const files = Array.from(event.target.files)
   if (files.length === 0) return
   
@@ -461,14 +460,168 @@ const handleBulkAudioUpload = async (event) => {
   successMessage.value = null
   
   try {
-    // First, extract all unique UPCs from the files
+    // Sort files into audio and images
+    const audioFiles = []
+    const imageFiles = []
+    
+    for (const file of files) {
+      const fileType = file.type.toLowerCase()
+      const fileName = file.name.toLowerCase()
+      
+      if (fileType.startsWith('audio/') || 
+          fileName.endsWith('.wav') || 
+          fileName.endsWith('.flac') || 
+          fileName.endsWith('.mp3')) {
+        audioFiles.push(file)
+      } else if (fileType.startsWith('image/') || 
+                 fileName.endsWith('.jpg') || 
+                 fileName.endsWith('.jpeg') || 
+                 fileName.endsWith('.png')) {
+        imageFiles.push(file)
+      } else {
+        console.warn(`Skipping unsupported file type: ${file.name}`)
+      }
+    }
+    
+    console.log(`📦 Processing ${audioFiles.length} audio and ${imageFiles.length} image files`)
+    
+    // Process image files first
+    let imagesUploaded = 0
+    let imagesReplaced = 0
+    
+    for (const file of imageFiles) {
+      // Extract UPC from filename
+      // Expected formats: UPC.jpg or UPC_XX.jpg
+      const match = file.name.match(/^(\d{12,14})(?:_\d{2})?\./)
+      if (!match) {
+        console.warn(`Skipping image with invalid naming: ${file.name}`)
+        continue
+      }
+      
+      const upc = match[1]
+      const release = batchReleases.value.find(r => r.upc === upc)
+      
+      if (!release) {
+        console.warn(`No release found for UPC ${upc}`)
+        continue
+      }
+      
+      // Check if release already has cover art
+      let shouldUpload = true
+      let existingCoverPath = null
+      
+      if (release.coverArt?.url) {
+        console.log(`🖼️ Release ${upc} already has cover art. Comparing quality...`)
+        
+        // Upload new image to temp location first
+        const tempFileName = `temp_${Date.now()}_${file.name}`
+        const tempPath = `batches/${batchId.value}/temp/${tempFileName}`
+        const tempRef = storageRef(storage, tempPath)
+        
+        await uploadBytes(tempRef, file)
+        const tempUrl = await getDownloadURL(tempRef)
+        
+        // Extract metadata for new image
+        const newMetadata = await metadataService.getImageMetadata(tempUrl, file.name, file.size)
+        const newWidth = newMetadata?.dimensions?.width || 0
+        const newHeight = newMetadata?.dimensions?.height || 0
+        const newResolution = newWidth * newHeight
+        
+        // Compare with existing
+        const existingWidth = release.coverArt.dimensions?.width || 0
+        const existingHeight = release.coverArt.dimensions?.height || 0
+        const existingResolution = existingWidth * existingHeight
+        
+        console.log(`  Existing: ${existingWidth}x${existingHeight} (${existingResolution} pixels)`)
+        console.log(`  New: ${newWidth}x${newHeight} (${newResolution} pixels)`)
+        
+        if (newResolution > existingResolution) {
+          console.log(`  ✅ New image is higher resolution. Replacing...`)
+          existingCoverPath = release.coverArt.path
+          shouldUpload = true
+          imagesReplaced++
+          
+          // Clean up temp file after we upload the real one
+          setTimeout(async () => {
+            try {
+              await deleteObject(tempRef)
+            } catch (err) {
+              console.warn('Failed to delete temp file:', err)
+            }
+          }, 5000)
+        } else {
+          console.log(`  ❌ Existing image has equal or better resolution. Keeping existing.`)
+          shouldUpload = false
+          
+          // Clean up temp file immediately
+          try {
+            await deleteObject(tempRef)
+          } catch (err) {
+            console.warn('Failed to delete temp file:', err)
+          }
+        }
+      }
+      
+      if (shouldUpload) {
+        // Upload the new image
+        const fileName = `${upc}_cover.${file.name.split('.').pop()}`
+        const storagePath = `batches/${batchId.value}/${upc}/${fileName}`
+        const fileRef = storageRef(storage, storagePath)
+        
+        await uploadBytes(fileRef, file, {
+          customMetadata: {
+            upc,
+            source: 'bulk-upload',
+            replacedExisting: existingCoverPath ? 'true' : 'false'
+          }
+        })
+        
+        const url = await getDownloadURL(fileRef)
+        
+        // Extract metadata
+        const imageMetadata = await metadataService.getImageMetadata(url, fileName, file.size)
+        
+        // Update release
+        await batchService.updateReleaseInBatch(batchId.value, upc, {
+          coverArt: {
+            url,
+            fileName,
+            path: storagePath,
+            source: 'bulk-upload',
+            uploadedAt: new Date().toISOString(),
+            fileSize: file.size,
+            fileType: file.type.split('/')[1]?.toUpperCase() || 'JPEG',
+            dimensions: imageMetadata?.dimensions || { width: 0, height: 0 },
+            colorSpace: imageMetadata?.format?.space || 'srgb',
+            metadata: imageMetadata,
+            replacedPrevious: !!existingCoverPath
+          }
+        })
+        
+        // Delete old cover if we replaced it
+        if (existingCoverPath) {
+          try {
+            const oldRef = storageRef(storage, existingCoverPath)
+            await deleteObject(oldRef)
+            console.log(`  🗑️ Deleted old lower-resolution cover`)
+          } catch (err) {
+            console.warn('Failed to delete old cover:', err)
+          }
+        }
+        
+        imagesUploaded++
+        console.log(`✅ Uploaded cover art for ${upc}`)
+      }
+    }
+    
+    // Process audio files
     const filesByUPC = new Map()
     const newUPCs = new Set()
     
-    for (const file of files) {
+    for (const file of audioFiles) {
       const match = file.name.match(/^(\d{12,14})_(\d{2})_(\d{2,3})\./)
       if (!match) {
-        console.warn(`Skipping file with invalid DDEX naming: ${file.name}`)
+        console.warn(`Skipping audio file with invalid DDEX naming: ${file.name}`)
         continue
       }
       
@@ -503,12 +656,12 @@ const handleBulkAudioUpload = async (event) => {
       newUPCs.forEach(upc => newlyCreatedReleases.value.add(upc))
     }
     
-    // Now process all audio files
+    // Process all audio files
     let uploadedCount = 0
     let matchedCount = 0
     
     for (const [upc, fileInfos] of filesByUPC) {
-      // Find the release (it should exist now, either from before or just created)
+      // Find the release
       const release = batchReleases.value.find(r => r.upc === upc)
       
       if (!release) {
@@ -528,76 +681,6 @@ const handleBulkAudioUpload = async (event) => {
         
         if (trackIndex === -1 || !release.tracks) {
           console.warn(`No track ${trackNumber} found for UPC ${upc}`)
-          // If no tracks exist yet, create a minimal track
-          if (!release.tracks || release.tracks.length === 0) {
-            const minimalTrack = {
-              position: trackNumber,
-              trackNumber: trackNumber,
-              discNumber: discNumber,
-              title: `Track ${trackNumber}`,
-              artist: release.metadata?.artist || 'Unknown Artist',
-              audioFile: null
-            }
-            
-            await batchService.updateReleaseInBatch(batchId.value, upc, {
-              tracks: [minimalTrack]
-            })
-            
-            // Reload to get the updated release
-            await loadBatch()
-            const updatedRelease = batchReleases.value.find(r => r.upc === upc)
-            if (updatedRelease) {
-              // Now try again with the updated release
-              const newTrackIndex = 0 // We just created one track
-              
-              // Upload the file
-              const fileName = file.name
-              const storagePath = `batches/${batchId.value}/${upc}/audio/${fileName}`
-              const fileRef = storageRef(storage, storagePath)
-              
-              await uploadBytes(fileRef, file, {
-                customMetadata: {
-                  upc,
-                  trackNumber: trackNumber.toString(),
-                  discNumber: discNumber.toString()
-                }
-              })
-              
-              const url = await getDownloadURL(fileRef)
-              
-              // Extract audio metadata
-              let audioMetadata = null
-              try {
-                audioMetadata = await metadataService.getAudioMetadata(url, fileName, file.size)
-              } catch (err) {
-                console.warn('Failed to extract audio metadata:', err)
-              }
-              
-              await batchService.updateReleaseInBatch(batchId.value, upc, {
-                tracks: [{
-                  ...updatedRelease.tracks[0],
-                  audioFile: {
-                    url,
-                    fileName,
-                    path: storagePath,
-                    format: audioMetadata?.format?.codec || file.name.split('.').pop().toUpperCase(),
-                    size: file.size,
-                    uploadedAt: new Date().toISOString(),
-                    duration: audioMetadata?.format?.duration,
-                    bitrate: audioMetadata?.format?.bitrate,
-                    sampleRate: audioMetadata?.format?.sampleRate,
-                    channels: audioMetadata?.format?.numberOfChannels,
-                    lossless: audioMetadata?.format?.lossless,
-                    metadata: audioMetadata
-                  }
-                }],
-                hasAllAudio: true // If it's a single, this is all the audio
-              })
-              
-              uploadedCount++
-              matchedCount++
-            }
-          }
           continue
         }
         
@@ -666,15 +749,26 @@ const handleBulkAudioUpload = async (event) => {
     await loadBatch()
     
     // Prepare success message
-    let message = `Successfully processed ${uploadedCount} audio file(s)`
-    if (newUPCs.size > 0) {
-      message += ` and created ${newUPCs.size} new release(s)`
+    let message = ''
+    if (uploadedCount > 0) {
+      message += `Uploaded ${uploadedCount} audio file(s)`
     }
-    if (matchedCount > 0) {
-      message += `. Matched ${matchedCount} track(s).`
+    if (imagesUploaded > 0) {
+      if (message) message += ' and '
+      message += `${imagesUploaded} cover image(s)`
+      if (imagesReplaced > 0) {
+        message += ` (${imagesReplaced} replaced with higher resolution)`
+      }
+    }
+    if (newUPCs.size > 0) {
+      if (message) message += ', '
+      message += `created ${newUPCs.size} new release(s)`
     }
     
-    successMessage.value = message
+    if (message) {
+      successMessage.value = message
+      setTimeout(() => { successMessage.value = null }, 7000)
+    }
     
     // Auto-expand the first newly created release if any
     if (newlyCreatedReleases.value.size > 0) {
@@ -690,8 +784,6 @@ const handleBulkAudioUpload = async (event) => {
       newlyCreatedReleases.value.clear()
     }, 10000)
     
-    setTimeout(() => { successMessage.value = null }, 7000)
-    
   } catch (err) {
     console.error('Error in bulk upload:', err)
     error.value = `Failed to process files: ${err.message}`
@@ -701,7 +793,7 @@ const handleBulkAudioUpload = async (event) => {
   }
 }
 
-// Add a new method for fetching metadata and creating releases
+// Helper method for fetching metadata and creating releases
 const fetchMetadataAndCreateReleases = async (upcs) => {
   const releases = []
   
@@ -742,7 +834,6 @@ const fetchMetadataAndCreateReleases = async (upcs) => {
               isrc: track.isrc,
               duration: track.duration?.synthesized || 0,
               audioFile: null,
-              // Add these for better matching
               trackNumber: track.position || idx + 1,
               discNumber: track.discNumber || 1
             })),
@@ -750,8 +841,8 @@ const fetchMetadataAndCreateReleases = async (upcs) => {
             hasAllAudio: false,
             cataloged: false,
             sources: productMetadata.quality?.sources || [],
-            autoCreated: true, // Flag to indicate this was auto-created
-            createdFrom: 'bulk-audio-upload'
+            autoCreated: true,
+            createdFrom: 'bulk-asset-upload'
           }
           
           releases.push(release)
@@ -759,24 +850,20 @@ const fetchMetadataAndCreateReleases = async (upcs) => {
           
           // Auto-download cover art if available
           if (synthesized.coverArt?.xl || synthesized.coverArt?.large) {
-            // We'll download the cover after the release is created
             setTimeout(async () => {
               await downloadApiArtworkForUPC(upc, synthesized.coverArt?.xl || synthesized.coverArt?.large)
             }, 1000)
           }
         } else {
-          // Create minimal release with just UPC
           releases.push(createMinimalRelease(upc))
           console.log(`⚠️ No metadata found for ${upc}, created placeholder release`)
         }
       } else {
-        // Create minimal release
         releases.push(createMinimalRelease(upc))
         console.log(`⚠️ No metadata found for ${upc}, created placeholder release`)
       }
     } catch (err) {
       console.error(`Error fetching metadata for ${upc}:`, err)
-      // Create minimal release on error
       releases.push(createMinimalRelease(upc))
     }
     
@@ -803,17 +890,17 @@ const createMinimalRelease = (upc) => {
       title: `Unknown Release (${upc})`,
       artist: 'Unknown Artist'
     },
-    tracks: [], // Will be populated as audio files are matched
+    tracks: [],
     coverArt: null,
     hasAllAudio: false,
     cataloged: false,
     autoCreated: true,
-    createdFrom: 'bulk-audio-upload',
+    createdFrom: 'bulk-asset-upload',
     needsMetadata: true
   }
 }
 
-// UPDATED: Use Cloud Function to download external images
+// Use Cloud Function to download external images
 const downloadApiArtworkForUPC = async (upc, coverUrl) => {
   if (!coverUrl) return
   
@@ -834,7 +921,7 @@ const downloadApiArtworkForUPC = async (upc, coverUrl) => {
     
     console.log(`  Received image: ${result.data.size} bytes`)
     
-    // Convert base64 to blob without using fetch
+    // Convert base64 to blob
     const byteCharacters = atob(result.data.base64)
     const byteNumbers = new Array(byteCharacters.length)
     for (let i = 0; i < byteCharacters.length; i++) {
@@ -890,11 +977,10 @@ const downloadApiArtworkForUPC = async (upc, coverUrl) => {
     
   } catch (err) {
     console.error(`Failed to auto-download cover for ${upc}:`, err)
-    // Don't throw - just log the error and continue
   }
 }
 
-// UPDATED: Also use Cloud Function for manual download
+// Manual download API artwork
 const downloadApiArtwork = async (release) => {
   if (!release.metadata?.coverUrl) return
   
@@ -1222,6 +1308,9 @@ watch(() => route.query.batchId, (newBatchId) => {
                     <span v-if="release.cataloged" class="badge badge-info ml-xs">
                       Cataloged
                     </span>
+                    <span v-if="release.coverArt?.replacedPrevious" class="badge badge-success ml-xs">
+                      Updated Art
+                    </span>
                   </h4>
                   <p class="release-artist">{{ release.metadata?.artist || 'Unknown Artist' }}</p>
                   <p class="release-upc">{{ release.upc }}</p>
@@ -1337,6 +1426,23 @@ watch(() => route.query.batchId, (newBatchId) => {
                             <span class="metadata-label">Size:</span>
                             <span class="metadata-value">{{ formatFileSize(release.coverArt.fileSize) }}</span>
                           </div>
+                          <div v-if="release.coverArt.replacedPrevious" class="metadata-row">
+                            <span class="metadata-label">Status:</span>
+                            <span class="metadata-value text-success">Upgraded to higher resolution</span>
+                          </div>
+                        </div>
+                        <div class="asset-actions ml-auto">
+                          <label class="btn btn-secondary btn-sm">
+                            <input 
+                              type="file"
+                              accept="image/*"
+                              @change="handleCoverUpload"
+                              style="display: none"
+                              :disabled="processingAssets"
+                            />
+                            <font-awesome-icon icon="upload" />
+                            Replace
+                          </label>
                         </div>
                       </div>
                       <div v-else class="asset-actions">
@@ -1477,32 +1583,35 @@ watch(() => route.query.batchId, (newBatchId) => {
         </div>
       </div>
 
-      <!-- Bulk Audio Upload - Full Width -->
+      <!-- Bulk Asset Upload - Updated -->
       <div class="card">
         <div class="card-header">
-          <h4>Bulk Audio Upload</h4>
+          <h4>Bulk Asset Upload</h4>
         </div>
         <div class="card-body">
           <p class="mb-md">
-            Upload DDEX-named audio files to automatically match them to releases. 
-            Files will be matched by UPC and track number.
+            Upload DDEX-named audio files and cover images to automatically match them to releases. 
+            Files will be matched by UPC. Higher resolution images will replace existing covers automatically.
           </p>
           
           <div class="upload-drop-zone">
             <label class="drop-zone-label">
               <input 
                 type="file"
-                accept="audio/*"
+                accept="audio/*,image/*"
                 multiple
-                @change="handleBulkAudioUpload"
+                @change="handleBulkAssetUpload"
                 :disabled="processingAssets"
               />
               
               <div v-if="!processingAssets" class="drop-zone-content">
                 <font-awesome-icon icon="upload" class="upload-icon" />
-                <p class="upload-text">Drop audio files here or click to browse</p>
+                <p class="upload-text">Drop audio and image files here or click to browse</p>
                 <span class="btn btn-primary">Choose Files...</span>
-                <p class="format-hint">Required format: UPC_DD_TT.wav (e.g., 123456789012_01_01.wav)</p>
+                <div class="format-hints">
+                  <p class="format-hint">Audio format: UPC_DD_TT.wav (e.g., 123456789012_01_01.wav)</p>
+                  <p class="format-hint">Image format: UPC.jpg (e.g., 123456789012.jpg)</p>
+                </div>
               </div>
               
               <div v-else class="drop-zone-content">
@@ -1642,8 +1751,6 @@ watch(() => route.query.batchId, (newBatchId) => {
 </template>
 
 <style scoped>
-/* Previous styles remain the same, adding new styles for enhanced metadata display */
-
 /* Enhanced track list with metadata */
 .tracks-enhanced-list {
   display: flex;
@@ -1715,11 +1822,33 @@ watch(() => route.query.batchId, (newBatchId) => {
   opacity: 0.7;
 }
 
+/* Updated format hints */
+.format-hints {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+}
+
+.format-hint {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+/* Badge for replaced images */
+.badge-success {
+  background-color: var(--color-success);
+  color: white;
+}
+
 /* Cover art details */
 .cover-details {
   display: flex;
   gap: var(--space-md);
   align-items: center;
+  width: 100%;
 }
 
 .cover-metadata {
@@ -1727,6 +1856,7 @@ watch(() => route.query.batchId, (newBatchId) => {
   flex-direction: column;
   gap: var(--space-xs);
   font-size: var(--text-sm);
+  flex: 1;
 }
 
 .metadata-row {
@@ -1745,7 +1875,12 @@ watch(() => route.query.batchId, (newBatchId) => {
   font-family: var(--font-mono);
 }
 
-/* Rest of your existing styles... */
+.text-success {
+  color: var(--color-success);
+}
+
+/* Rest of existing styles remain the same... */
+
 /* Compact Stats Grid */
 .stats-grid {
   display: grid;
@@ -1917,6 +2052,7 @@ watch(() => route.query.batchId, (newBatchId) => {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  flex: 1;
 }
 
 .asset-actions {
@@ -2033,13 +2169,6 @@ watch(() => route.query.batchId, (newBatchId) => {
   font-size: var(--text-lg);
   color: var(--color-text-secondary);
   margin: 0;
-}
-
-.format-hint {
-  font-size: var(--text-sm);
-  color: var(--color-text-tertiary);
-  margin: 0;
-  font-family: var(--font-mono);
 }
 
 /* Completeness Indicators */
