@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Stardust Distro is an open-source, npm-installable music distribution platform that enables labels and artists to manage their catalog, generate DDEX-compliant ERN messages, and deliver releases to Digital Service Providers (DSPs).
+Stardust Distro enables artists, labels, and distributors to deploy a fully functional, DDEX-compliant distribution system with enterprise-grade features and global delivery capabilities.
 
 ### Core Value Propositions
 - **Instant Distribution Platform**: Deploy a functional distribution system with one command

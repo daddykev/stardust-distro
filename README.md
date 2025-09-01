@@ -6,13 +6,13 @@
 [![Firebase](https://img.shields.io/badge/Firebase-v9-FFA000.svg)](https://firebase.google.com/)
 [![Status](https://img.shields.io/badge/Status-Alpha-orange.svg)](https://github.com/daddykev/stardust-distro)
 
-> Open-source, npm-installable music distribution platform for the modern age.
+> Open-source, npm-installable music distribution software for the modern age.
 
 Stardust Distro enables artists, labels, and distributors to deploy a fully functional, DDEX-compliant distribution system with enterprise-grade features and global delivery capabilities.
 
 -----
 
-## 🎯 Production Ready
+## Introduction
 
 Stardust Distro is a production-ready music distribution platform, built with an open-source core and MIT license. You get a fully functional system with catalog management, DDEX ERN generation with lifecycle tracking, all delivery protocols, and comprehensive testing tools — everything needed to run a global distribution platform.
 
