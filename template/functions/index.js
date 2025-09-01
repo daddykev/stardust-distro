@@ -57,6 +57,9 @@ const notificationFunctions = require('./services/notifications')
 // Import encryption functions
 const { encryptSensitiveData, decryptSensitiveData } = require('./encryption')
 
+// Import audio and image metadata functions
+const metadataFunctions = require('./services/metadata')
+
 // Get project ID dynamically from Firebase environment
 const projectId = process.env.GCLOUD_PROJECT || 
                   process.env.FIREBASE_CONFIG ? JSON.parse(process.env.FIREBASE_CONFIG).projectId : 
@@ -121,6 +124,10 @@ exports.api = onRequest(app);
 // Export encryption functions
 exports.encryptSensitiveData = encryptSensitiveData
 exports.decryptSensitiveData = decryptSensitiveData
+
+// Export metadata extraction functions
+exports.extractAudioMetadata = metadataFunctions.extractAudioMetadata
+exports.extractImageMetadata = metadataFunctions.extractImageMetadata
 
 // Set global options for v2 functions
 setGlobalOptions({
