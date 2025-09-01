@@ -1148,6 +1148,45 @@ const formatDate = (date) => {
   return new Date(date).toLocaleDateString()
 }
 
+const removeReleaseFromBatch = async (release) => {
+  // Don't remove if it's already cataloged
+  if (release.cataloged) {
+    error.value = 'Cannot remove a cataloged release from the batch'
+    setTimeout(() => { error.value = null }, 3000)
+    return
+  }
+  
+  // Confirm deletion
+  if (!confirm(`Are you sure you want to remove "${release.metadata?.title || 'Untitled'}" from this batch?`)) {
+    return
+  }
+  
+  isLoading.value = true
+  error.value = null
+  
+  try {
+    // Remove the release from the batch
+    await batchService.removeReleaseFromBatch(batchId.value, release.upc)
+    
+    // If this was the selected/expanded release, clear it
+    if (selectedRelease.value?.upc === release.upc) {
+      selectedRelease.value = null
+      expandedRelease.value = null
+    }
+    
+    // Reload the batch
+    await loadBatch()
+    
+    successMessage.value = `"${release.metadata?.title || 'Untitled'}" removed from batch`
+    setTimeout(() => { successMessage.value = null }, 3000)
+  } catch (err) {
+    console.error('Error removing release from batch:', err)
+    error.value = 'Failed to remove release from batch'
+  } finally {
+    isLoading.value = false
+  }
+}
+
 // Lifecycle
 onMounted(() => {
   if (batchId.value) {
@@ -1304,11 +1343,10 @@ watch(() => route.query.batchId, (newBatchId) => {
                 active: expandedRelease?.upc === release.upc,
                 cataloged: release.cataloged
               }"
-              @click="toggleReleaseExpansion(release)"
             >
               <div class="release-row-content">
                 <!-- Cover Thumbnail -->
-                <div class="release-thumbnail">
+                <div class="release-thumbnail" @click="toggleReleaseExpansion(release)">
                   <img 
                     v-if="release.coverArt?.url"
                     :src="release.coverArt.url"
@@ -1321,7 +1359,7 @@ watch(() => route.query.batchId, (newBatchId) => {
                 </div>
 
                 <!-- Release Info -->
-                <div class="release-info">
+                <div class="release-info" @click="toggleReleaseExpansion(release)">
                   <h4 class="release-title">
                     {{ release.metadata?.title || 'Untitled' }}
                     <span v-if="release.cataloged" class="badge badge-info ml-xs">
@@ -1360,9 +1398,22 @@ watch(() => route.query.batchId, (newBatchId) => {
                       <font-awesome-icon icon="music" />
                     </span>
                   </div>
+                  
+                  <!-- Remove button -->
+                  <button 
+                    v-if="!release.cataloged"
+                    @click.stop="removeReleaseFromBatch(release)"
+                    class="btn-remove"
+                    title="Remove from batch"
+                    :disabled="isLoading"
+                  >
+                    <font-awesome-icon icon="trash" />
+                  </button>
+                  
                   <font-awesome-icon 
                     :icon="expandedRelease?.upc === release.upc ? 'chevron-up' : 'chevron-down'"
                     class="expand-icon"
+                    @click="toggleReleaseExpansion(release)"
                   />
                 </div>
               </div>
@@ -1420,55 +1471,42 @@ watch(() => route.query.batchId, (newBatchId) => {
                   
                   <!-- Cover Art -->
                   <div class="asset-group">
-                    <label class="asset-label">Cover Art</label>
-                    <div class="asset-content">
-                      <div v-if="release.coverArt" class="cover-details">
-                        <div class="cover-preview-small">
-                          <img 
-                            :src="release.coverArt.url" 
-                            :alt="release.metadata?.title"
-                            :key="`preview-${release.upc}-${release.coverArt.timestamp || release.coverArt.uploadedAt}`"
-                          />
-                        </div>
-                        <div class="cover-metadata">
-                          <div class="metadata-row">
-                            <span class="metadata-label">Dimensions:</span>
-                            <span class="metadata-value">
-                              {{ release.coverArt.dimensions?.width || 0 }} × {{ release.coverArt.dimensions?.height || 0 }}px
-                            </span>
-                          </div>
-                          <div class="metadata-row">
-                            <span class="metadata-label">Color Space:</span>
-                            <span class="metadata-value">{{ (release.coverArt.colorSpace || 'srgb').toUpperCase() }}</span>
-                          </div>
-                          <div class="metadata-row">
-                            <span class="metadata-label">Format:</span>
-                            <span class="metadata-value">{{ release.coverArt.fileType || 'JPEG' }}</span>
-                          </div>
-                          <div class="metadata-row">
-                            <span class="metadata-label">Size:</span>
-                            <span class="metadata-value">{{ formatFileSize(release.coverArt.fileSize) }}</span>
-                          </div>
-                          <div v-if="release.coverArt.replacedPrevious" class="metadata-row">
-                            <span class="metadata-label">Status:</span>
-                            <span class="metadata-value text-success">Upgraded to higher resolution</span>
-                          </div>
-                        </div>
-                        <div class="asset-actions ml-auto">
-                          <label class="btn btn-secondary btn-sm">
-                            <input 
-                              type="file"
-                              accept="image/*"
-                              @change="handleCoverUpload"
-                              style="display: none"
-                              :disabled="processingAssets"
-                            />
-                            <font-awesome-icon icon="upload" />
-                            Replace
-                          </label>
+                    <div v-if="release.coverArt" class="cover-art-display">
+                      <!-- Larger cover art preview -->
+                      <div class="cover-preview-large">
+                        <img 
+                          :src="release.coverArt.url" 
+                          :alt="release.metadata?.title"
+                          :key="`preview-${release.upc}-${release.coverArt.timestamp || release.coverArt.uploadedAt}`"
+                        />
+                        <div v-if="release.coverArt.replacedPrevious" class="upgrade-badge">
+                          <font-awesome-icon icon="arrow-up" />
+                          Upgraded
                         </div>
                       </div>
-                      <div v-else class="asset-actions">
+                      
+                      <!-- Metadata badges below the image -->
+                      <div class="cover-metadata-badges">
+                        <div class="metadata-badge">
+                          <font-awesome-icon icon="expand" />
+                          {{ release.coverArt.dimensions?.width || 0 }} × {{ release.coverArt.dimensions?.height || 0 }}
+                        </div>
+                        <div class="metadata-badge">
+                          <font-awesome-icon icon="palette" />
+                          {{ (release.coverArt.colorSpace || 'srgb').toUpperCase() }}
+                        </div>
+                        <div class="metadata-badge">
+                          <font-awesome-icon icon="image" />
+                          {{ release.coverArt.fileType || 'JPEG' }}
+                        </div>
+                        <div class="metadata-badge">
+                          <font-awesome-icon icon="file" />
+                          {{ formatFileSize(release.coverArt.fileSize) }}
+                        </div>
+                      </div>
+                      
+                      <!-- Action button -->
+                      <div class="cover-actions">
                         <label class="btn btn-secondary btn-sm">
                           <input 
                             type="file"
@@ -1478,33 +1516,53 @@ watch(() => route.query.batchId, (newBatchId) => {
                             :disabled="processingAssets"
                           />
                           <font-awesome-icon icon="upload" />
-                          Upload
+                          Replace Cover Art
+                        </label>
+                      </div>
+                    </div>
+                    
+                    <!-- No cover art state -->
+                    <div v-else class="no-cover-art">
+                      <div class="cover-placeholder">
+                        <font-awesome-icon icon="image" />
+                        <span>No cover art</span>
+                      </div>
+                      <div class="cover-actions mt-md">
+                        <label class="btn btn-primary">
+                          <input 
+                            type="file"
+                            accept="image/*"
+                            @change="handleCoverUpload"
+                            style="display: none"
+                            :disabled="processingAssets"
+                          />
+                          <font-awesome-icon icon="upload" />
+                          Upload Cover Art
                         </label>
                         <button 
                           v-if="release.metadata?.coverUrl"
                           @click="downloadApiArtwork(release)"
-                          class="btn btn-primary btn-sm"
+                          class="btn btn-secondary"
                           :disabled="processingAssets"
                         >
                           <font-awesome-icon icon="download" />
-                          Use API
+                          Use API Artwork
                         </button>
                       </div>
                     </div>
                   </div>
 
-                  <!-- Audio Files Status -->
-                  <div class="asset-group">
-                    <label class="asset-label">Audio Files</label>
-                    <div class="asset-content">
-                      <div class="audio-status">
-                        <span v-if="release.hasAllAudio" class="text-success">
-                          <font-awesome-icon icon="check-circle" />
-                          All tracks have audio
-                        </span>
-                        <span v-else class="text-warning">
-                          {{ release.tracks?.filter(t => t.audioFile).length || 0 }} / {{ release.tracks?.length || 0 }} tracks
-                        </span>
+                  <!-- Audio Files Status Summary -->
+                  <div class="audio-summary-section">
+                    <h5 class="subsection-title">Audio Files</h5>
+                    <div class="audio-summary">
+                      <div v-if="release.hasAllAudio" class="summary-badge complete">
+                        <font-awesome-icon icon="check-circle" />
+                        All {{ release.tracks?.length || 0 }} tracks have audio
+                      </div>
+                      <div v-else class="summary-badge incomplete">
+                        <font-awesome-icon icon="exclamation-circle" />
+                        {{ release.tracks?.filter(t => t.audioFile).length || 0 }} of {{ release.tracks?.length || 0 }} tracks have audio
                       </div>
                     </div>
                   </div>
@@ -1902,8 +1960,6 @@ watch(() => route.query.batchId, (newBatchId) => {
   color: var(--color-success);
 }
 
-/* Rest of existing styles remain the same... */
-
 /* Compact Stats Grid */
 .stats-grid {
   display: grid;
@@ -1939,7 +1995,6 @@ watch(() => route.query.batchId, (newBatchId) => {
 
 .release-row {
   border-bottom: 1px solid var(--color-border);
-  cursor: pointer;
   transition: all var(--transition-base);
 }
 
@@ -1962,12 +2017,14 @@ watch(() => route.query.batchId, (newBatchId) => {
   gap: var(--space-lg);
 }
 
+/* Updated thumbnail and info sections for proper click handling */
 .release-thumbnail {
   width: 60px;
   height: 60px;
   border-radius: var(--radius-md);
   overflow: hidden;
   flex-shrink: 0;
+  cursor: pointer;
 }
 
 .release-thumbnail img {
@@ -1989,6 +2046,7 @@ watch(() => route.query.batchId, (newBatchId) => {
 .release-info {
   flex: 1;
   min-width: 0;
+  cursor: pointer;
 }
 
 .release-title {
@@ -2008,15 +2066,49 @@ watch(() => route.query.batchId, (newBatchId) => {
   font-family: var(--font-mono);
 }
 
+/* Updated release status section */
 .release-status {
   display: flex;
   align-items: center;
-  gap: var(--space-lg);
+  gap: var(--space-md);
 }
 
 .expand-icon {
   color: var(--color-text-secondary);
   transition: transform var(--transition-base);
+  cursor: pointer;
+  padding: var(--space-xs);
+}
+
+/* New remove button styles */
+.btn-remove {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background-color: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
+  padding: 0;
+}
+
+.btn-remove:hover:not(:disabled) {
+  background-color: rgba(234, 67, 53, 0.1);
+  color: var(--color-error);
+}
+
+.btn-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Ensure cataloged releases don't show the remove button */
+.release-row.cataloged .btn-remove {
+  display: none;
 }
 
 /* Expanded Details */
@@ -2431,6 +2523,131 @@ watch(() => route.query.batchId, (newBatchId) => {
   color: var(--color-text);
 }
 
+.cover-art-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-md);
+}
+
+.cover-preview-large {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  background-color: var(--color-bg-tertiary);
+}
+
+.cover-preview-large img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.upgrade-badge {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  background-color: var(--color-success);
+  color: white;
+  padding: 4px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.cover-metadata-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  justify-content: center;
+  max-width: 100%;
+}
+
+.cover-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: center;
+}
+
+.no-cover-art {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: var(--space-lg);
+}
+
+.cover-placeholder {
+  width: 200px;
+  height: 200px;
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  color: var(--color-text-tertiary);
+  background-color: var(--color-bg-secondary);
+}
+
+.cover-placeholder svg {
+  font-size: 3rem;
+  opacity: 0.5;
+}
+
+/* Audio Summary Section */
+.audio-summary-section {
+  margin-top: var(--space-xl);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+.subsection-title {
+  font-weight: var(--font-medium);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-sm);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.audio-summary {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.summary-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.summary-badge.complete {
+  background-color: rgba(52, 168, 83, 0.1);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+}
+
+.summary-badge.incomplete {
+  background-color: rgba(251, 188, 4, 0.1);
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning);
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
   .stats-grid {
@@ -2479,6 +2696,30 @@ watch(() => route.query.batchId, (newBatchId) => {
   .metadata-badge {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .cover-preview-large {
+    width: 150px;
+    height: 150px;
+  }
+  
+  .cover-placeholder {
+    width: 150px;
+    height: 150px;
+  }
+  
+  .cover-metadata-badges {
+    max-width: 300px;
+  }
+  
+  /* Adjust release status on mobile */
+  .release-status {
+    gap: var(--space-sm);
+  }
+  
+  .btn-remove {
+    width: 28px;
+    height: 28px;
   }
 }
 </style>
