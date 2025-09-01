@@ -1,5 +1,113 @@
 # Changelog
 
+## [1.0.5] - 2025-09-01
+
+### 🚀 Major Enhancements
+
+#### **Cloud Functions v2 Refactoring**
+- **Complete Architecture Overhaul**: Migrated to Express-based API structure for better routing and middleware management
+- **Enhanced CORS Configuration**: Dynamic origin detection supporting Firebase Hosting, custom domains, and development environments
+- **Improved API Organization**: Separated Deezer and Spotify routes into dedicated modules
+- **Better Error Handling**: Centralized error handling with consistent HttpsError responses
+
+#### **Advanced Metadata Extraction System**
+- **Audio Metadata Service**: 
+  - Comprehensive format detection (codec, bitrate, sample rate, channels, duration)
+  - Lossless audio detection and quality assessment
+  - Embedded tags extraction (title, artist, album, ISRC, BPM)
+  - High-resolution audio identification (>44.1kHz or >16bit)
+  - Technical encoder details and ReplayGain data
+- **Image Metadata Service**:
+  - Detailed dimension analysis with megapixel calculation
+  - Color space and profile detection (sRGB, Adobe RGB, etc.)
+  - Quality assessment for cover art requirements (3000x3000)
+  - EXIF data extraction for professional images
+  - Color statistics and grayscale detection
+  - Aspect ratio calculation and orientation handling
+
+#### **Batch Import Revolution**
+- **Intelligent Asset Management**: 
+  - Automatic detection and replacement of lower-resolution cover art
+  - Smart comparison of existing vs. new image quality
+  - Preservation of highest quality assets during bulk uploads
+- **Enhanced Migration Flow** (`Migration.vue`):
+  - Real-time DDEX file validation during upload
+  - Automatic release creation from DDEX-named audio files
+  - Multi-source metadata synthesis from Spotify and Deezer
+  - Visual progress indicators for each processing stage
+  - Inline release editing with tabbed interface
+- **Batch Management** (`Batch.vue`):
+  - Comprehensive batch statistics dashboard
+  - Archive functionality for completed batches
+  - Visual progress bars showing completion percentage
+  - Quick-action buttons for common operations
+
+### ✨ New Features
+
+#### **ERN XML Visualization**
+- **Interactive D3.js Tree View**: New `ERNVisualization.vue` component for visual ERN exploration
+- **Zoom & Pan Controls**: Navigate complex ERN structures with ease
+- **Node Details Panel**: Click any node to see attributes and values
+- **Collapsible Tree**: Show/hide attributes and empty nodes
+- **Path Visualization**: Highlight parent-child relationships on hover
+- **Responsive Design**: Auto-fits to container with smart scaling
+
+#### **Enhanced Delivery Management**
+- **Visual ERN Preview**: "Visualize" button in Deliveries view to see ERN structure
+- **Improved Modal System**: Better overlay handling for visualization modals
+- **Real-time Status Updates**: Live delivery progress with step-by-step logging
+
+### 🎨 UI/UX Improvements
+
+- **Metadata Quality Badges**: Visual indicators for audio quality (Hi-Res, Lossless, Compressed)
+- **Image Resolution Badges**: Clear labeling of cover art quality levels
+- **Enhanced Asset Cards**: Rich display of technical metadata for uploads
+- **Improved Empty States**: Better guidance when no data is available
+- **Responsive Layouts**: Optimized grid systems for mobile and tablet views
+- **Loading States**: Skeleton loaders and progress indicators throughout
+
+### 🔧 Technical Improvements
+
+- **Performance Optimizations**:
+  - Client-side metadata extraction with server-side fallback
+  - Chunked file processing for large catalogs
+  - Optimized Firestore queries with proper indexing
+  - Smart caching of API metadata results
+- **Error Resilience**:
+  - Graceful degradation when metadata extraction fails
+  - Comprehensive error boundaries in Cloud Functions
+  - Retry logic for failed API calls
+  - Detailed error logging for debugging
+- **Code Quality**:
+  - Modularized Cloud Functions for better maintainability
+  - Consistent TypeScript-like patterns in JavaScript
+  - Improved separation of concerns
+  - Enhanced documentation and inline comments
+
+### 🐛 Bug Fixes
+
+- Fixed image URL token issues in Migration view
+- Resolved race conditions in bulk asset upload
+- Fixed metadata extraction timeout errors
+- Corrected aspect ratio calculations for non-standard images
+- Fixed D3.js tree rendering in dark mode
+- Resolved CORS issues with external image downloads
+- Fixed duplicate detection in batch imports
+
+### 📚 Documentation
+
+- Added comprehensive JSDoc comments to metadata services
+- Updated API documentation for new Cloud Functions structure
+- Enhanced inline help text for batch import features
+- Added tooltips explaining metadata quality indicators
+
+### 🔄 Dependencies
+
+- Added `sharp` for professional image processing
+- Added `music-metadata` for comprehensive audio analysis
+- Updated Firebase Functions to latest v2 APIs
+- Added `d3` for data visualization capabilities
+
 ## [1.0.4] - 2025-08-30
 
 ### 🐛 Bug Fixes

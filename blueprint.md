@@ -32,7 +32,7 @@ While the codebase is 100% open source (MIT License) and theoretically portable,
 
 ## Development Status
 
-**Alpha Release - v1.0.4** (August 2025)
+**Alpha Release - v1.0.5** (September 2025)
 
 ### ✅ Phase 1: Foundation - COMPLETE
 - Full Vue 3 application with routing and views
