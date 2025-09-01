@@ -6,6 +6,7 @@ import { useCatalog } from '../composables/useCatalog'
 import batchService from '../services/batch'
 import productMetadataService from '../services/productMetadata'
 import metadataSynthesizer from '../services/metadataSynthesizer'
+import metadataService from '../services/assetMetadata' // Add this import
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { storage } from '../firebase'
 import { getFunctions, httpsCallable } from 'firebase/functions'
@@ -46,6 +47,31 @@ const processingAssets = ref(false)
 // Metadata fetch state
 const fetchingMetadata = ref(false)
 const metadataProgress = ref({})
+
+// Add helper functions for formatting
+const formatFileSize = (bytes) => {
+  if (!bytes) return '0 B'
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i]
+}
+
+const formatBitrate = (bitrate) => {
+  if (!bitrate) return 'Unknown'
+  return `${Math.round(bitrate / 1000)} kbps`
+}
+
+const formatSampleRate = (sampleRate) => {
+  if (!sampleRate) return 'Unknown'
+  return `${(sampleRate / 1000).toFixed(1)} kHz`
+}
+
+const formatDuration = (seconds) => {
+  if (!seconds) return '0:00'
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
 
 // Computed
 const incompleteBatchReleases = computed(() => 
@@ -316,13 +342,28 @@ const handleCoverUpload = async (event) => {
     await uploadBytes(fileRef, file)
     const url = await getDownloadURL(fileRef)
     
-    // Update release
+    // Extract enhanced metadata
+    let imageMetadata = null
+    try {
+      imageMetadata = await metadataService.getImageMetadata(url, fileName, file.size)
+      console.log('Extracted image metadata:', imageMetadata)
+    } catch (err) {
+      console.warn('Failed to extract image metadata:', err)
+    }
+    
+    // Update release with metadata
     await batchService.updateReleaseInBatch(batchId.value, selectedRelease.value.upc, {
       coverArt: {
         url,
         fileName,
         path: storagePath,
-        uploadedAt: new Date().toISOString()
+        uploadedAt: new Date().toISOString(),
+        // Add enhanced metadata
+        fileSize: file.size,
+        fileType: file.type.split('/')[1]?.toUpperCase() || 'JPEG',
+        dimensions: imageMetadata?.dimensions || { width: 0, height: 0 },
+        colorSpace: imageMetadata?.format?.space || 'srgb',
+        metadata: imageMetadata
       }
     })
     
@@ -358,7 +399,16 @@ const handleTrackAudioUpload = async (event, trackIndex) => {
     await uploadBytes(fileRef, file)
     const url = await getDownloadURL(fileRef)
     
-    // Update track with audio file
+    // Extract enhanced metadata
+    let audioMetadata = null
+    try {
+      audioMetadata = await metadataService.getAudioMetadata(url, fileName, file.size)
+      console.log('Extracted audio metadata:', audioMetadata)
+    } catch (err) {
+      console.warn('Failed to extract audio metadata:', err)
+    }
+    
+    // Update track with audio file and metadata
     const updatedTracks = [...selectedRelease.value.tracks]
     updatedTracks[trackIndex] = {
       ...track,
@@ -366,9 +416,16 @@ const handleTrackAudioUpload = async (event, trackIndex) => {
         url,
         fileName,
         path: storagePath,
-        format: file.name.split('.').pop().toUpperCase(),
+        format: audioMetadata?.format?.codec || file.name.split('.').pop().toUpperCase(),
         size: file.size,
-        uploadedAt: new Date().toISOString()
+        uploadedAt: new Date().toISOString(),
+        // Add enhanced metadata
+        duration: audioMetadata?.format?.duration || track.duration || 0,
+        bitrate: audioMetadata?.format?.bitrate,
+        sampleRate: audioMetadata?.format?.sampleRate,
+        channels: audioMetadata?.format?.numberOfChannels,
+        lossless: audioMetadata?.format?.lossless,
+        metadata: audioMetadata
       }
     }
     
@@ -442,7 +499,7 @@ const handleBulkAudioUpload = async (event) => {
       
       await fetchMetadataAndCreateReleases(Array.from(newUPCs))
       
-      // Track these as newly created - FIXED: now newlyCreatedReleases is defined
+      // Track these as newly created
       newUPCs.forEach(upc => newlyCreatedReleases.value.add(upc))
     }
     
@@ -508,6 +565,14 @@ const handleBulkAudioUpload = async (event) => {
               
               const url = await getDownloadURL(fileRef)
               
+              // Extract audio metadata
+              let audioMetadata = null
+              try {
+                audioMetadata = await metadataService.getAudioMetadata(url, fileName, file.size)
+              } catch (err) {
+                console.warn('Failed to extract audio metadata:', err)
+              }
+              
               await batchService.updateReleaseInBatch(batchId.value, upc, {
                 tracks: [{
                   ...updatedRelease.tracks[0],
@@ -515,9 +580,15 @@ const handleBulkAudioUpload = async (event) => {
                     url,
                     fileName,
                     path: storagePath,
-                    format: file.name.split('.').pop().toUpperCase(),
+                    format: audioMetadata?.format?.codec || file.name.split('.').pop().toUpperCase(),
                     size: file.size,
-                    uploadedAt: new Date().toISOString()
+                    uploadedAt: new Date().toISOString(),
+                    duration: audioMetadata?.format?.duration,
+                    bitrate: audioMetadata?.format?.bitrate,
+                    sampleRate: audioMetadata?.format?.sampleRate,
+                    channels: audioMetadata?.format?.numberOfChannels,
+                    lossless: audioMetadata?.format?.lossless,
+                    metadata: audioMetadata
                   }
                 }],
                 hasAllAudio: true // If it's a single, this is all the audio
@@ -547,7 +618,15 @@ const handleBulkAudioUpload = async (event) => {
         
         const url = await getDownloadURL(fileRef)
         
-        // Update the track with audio file
+        // Extract audio metadata
+        let audioMetadata = null
+        try {
+          audioMetadata = await metadataService.getAudioMetadata(url, fileName, file.size)
+        } catch (err) {
+          console.warn('Failed to extract audio metadata:', err)
+        }
+        
+        // Update the track with audio file and metadata
         const updatedTracks = [...release.tracks]
         updatedTracks[trackIndex] = {
           ...updatedTracks[trackIndex],
@@ -555,9 +634,15 @@ const handleBulkAudioUpload = async (event) => {
             url,
             fileName,
             path: storagePath,
-            format: file.name.split('.').pop().toUpperCase(),
+            format: audioMetadata?.format?.codec || file.name.split('.').pop().toUpperCase(),
             size: file.size,
-            uploadedAt: new Date().toISOString()
+            uploadedAt: new Date().toISOString(),
+            duration: audioMetadata?.format?.duration,
+            bitrate: audioMetadata?.format?.bitrate,
+            sampleRate: audioMetadata?.format?.sampleRate,
+            channels: audioMetadata?.format?.numberOfChannels,
+            lossless: audioMetadata?.format?.lossless,
+            metadata: audioMetadata
           }
         }
         
@@ -774,6 +859,14 @@ const downloadApiArtworkForUPC = async (upc, coverUrl) => {
     
     const url = await getDownloadURL(fileRef)
     
+    // Extract metadata from the uploaded image
+    let imageMetadata = null
+    try {
+      imageMetadata = await metadataService.getImageMetadata(url, fileName, result.data.size)
+    } catch (err) {
+      console.warn('Failed to extract image metadata:', err)
+    }
+    
     // Update the release with the cover art
     await batchService.updateReleaseInBatch(batchId.value, upc, {
       coverArt: {
@@ -781,7 +874,12 @@ const downloadApiArtworkForUPC = async (upc, coverUrl) => {
         fileName,
         path: storagePath,
         source: 'api-auto',
-        uploadedAt: new Date().toISOString()
+        uploadedAt: new Date().toISOString(),
+        fileSize: result.data.size,
+        fileType: 'JPEG',
+        dimensions: imageMetadata?.dimensions || { width: 0, height: 0 },
+        colorSpace: imageMetadata?.format?.space || 'srgb',
+        metadata: imageMetadata
       }
     })
     
@@ -832,13 +930,26 @@ const downloadApiArtwork = async (release) => {
     
     const url = await getDownloadURL(fileRef)
     
+    // Extract metadata
+    let imageMetadata = null
+    try {
+      imageMetadata = await metadataService.getImageMetadata(url, fileName, result.data.size)
+    } catch (err) {
+      console.warn('Failed to extract image metadata:', err)
+    }
+    
     await batchService.updateReleaseInBatch(batchId.value, release.upc, {
       coverArt: {
         url,
         fileName,
         path: storagePath,
         source: 'api',
-        uploadedAt: new Date().toISOString()
+        uploadedAt: new Date().toISOString(),
+        fileSize: result.data.size,
+        fileType: 'JPEG',
+        dimensions: imageMetadata?.dimensions || { width: 0, height: 0 },
+        colorSpace: imageMetadata?.format?.space || 'srgb',
+        metadata: imageMetadata
       }
     })
     
@@ -880,7 +991,7 @@ const moveReleaseToCatalog = async (release) => {
         title: track.title,
         artist: track.artist,
         isrc: track.isrc || '',
-        duration: track.duration || 0,
+        duration: track.audioFile?.duration || track.duration || 0,
         audio: track.audioFile ? {
           url: track.audioFile.url,
           format: track.audioFile.format
@@ -1203,8 +1314,30 @@ watch(() => route.query.batchId, (newBatchId) => {
                   <div class="asset-group">
                     <label class="asset-label">Cover Art</label>
                     <div class="asset-content">
-                      <div v-if="release.coverArt" class="cover-preview-small">
-                        <img :src="release.coverArt.url" :alt="release.metadata?.title" />
+                      <div v-if="release.coverArt" class="cover-details">
+                        <div class="cover-preview-small">
+                          <img :src="release.coverArt.url" :alt="release.metadata?.title" />
+                        </div>
+                        <div class="cover-metadata">
+                          <div class="metadata-row">
+                            <span class="metadata-label">Dimensions:</span>
+                            <span class="metadata-value">
+                              {{ release.coverArt.dimensions?.width || 0 }} × {{ release.coverArt.dimensions?.height || 0 }}px
+                            </span>
+                          </div>
+                          <div class="metadata-row">
+                            <span class="metadata-label">Color Space:</span>
+                            <span class="metadata-value">{{ (release.coverArt.colorSpace || 'srgb').toUpperCase() }}</span>
+                          </div>
+                          <div class="metadata-row">
+                            <span class="metadata-label">Format:</span>
+                            <span class="metadata-value">{{ release.coverArt.fileType || 'JPEG' }}</span>
+                          </div>
+                          <div class="metadata-row">
+                            <span class="metadata-label">Size:</span>
+                            <span class="metadata-value">{{ formatFileSize(release.coverArt.fileSize) }}</span>
+                          </div>
+                        </div>
                       </div>
                       <div v-else class="asset-actions">
                         <label class="btn btn-secondary btn-sm">
@@ -1251,23 +1384,54 @@ watch(() => route.query.batchId, (newBatchId) => {
                 <!-- Tracks Section -->
                 <div class="details-section tracks-section">
                   <h4 class="section-title">Tracks ({{ release.tracks?.length || 0 }})</h4>
-                  <div class="tracks-compact-list">
+                  <div class="tracks-enhanced-list">
                     <div 
                       v-for="(track, idx) in release.tracks"
                       :key="idx"
-                      class="track-compact-item"
+                      class="track-enhanced-item"
                     >
-                      <span class="track-number">{{ track.position }}</span>
-                      <div class="track-info">
-                        <span class="track-title">{{ track.title }}</span>
-                        <span class="track-artist">{{ track.artist }}</span>
-                        <span v-if="track.isrc" class="track-isrc">{{ track.isrc }}</span>
+                      <div class="track-basic-info">
+                        <span class="track-number">{{ track.position }}</span>
+                        <div class="track-details">
+                          <div class="track-main">
+                            <span class="track-title">{{ track.title }}</span>
+                            <span class="track-artist">{{ track.artist }}</span>
+                          </div>
+                          <div v-if="track.isrc" class="track-isrc">
+                            ISRC: {{ track.isrc }}
+                          </div>
+                        </div>
                       </div>
-                      <div class="track-actions">
-                        <span v-if="track.audioFile" class="text-success">
-                          <font-awesome-icon icon="check-circle" />
-                        </span>
-                        <label v-else class="btn-upload-small">
+                      
+                      <div class="track-metadata">
+                        <div v-if="track.audioFile" class="audio-metadata">
+                          <div class="metadata-badge">
+                            <font-awesome-icon icon="clock" />
+                            {{ formatDuration(track.audioFile.duration || track.duration || 0) }}
+                          </div>
+                          <div class="metadata-badge">
+                            <font-awesome-icon icon="music" />
+                            {{ track.audioFile.format || 'WAV' }}
+                          </div>
+                          <div v-if="track.audioFile.bitrate" class="metadata-badge">
+                            <font-awesome-icon icon="chart-line" />
+                            {{ formatBitrate(track.audioFile.bitrate) }}
+                          </div>
+                          <div v-if="track.audioFile.sampleRate" class="metadata-badge">
+                            <font-awesome-icon icon="wave-square" />
+                            {{ formatSampleRate(track.audioFile.sampleRate) }}
+                          </div>
+                          <div class="metadata-badge">
+                            <font-awesome-icon icon="file" />
+                            {{ formatFileSize(track.audioFile.size) }}
+                          </div>
+                          <div v-if="track.audioFile.lossless" class="metadata-badge lossless">
+                            <font-awesome-icon icon="gem" />
+                            Lossless
+                          </div>
+                        </div>
+                        
+                        <label v-if="!track.audioFile" class="btn-upload-small">
                           <input 
                             type="file"
                             accept="audio/*"
@@ -1276,7 +1440,12 @@ watch(() => route.query.batchId, (newBatchId) => {
                             :disabled="processingAssets"
                           />
                           <font-awesome-icon icon="upload" />
+                          Upload
                         </label>
+                        
+                        <span v-else class="text-success">
+                          <font-awesome-icon icon="check-circle" />
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1473,6 +1642,110 @@ watch(() => route.query.batchId, (newBatchId) => {
 </template>
 
 <style scoped>
+/* Previous styles remain the same, adding new styles for enhanced metadata display */
+
+/* Enhanced track list with metadata */
+.tracks-enhanced-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.track-enhanced-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-md);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.track-basic-info {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  flex: 1;
+  min-width: 0;
+}
+
+.track-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.track-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.track-metadata {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.audio-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.metadata-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background-color: var(--color-bg-tertiary);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.metadata-badge.lossless {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.metadata-badge svg {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* Cover art details */
+.cover-details {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+}
+
+.cover-metadata {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font-size: var(--text-sm);
+}
+
+.metadata-row {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.metadata-label {
+  font-weight: var(--font-medium);
+  color: var(--color-text-secondary);
+  min-width: 100px;
+}
+
+.metadata-value {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+}
+
+/* Rest of your existing styles... */
 /* Compact Stats Grid */
 .stats-grid {
   display: grid;
@@ -1664,33 +1937,10 @@ watch(() => route.query.batchId, (newBatchId) => {
   object-fit: cover;
 }
 
-/* Compact Tracks List */
-.tracks-compact-list {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-sm);
-}
-
-.track-compact-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm);
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-}
-
 .track-number {
   font-weight: var(--font-semibold);
   color: var(--color-text-secondary);
   min-width: 24px;
-}
-
-.track-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
 }
 
 .track-title {
@@ -1709,34 +1959,20 @@ watch(() => route.query.batchId, (newBatchId) => {
   white-space: nowrap;
 }
 
-.track-actions {
-  display: flex;
-  align-items: center;
-}
-
 .track-isrc {
   font-size: var(--text-xs);
   color: var(--color-text-tertiary);
   font-family: var(--font-mono);
-  display: block;
   margin-top: 2px;
   opacity: 0.8;
-}
-
-.track-isrc::before {
-  content: 'ISRC: ';
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  opacity: 0.7;
 }
 
 .btn-upload-small {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-sm);
   background-color: var(--color-primary);
   color: white;
@@ -2024,11 +2260,6 @@ watch(() => route.query.batchId, (newBatchId) => {
   gap: var(--space-sm);
 }
 
-.upload-icon {
-  font-size: 3rem;
-  color: var(--color-text-tertiary);
-}
-
 .btn-icon {
   width: 32px;
   height: 32px;
@@ -2062,8 +2293,19 @@ watch(() => route.query.batchId, (newBatchId) => {
     grid-column: span 1;
   }
   
-  .tracks-compact-list {
-    grid-template-columns: 1fr;
+  .tracks-enhanced-list {
+    gap: var(--space-md);
+  }
+  
+  .track-enhanced-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-md);
+  }
+  
+  .track-metadata {
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 
@@ -2074,6 +2316,17 @@ watch(() => route.query.batchId, (newBatchId) => {
   
   .import-type-selector {
     grid-template-columns: 1fr;
+  }
+  
+  .audio-metadata {
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+  }
+  
+  .metadata-badge {
+    width: 100%;
+    justify-content: space-between;
   }
 }
 </style>
