@@ -509,16 +509,24 @@ const handleBulkAssetUpload = async (event) => {
       // Check if release already has cover art
       let shouldUpload = true
       let existingCoverPath = null
-      
+
       if (release.coverArt?.url) {
         console.log(`🖼️ Release ${upc} already has cover art. Comparing quality...`)
         
-        // Upload new image to temp location first
+        // Upload new image to temp location first with explicit content type
         const tempFileName = `temp_${Date.now()}_${file.name}`
         const tempPath = `batches/${batchId.value}/temp/${tempFileName}`
         const tempRef = storageRef(storage, tempPath)
         
-        await uploadBytes(tempRef, file)
+        // Explicitly set content type for proper validation
+        await uploadBytes(tempRef, file, {
+          contentType: file.type || 'image/jpeg', // Ensure content type is set
+          customMetadata: {
+            originalName: file.name,
+            purpose: 'quality-comparison'
+          }
+        })
+        
         const tempUrl = await getDownloadURL(tempRef)
         
         // Extract metadata for new image
@@ -1016,9 +1024,14 @@ const downloadApiArtwork = async (release) => {
       throw new Error('No image data received from Cloud Function')
     }
     
-    // Convert base64 to blob
-    const base64Response = await fetch(`data:${result.data.contentType};base64,${result.data.base64}`)
-    const blob = await base64Response.blob()
+    // Convert base64 to blob WITHOUT using fetch (which violates CSP)
+    const byteCharacters = atob(result.data.base64)
+    const byteNumbers = new Array(byteCharacters.length)
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i)
+    }
+    const byteArray = new Uint8Array(byteNumbers)
+    const blob = new Blob([byteArray], { type: result.data.contentType || 'image/jpeg' })
     
     const fileName = `${release.upc}_cover.jpg`
     const storagePath = `batches/${batchId.value}/${release.upc}/${fileName}`

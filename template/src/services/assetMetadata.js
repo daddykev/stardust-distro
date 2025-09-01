@@ -31,12 +31,24 @@ class MetadataService {
     } catch (error) {
       console.error('Error extracting audio metadata:', error)
       // Fallback to client-only metadata
-      return {
-        format: {
-          duration: 0,
-          fileSize: fileSize
-        },
-        client: await this.getClientAudioMetadata(url)
+      try {
+        const fallbackMetadata = await this.getClientAudioMetadata(url)
+        return {
+          format: {
+            duration: fallbackMetadata.duration || 0,
+            fileSize: fileSize
+          },
+          client: fallbackMetadata
+        }
+      } catch (clientError) {
+        console.error('Client audio metadata also failed:', clientError)
+        return {
+          format: {
+            duration: 0,
+            fileSize: fileSize
+          },
+          client: null
+        }
       }
     }
   }
@@ -45,10 +57,21 @@ class MetadataService {
    * Extract enhanced metadata for an image file
    */
   async getImageMetadata(url, fileName, fileSize) {
+    let clientMetadata = null;
+    
     try {
       // First try to get basic metadata client-side
-      const clientMetadata = await this.getClientImageMetadata(url)
-      
+      clientMetadata = await this.getClientImageMetadata(url)
+    } catch (error) {
+      console.warn('Client-side image metadata extraction failed:', error)
+      clientMetadata = {
+        width: 0,
+        height: 0,
+        complete: false
+      }
+    }
+    
+    try {
       // Then get comprehensive metadata from Cloud Function
       const result = await this.extractImageMetadata({
         url,
@@ -65,7 +88,7 @@ class MetadataService {
       console.error('Error extracting image metadata:', error)
       // Fallback to client-only metadata
       return {
-        dimensions: clientMetadata,
+        dimensions: clientMetadata || { width: 0, height: 0 },
         format: {
           fileSize: fileSize
         },
@@ -87,19 +110,31 @@ class MetadataService {
         networkState: 0
       }
       
-      audio.addEventListener('loadedmetadata', () => {
+      const cleanup = () => {
+        audio.removeEventListener('loadedmetadata', onLoadedMetadata)
+        audio.removeEventListener('error', onError)
+        audio.src = ''
+      }
+      
+      const onLoadedMetadata = () => {
         metadata.duration = Math.round(audio.duration)
         metadata.readyState = audio.readyState
         metadata.networkState = audio.networkState
+        cleanup()
         resolve(metadata)
-      })
+      }
       
-      audio.addEventListener('error', () => {
+      const onError = () => {
+        cleanup()
         resolve(metadata)
-      })
+      }
+      
+      audio.addEventListener('loadedmetadata', onLoadedMetadata)
+      audio.addEventListener('error', onError)
       
       // Set timeout
       setTimeout(() => {
+        cleanup()
         resolve(metadata)
       }, 5000)
       
@@ -122,21 +157,33 @@ class MetadataService {
         complete: false
       }
       
-      img.addEventListener('load', () => {
+      const cleanup = () => {
+        img.removeEventListener('load', onLoad)
+        img.removeEventListener('error', onError)
+        img.src = ''
+      }
+      
+      const onLoad = () => {
         metadata.width = img.width
         metadata.height = img.height
         metadata.naturalWidth = img.naturalWidth
         metadata.naturalHeight = img.naturalHeight
         metadata.complete = img.complete
+        cleanup()
         resolve(metadata)
-      })
+      }
       
-      img.addEventListener('error', () => {
+      const onError = () => {
+        cleanup()
         resolve(metadata)
-      })
+      }
+      
+      img.addEventListener('load', onLoad)
+      img.addEventListener('error', onError)
       
       // Set timeout
       setTimeout(() => {
+        cleanup()
         resolve(metadata)
       }, 5000)
       
