@@ -1261,6 +1261,7 @@ watch(() => route.query.batchId, (newBatchId) => {
                       <div class="track-info">
                         <span class="track-title">{{ track.title }}</span>
                         <span class="track-artist">{{ track.artist }}</span>
+                        <span v-if="track.isrc" class="track-isrc">{{ track.isrc }}</span>
                       </div>
                       <div class="track-actions">
                         <span v-if="track.audioFile" class="text-success">
@@ -1280,6 +1281,7 @@ watch(() => route.query.batchId, (newBatchId) => {
                     </div>
                   </div>
                 </div>
+
               </div>
 
               <!-- Action Bar -->
@@ -1710,6 +1712,23 @@ watch(() => route.query.batchId, (newBatchId) => {
 .track-actions {
   display: flex;
   align-items: center;
+}
+
+.track-isrc {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  display: block;
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+.track-isrc::before {
+  content: 'ISRC: ';
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  opacity: 0.7;
 }
 
 .btn-upload-small {
