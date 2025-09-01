@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useCatalog } from '../composables/useCatalog'
@@ -450,7 +450,7 @@ const handleTrackAudioUpload = async (event, trackIndex) => {
   }
 }
 
-// UPDATED: Renamed and enhanced to handle both audio and images
+// UPDATED: Fixed image URL handling
 const handleBulkAssetUpload = async (event) => {
   const files = Array.from(event.target.files)
   if (files.length === 0) return
@@ -540,65 +540,21 @@ const handleBulkAssetUpload = async (event) => {
           existingCoverPath = release.coverArt.path
           shouldUpload = true
           imagesReplaced++
-          
-          // Clean up temp file after we upload the real one
-          setTimeout(async () => {
-            try {
-              await deleteObject(tempRef)
-            } catch (err) {
-              console.warn('Failed to delete temp file:', err)
-            }
-          }, 5000)
         } else {
           console.log(`  ❌ Existing image has equal or better resolution. Keeping existing.`)
           shouldUpload = false
-          
-          // Clean up temp file immediately
-          try {
-            await deleteObject(tempRef)
-          } catch (err) {
-            console.warn('Failed to delete temp file:', err)
-          }
+        }
+        
+        // Clean up temp file
+        try {
+          await deleteObject(tempRef)
+        } catch (err) {
+          console.warn('Failed to delete temp file:', err)
         }
       }
       
       if (shouldUpload) {
-        // Upload the new image
-        const fileName = `${upc}_cover.${file.name.split('.').pop()}`
-        const storagePath = `batches/${batchId.value}/${upc}/${fileName}`
-        const fileRef = storageRef(storage, storagePath)
-        
-        await uploadBytes(fileRef, file, {
-          customMetadata: {
-            upc,
-            source: 'bulk-upload',
-            replacedExisting: existingCoverPath ? 'true' : 'false'
-          }
-        })
-        
-        const url = await getDownloadURL(fileRef)
-        
-        // Extract metadata
-        const imageMetadata = await metadataService.getImageMetadata(url, fileName, file.size)
-        
-        // Update release
-        await batchService.updateReleaseInBatch(batchId.value, upc, {
-          coverArt: {
-            url,
-            fileName,
-            path: storagePath,
-            source: 'bulk-upload',
-            uploadedAt: new Date().toISOString(),
-            fileSize: file.size,
-            fileType: file.type.split('/')[1]?.toUpperCase() || 'JPEG',
-            dimensions: imageMetadata?.dimensions || { width: 0, height: 0 },
-            colorSpace: imageMetadata?.format?.space || 'srgb',
-            metadata: imageMetadata,
-            replacedPrevious: !!existingCoverPath
-          }
-        })
-        
-        // Delete old cover if we replaced it
+        // Delete old cover FIRST if replacing
         if (existingCoverPath) {
           try {
             const oldRef = storageRef(storage, existingCoverPath)
@@ -609,12 +565,59 @@ const handleBulkAssetUpload = async (event) => {
           }
         }
         
+        // Use timestamp in filename to ensure uniqueness
+        const timestamp = Date.now()
+        const fileExtension = file.name.split('.').pop()
+        const fileName = `${upc}_cover_${timestamp}.${fileExtension}`
+        const storagePath = `batches/${batchId.value}/${upc}/${fileName}`
+        const fileRef = storageRef(storage, storagePath)
+        
+        await uploadBytes(fileRef, file, {
+          contentType: file.type, // Explicitly set content type
+          customMetadata: {
+            upc,
+            source: 'bulk-upload',
+            replacedExisting: existingCoverPath ? 'true' : 'false'
+          }
+        })
+        
+        // Get the download URL - this will have the proper token
+        const url = await getDownloadURL(fileRef)
+        console.log(`  📸 New image URL: ${url.substring(0, 100)}...`)
+        
+        // Extract metadata using the actual URL
+        let imageMetadata = null
+        try {
+          imageMetadata = await metadataService.getImageMetadata(url, fileName, file.size)
+          console.log(`  📊 Image metadata extracted:`, imageMetadata?.dimensions)
+        } catch (err) {
+          console.warn('Failed to extract image metadata:', err)
+        }
+        
+        // Update release - store the clean URL without modifications
+        await batchService.updateReleaseInBatch(batchId.value, upc, {
+          coverArt: {
+            url: url, // Store the clean URL from Firebase
+            fileName,
+            path: storagePath,
+            source: 'bulk-upload',
+            uploadedAt: new Date().toISOString(),
+            timestamp: timestamp, // Store timestamp separately if needed for cache busting
+            fileSize: file.size,
+            fileType: file.type.split('/')[1]?.toUpperCase() || 'JPEG',
+            dimensions: imageMetadata?.dimensions || { width: 0, height: 0 },
+            colorSpace: imageMetadata?.format?.space || 'srgb',
+            metadata: imageMetadata,
+            replacedPrevious: !!existingCoverPath
+          }
+        })
+        
         imagesUploaded++
         console.log(`✅ Uploaded cover art for ${upc}`)
       }
     }
     
-    // Process audio files
+    // Process audio files (rest of the code remains the same)
     const filesByUPC = new Map()
     const newUPCs = new Set()
     
@@ -745,8 +748,23 @@ const handleBulkAssetUpload = async (event) => {
       }
     }
     
-    // Reload batch to get updated data
+    // Reload batch to get updated data - wait a bit for Firebase Storage to propagate
+    await new Promise(resolve => setTimeout(resolve, 500))
     await loadBatch()
+    
+    // Force a second refresh if images were replaced to ensure thumbnails update
+    if (imagesReplaced > 0) {
+      setTimeout(async () => {
+        await loadBatch()
+        // Force Vue to re-render by clearing and resetting the expanded release
+        if (expandedRelease.value) {
+          const currentExpanded = expandedRelease.value
+          expandedRelease.value = null
+          await nextTick()
+          expandedRelease.value = batchReleases.value.find(r => r.upc === currentExpanded.upc)
+        }
+      }, 1500)
+    }
     
     // Prepare success message
     let message = ''
@@ -1295,6 +1313,7 @@ watch(() => route.query.batchId, (newBatchId) => {
                     v-if="release.coverArt?.url"
                     :src="release.coverArt.url"
                     :alt="release.metadata?.title"
+                    :key="`thumb-${release.upc}-${release.coverArt.timestamp || release.coverArt.uploadedAt}`"
                   />
                   <div v-else class="thumbnail-placeholder">
                     <font-awesome-icon icon="image" />
@@ -1405,7 +1424,11 @@ watch(() => route.query.batchId, (newBatchId) => {
                     <div class="asset-content">
                       <div v-if="release.coverArt" class="cover-details">
                         <div class="cover-preview-small">
-                          <img :src="release.coverArt.url" :alt="release.metadata?.title" />
+                          <img 
+                            :src="release.coverArt.url" 
+                            :alt="release.metadata?.title"
+                            :key="`preview-${release.upc}-${release.coverArt.timestamp || release.coverArt.uploadedAt}`"
+                          />
                         </div>
                         <div class="cover-metadata">
                           <div class="metadata-row">
