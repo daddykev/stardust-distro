@@ -7,32 +7,27 @@
 
 import DEFAULT_GENRES from './default.js'
 import GENRE_TRUTH from './genre-truth.js'
-import APPLE_GENRES from './apple-539.js'
-import BEATPORT_GENRES from './beatport-202505.js'
-import AMAZON_GENRES from './amazon-201805.js'
 
-// Future DSP dictionaries will be imported here
-// import SPOTIFY_GENRES from './spotify.js'
+// Keep the static imports but make them conditional for the heavy ones
+let APPLE_GENRES = null
+let BEATPORT_GENRES = null
+let AMAZON_GENRES = null
 
 export class GenreService {
   constructor() {
-    // Registry of available genre dictionaries
+    // Registry of available genre dictionaries - start with core ones
     this.providers = {
       'default': DEFAULT_GENRES,
       'genre-truth': GENRE_TRUTH,
-      'apple': APPLE_GENRES,
-      'apple-539': APPLE_GENRES, // Alias for compatibility
-      'beatport': BEATPORT_GENRES,
-      'beatport-202505': BEATPORT_GENRES, // Alias with version
-      'amazon': AMAZON_GENRES,
-      'amazon-201805': AMAZON_GENRES, // Alias with version
-      // 'spotify': SPOTIFY_GENRES,
     }
     
     this.currentProvider = 'genre-truth' // Default to Genre Truth
     
     // Initialize basic fallback mappings
     this.initializeFallbackMappings()
+    
+    // Track loading state for lazy dictionaries
+    this.loadingPromises = {}
   }
   
   /**
@@ -94,6 +89,67 @@ export class GenreService {
   }
   
   /**
+   * Lazy load DSP-specific dictionaries
+   */
+  async loadDSPDictionary(dsp) {
+    // If already loaded, return immediately
+    if (this.providers[dsp]) {
+      return this.providers[dsp]
+    }
+    
+    // If currently loading, wait for the promise
+    if (this.loadingPromises[dsp]) {
+      return this.loadingPromises[dsp]
+    }
+    
+    // Start loading
+    let loadPromise
+    
+    switch(dsp) {
+      case 'apple':
+      case 'apple-539':
+        loadPromise = import('./apple-539.js').then(module => {
+          APPLE_GENRES = module.default
+          this.providers['apple'] = APPLE_GENRES
+          this.providers['apple-539'] = APPLE_GENRES
+          return APPLE_GENRES
+        })
+        this.loadingPromises['apple'] = loadPromise
+        this.loadingPromises['apple-539'] = loadPromise
+        break
+        
+      case 'beatport':
+      case 'beatport-202505':
+        loadPromise = import('./beatport-202505.js').then(module => {
+          BEATPORT_GENRES = module.default
+          this.providers['beatport'] = BEATPORT_GENRES
+          this.providers['beatport-202505'] = BEATPORT_GENRES
+          return BEATPORT_GENRES
+        })
+        this.loadingPromises['beatport'] = loadPromise
+        this.loadingPromises['beatport-202505'] = loadPromise
+        break
+        
+      case 'amazon':
+      case 'amazon-201805':
+        loadPromise = import('./amazon-201805.js').then(module => {
+          AMAZON_GENRES = module.default
+          this.providers['amazon'] = AMAZON_GENRES
+          this.providers['amazon-201805'] = AMAZON_GENRES
+          return AMAZON_GENRES
+        })
+        this.loadingPromises['amazon'] = loadPromise
+        this.loadingPromises['amazon-201805'] = loadPromise
+        break
+        
+      default:
+        return this.providers['genre-truth']
+    }
+    
+    return loadPromise
+  }
+  
+  /**
    * Get fallback mapping for a genre
    * NOTE: Custom Firestore mappings should be checked first - these are just defaults
    */
@@ -123,18 +179,33 @@ export class GenreService {
   
   /**
    * Get genres for a specific DSP
+   * Made async to support lazy loading
    */
-  getGenresForDSP(dsp = 'genre-truth') {
-    return this.providers[dsp] || this.providers['genre-truth']
+  async getGenresForDSP(dsp = 'genre-truth') {
+    // For core dictionaries, return immediately
+    if (this.providers[dsp]) {
+      return this.providers[dsp]
+    }
+    
+    // For DSP-specific, load lazily
+    return this.loadDSPDictionary(dsp)
+  }
+  
+  /**
+   * Get genres for DSP synchronously (for backward compatibility)
+   * Returns null if not loaded yet
+   */
+  getGenresForDSPSync(dsp = 'genre-truth') {
+    return this.providers[dsp] || null
   }
   
   /**
    * Get all parent genres (top-level)
    */
-  getParentGenres(dsp = 'genre-truth') {
-    const genres = this.getGenresForDSP(dsp)
+  async getParentGenres(dsp = 'genre-truth') {
+    const genres = await this.getGenresForDSP(dsp)
     
-    if (!genres.tree) {
+    if (!genres || !genres.tree) {
       console.warn(`No tree structure available for DSP: ${dsp}`)
       return []
     }
@@ -151,8 +222,11 @@ export class GenreService {
   /**
    * Get subgenres for a parent genre
    */
-  getSubgenres(parentCode, dsp = 'genre-truth') {
-    const genres = this.getGenresForDSP(dsp)
+  async getSubgenres(parentCode, dsp = 'genre-truth') {
+    const genres = await this.getGenresForDSP(dsp)
+    
+    if (!genres) return []
+    
     const parentGenre = genres.byCode[parentCode]
     
     if (!parentGenre || !genres.tree) return []
@@ -191,12 +265,12 @@ export class GenreService {
   /**
    * Search genres across all levels
    */
-  searchGenres(query, dsp = 'genre-truth') {
-    const genres = this.getGenresForDSP(dsp)
+  async searchGenres(query, dsp = 'genre-truth') {
+    const genres = await this.getGenresForDSP(dsp)
     const lowerQuery = query.toLowerCase()
     const results = []
     
-    if (!genres.byCode) {
+    if (!genres || !genres.byCode) {
       console.warn(`No byCode structure available for DSP: ${dsp}`)
       return []
     }
@@ -219,39 +293,49 @@ export class GenreService {
   /**
    * Get genre info by code
    */
-  getGenreByCode(code, dsp = 'genre-truth') {
-    const genres = this.getGenresForDSP(dsp)
-    return genres.byCode ? genres.byCode[code] || null : null
+  async getGenreByCode(code, dsp = 'genre-truth') {
+    const genres = await this.getGenresForDSP(dsp)
+    return genres && genres.byCode ? genres.byCode[code] || null : null
   }
   
   /**
    * Get formatted genre path
    */
-  getGenrePath(code, dsp = 'genre-truth') {
-    const genre = this.getGenreByCode(code, dsp)
+  async getGenrePath(code, dsp = 'genre-truth') {
+    const genre = await this.getGenreByCode(code, dsp)
     return genre ? genre.path.join(' > ') : ''
   }
   
   /**
    * Validate if a genre code exists
    */
-  isValidGenre(code, dsp = 'genre-truth') {
-    return !!this.getGenreByCode(code, dsp)
+  async isValidGenre(code, dsp = 'genre-truth') {
+    const genre = await this.getGenreByCode(code, dsp)
+    return !!genre
   }
   
   /**
    * Get available DSP providers
    */
   getAvailableProviders() {
-    return Object.keys(this.providers)
-      .filter(id => !id.includes('-') || id === 'genre-truth') // Filter out version aliases except genre-truth
-      .map(id => ({
-        id,
-        name: this.getProviderDisplayName(id),
-        version: this.providers[id].version || 'Unknown',
-        genreCount: Object.keys(this.providers[id].byCode || {}).length,
-        hasFallbackMappings: this.fallbackMappings.has(id)
-      }))
+    const providers = [
+      { id: 'default', loaded: true },
+      { id: 'genre-truth', loaded: true },
+      { id: 'apple', loaded: !!this.providers['apple'] },
+      { id: 'beatport', loaded: !!this.providers['beatport'] },
+      { id: 'amazon', loaded: !!this.providers['amazon'] }
+    ]
+    
+    return providers.map(p => ({
+      id: p.id,
+      name: this.getProviderDisplayName(p.id),
+      version: p.loaded && this.providers[p.id] ? 
+        (this.providers[p.id].version || 'Unknown') : 'Not Loaded',
+      genreCount: p.loaded && this.providers[p.id] && this.providers[p.id].byCode ? 
+        Object.keys(this.providers[p.id].byCode).length : 0,
+      hasFallbackMappings: this.fallbackMappings.has(p.id),
+      loaded: p.loaded
+    }))
   }
   
   /**
@@ -275,10 +359,10 @@ export class GenreService {
   /**
    * Get all genres as flat list
    */
-  getAllGenres(dsp = 'genre-truth') {
-    const genres = this.getGenresForDSP(dsp)
+  async getAllGenres(dsp = 'genre-truth') {
+    const genres = await this.getGenresForDSP(dsp)
     
-    if (!genres.byCode) {
+    if (!genres || !genres.byCode) {
       console.warn(`No byCode structure available for DSP: ${dsp}`)
       return []
     }
@@ -297,7 +381,7 @@ export class GenreService {
    * Get XML notation for Amazon genres (with proper escaping)
    */
   getAmazonXmlNotation(code) {
-    const amazonGenre = AMAZON_GENRES.byCode[code]
+    const amazonGenre = this.providers['amazon']?.byCode?.[code]
     return amazonGenre ? amazonGenre.xmlNotation : null
   }
   
@@ -305,7 +389,7 @@ export class GenreService {
    * Check if a DSP is available
    */
   hasDSP(dsp) {
-    return !!this.providers[dsp]
+    return !!this.providers[dsp] || ['apple', 'beatport', 'amazon'].includes(dsp)
   }
   
   /**
@@ -320,23 +404,31 @@ export class GenreService {
     return {
       mapped: Object.keys(dspMapping.mappings || {}).length,
       fallback: dspMapping.fallback,
-      fallbackName: this.getGenreByCode(dspMapping.fallback, targetDSP)?.name
+      fallbackName: this.getGenreByCodeSync(dspMapping.fallback, targetDSP)?.name
     }
+  }
+  
+  /**
+   * Synchronous version for backward compatibility
+   */
+  getGenreByCodeSync(code, dsp = 'genre-truth') {
+    const genres = this.providers[dsp]
+    return genres && genres.byCode ? genres.byCode[code] || null : null
   }
 }
 
 // Export singleton instance
 export const genreService = new GenreService()
 
-// Export convenience functions
-export const getGenresForDSP = (dsp = 'genre-truth') => genreService.getGenresForDSP(dsp)
-export const getParentGenres = (dsp = 'genre-truth') => genreService.getParentGenres(dsp)
-export const getSubgenres = (parentCode, dsp = 'genre-truth') => genreService.getSubgenres(parentCode, dsp)
-export const searchGenres = (query, dsp = 'genre-truth') => genreService.searchGenres(query, dsp)
-export const getGenreByCode = (code, dsp = 'genre-truth') => genreService.getGenreByCode(code, dsp)
-export const getGenrePath = (code, dsp = 'genre-truth') => genreService.getGenrePath(code, dsp)
-export const isValidGenre = (code, dsp = 'genre-truth') => genreService.isValidGenre(code, dsp)
-export const getAllGenres = (dsp = 'genre-truth') => genreService.getAllGenres(dsp)
+// Export convenience functions - now async where needed
+export const getGenresForDSP = async (dsp = 'genre-truth') => genreService.getGenresForDSP(dsp)
+export const getParentGenres = async (dsp = 'genre-truth') => genreService.getParentGenres(dsp)
+export const getSubgenres = async (parentCode, dsp = 'genre-truth') => genreService.getSubgenres(parentCode, dsp)
+export const searchGenres = async (query, dsp = 'genre-truth') => genreService.searchGenres(query, dsp)
+export const getGenreByCode = async (code, dsp = 'genre-truth') => genreService.getGenreByCode(code, dsp)
+export const getGenrePath = async (code, dsp = 'genre-truth') => genreService.getGenrePath(code, dsp)
+export const isValidGenre = async (code, dsp = 'genre-truth') => genreService.isValidGenre(code, dsp)
+export const getAllGenres = async (dsp = 'genre-truth') => genreService.getAllGenres(dsp)
 export const getAvailableProviders = () => genreService.getAvailableProviders()
 export const getAmazonXmlNotation = (code) => genreService.getAmazonXmlNotation(code)
 export const hasDSP = (dsp) => genreService.hasDSP(dsp)

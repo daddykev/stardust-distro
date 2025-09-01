@@ -11,6 +11,7 @@
   "scripts": {
     "bootstrap": "npm install",
     "build": "npm run build --workspaces --if-present",
+    "build:analyze": "npm run build && npx vite-bundle-visualizer",
     "build:packages": "npm run build --workspace=packages/*",
     "build:cli": "npm run build --workspace=cli",
     "build:template": "npm run build --workspace=template",

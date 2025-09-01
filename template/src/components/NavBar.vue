@@ -31,7 +31,7 @@ const navigationItems = computed(() => {
     { name: 'Dashboard', path: '/dashboard', icon: 'chart-bar' },
     { name: 'Catalog', path: '/catalog', icon: 'music' },
     { name: 'Deliveries', path: '/deliveries', icon: 'truck' },
-    { name: 'Migration', path: '/migration', icon: 'plus' },
+    { name: 'Migration', path: '/batches', icon: 'plus' },
     { name: 'Testing', path: '/testing', icon: 'chart-line' },
     { name: 'Settings', path: '/settings', icon: 'cog' }
   ]
