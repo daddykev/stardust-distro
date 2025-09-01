@@ -58,7 +58,7 @@ const notificationFunctions = require('./services/notifications')
 const { encryptSensitiveData, decryptSensitiveData } = require('./encryption')
 
 // Import audio and image metadata functions
-const metadataFunctions = require('./services/metadata')
+const metadataFunctions = require('./services/assetMetadata')
 
 // Get project ID dynamically from Firebase environment
 const projectId = process.env.GCLOUD_PROJECT || 

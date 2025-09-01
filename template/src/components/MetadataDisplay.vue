@@ -1,3 +1,56 @@
+<script setup>
+import { computed } from 'vue'
+import metadataService from '../services/assetMetadata'
+
+const props = defineProps({
+  type: {
+    type: String,
+    required: true,
+    validator: (value) => ['audio', 'image'].includes(value)
+  },
+  metadata: {
+    type: Object,
+    default: null
+  },
+  showRequirements: {
+    type: Boolean,
+    default: false
+  }
+})
+
+// Computed properties
+const qualityBadge = computed(() => {
+  if (props.type === 'audio') {
+    return metadataService.getAudioQualityBadge(props.metadata)
+  }
+  return { text: 'Unknown', color: 'gray' }
+})
+
+const imageQualityBadge = computed(() => {
+  if (props.type === 'image') {
+    return metadataService.getImageQualityBadge(props.metadata)
+  }
+  return { text: 'Unknown', color: 'gray' }
+})
+
+const hasEmbeddedTags = computed(() => {
+  if (!props.metadata?.tags) return false
+  return Object.values(props.metadata.tags).some(v => v !== null)
+})
+
+// Format helpers
+const formatDuration = (seconds) => {
+  if (!seconds) return '0:00'
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+const formatFileSize = metadataService.formatFileSize
+const formatBitrate = metadataService.formatBitrate
+const formatSampleRate = metadataService.formatSampleRate
+</script>
+
 <template>
   <div class="metadata-display">
     <!-- Audio Metadata Display -->
@@ -149,59 +202,6 @@
     </div>
   </div>
 </template>
-
-<script setup>
-import { computed } from 'vue'
-import metadataService from '../services/metadata'
-
-const props = defineProps({
-  type: {
-    type: String,
-    required: true,
-    validator: (value) => ['audio', 'image'].includes(value)
-  },
-  metadata: {
-    type: Object,
-    default: null
-  },
-  showRequirements: {
-    type: Boolean,
-    default: false
-  }
-})
-
-// Computed properties
-const qualityBadge = computed(() => {
-  if (props.type === 'audio') {
-    return metadataService.getAudioQualityBadge(props.metadata)
-  }
-  return { text: 'Unknown', color: 'gray' }
-})
-
-const imageQualityBadge = computed(() => {
-  if (props.type === 'image') {
-    return metadataService.getImageQualityBadge(props.metadata)
-  }
-  return { text: 'Unknown', color: 'gray' }
-})
-
-const hasEmbeddedTags = computed(() => {
-  if (!props.metadata?.tags) return false
-  return Object.values(props.metadata.tags).some(v => v !== null)
-})
-
-// Format helpers
-const formatDuration = (seconds) => {
-  if (!seconds) return '0:00'
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds % 60)
-  return `${mins}:${secs.toString().padStart(2, '0')}`
-}
-
-const formatFileSize = metadataService.formatFileSize
-const formatBitrate = metadataService.formatBitrate
-const formatSampleRate = metadataService.formatSampleRate
-</script>
 
 <style scoped>
 .metadata-display {

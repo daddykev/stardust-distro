@@ -290,6 +290,7 @@ stardust-distro/
 │   │   │   └── validation.js      # Factory for request validation ✅
 │   │   ├── node_modules/          # Dependencies (git-ignored)
 │   │   ├── services/              # Services
+│   │   │   ├── assetMetadata.js   # Extract metadata from audio and images ✅
 │   │   │   ├── fingerprinting.js  # Deduplication via MD5/SHA hashing ✅
 │   │   │   └── notifications.js   # Email notifications and weekly summaries ✅
 │   │   ├── utils/                 # Util functions
@@ -352,6 +353,7 @@ stardust-distro/
 │   │   │   ├── apple/             # Apple versions
 │   │   │   │   ├── apple-5323.js  # Apple 5.3.23 builder ✅
 │   │   │   ├── artists.js         # Artist operations ✅
+│   │   │   ├── assetMetadata.js   # Enhanced metadata for audio and images ✅
 │   │   │   ├── assets.js          # Asset management ✅
 │   │   │   ├── batch.js           # Migration batch operations ✅
 │   │   │   ├── catalog.js         # Catalog operations ✅

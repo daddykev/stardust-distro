@@ -8,7 +8,7 @@ import {
   getMetadata
 } from 'firebase/storage'
 import fingerprintService from './fingerprints'
-import metadataService from './metadata'
+import metadataService from './assetMetadata'
 import { 
   sanitizeFileName, 
   validateFileType, 
