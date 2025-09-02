@@ -1740,7 +1740,7 @@ watch(() => route.query.batchId, (newBatchId) => {
                   <font-awesome-icon icon="list" />
                   <div>
                     <h4>UPC List</h4>
-                    <p class="text-sm text-secondary">Import by UPC codes (recommended)</p>
+                    <p class="text-sm text-secondary">Import by UPC codes (easy street)</p>
                   </div>
                 </div>
               </label>
@@ -1755,7 +1755,7 @@ watch(() => route.query.batchId, (newBatchId) => {
                   <font-awesome-icon icon="file-csv" />
                   <div>
                     <h4>Full CSV</h4>
-                    <p class="text-sm text-secondary">Complete metadata (coming soon)</p>
+                    <p class="text-sm text-secondary">Complete metadata (even better)</p>
                   </div>
                 </div>
               </label>
@@ -1770,7 +1770,7 @@ watch(() => route.query.batchId, (newBatchId) => {
                   <font-awesome-icon icon="edit" />
                   <div>
                     <h4>Manual Entry</h4>
-                    <p class="text-sm text-secondary">Create blank release</p>
+                    <p class="text-sm text-secondary">Create blank release (use with caution)</p>
                   </div>
                 </div>
               </label>
