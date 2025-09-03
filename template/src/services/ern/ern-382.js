@@ -1,9 +1,10 @@
 // services/ern/ern-382.js
 import { create } from 'xmlbuilder2'
 import { escapeUrlForXml } from '../../utils/urlUtils'
+import { groupContributorsByType } from '../contributorMapper'
 
 /**
- * ERN 3.8.2 Builder
+ * ERN 3.8.2 Builder with full contributor support
  */
 export class ERN382Builder {
   constructor() {
@@ -70,7 +71,7 @@ export class ERN382Builder {
     if (config.senderPartyId) {
       sender.ele('PartyId').txt(config.senderPartyId)
     }
-    sender.ele('PartyName').ele('FullName').txt(config.messageSender || config.senderName || import.meta.env.VITE_ORGANIZATION_NAME || 'Music Distributor')
+    sender.ele('PartyName').ele('FullName').txt(config.messageSender || config.senderName || 'Music Distributor')
     
     // SentOnBehalfOf for 3.8.2
     if (config.sentOnBehalfOf) {
@@ -112,12 +113,14 @@ export class ERN382Builder {
     
     // SoundRecordingId for 3.8.2
     const resourceId = recording.ele('SoundRecordingId')
-    resourceId.ele('ISRC').txt(track.isrc)
+    resourceId.ele('ISRC').txt(track.isrc || '')
     
     // Title
     const referenceTitle = recording.ele('ReferenceTitle')
     referenceTitle.ele('TitleText').txt(track.metadata?.title || track.title || 'Untitled')
-    referenceTitle.ele('SubTitle').txt(track.metadata?.subtitle || '')
+    if (track.metadata?.subtitle) {
+      referenceTitle.ele('SubTitle').txt(track.metadata.subtitle)
+    }
     
     // Display title
     const displayTitle = recording.ele('DisplayTitle')
@@ -133,9 +136,32 @@ export class ERN382Builder {
     const duration = `PT${Math.floor(durationSeconds / 60)}M${Math.floor(durationSeconds % 60)}S`
     recording.ele('Duration').txt(duration)
     
-    // Details
+    // Details by territory
     const detailsByTerritory = recording.ele('DetailsByTerritory')
     detailsByTerritory.ele('TerritoryCode').txt('Worldwide')
+    
+    // ADD CONTRIBUTORS HERE (within DetailsByTerritory for 3.8.2)
+    if (track.contributors && track.contributors.length > 0) {
+      const grouped = groupContributorsByType(track.contributors)
+      
+      // Add ResourceContributors
+      grouped.resourceContributors.forEach((contributor, index) => {
+        const contributorElem = detailsByTerritory.ele('ResourceContributor', {
+          'sequenceNumber': String(index + 1)
+        })
+        contributorElem.ele('PartyName').ele('FullName').txt(contributor.partyName)
+        contributorElem.ele('Role').txt(contributor.role)
+      })
+      
+      // Add IndirectResourceContributors
+      grouped.indirectResourceContributors.forEach((contributor, index) => {
+        const contributorElem = detailsByTerritory.ele('IndirectResourceContributor', {
+          'sequenceNumber': String(index + 1)
+        })
+        contributorElem.ele('PartyName').ele('FullName').txt(contributor.partyName)
+        contributorElem.ele('Role').txt(contributor.role)
+      })
+    }
     
     // Language
     detailsByTerritory.ele('LanguageOfPerformance').txt(track.language || 'en')

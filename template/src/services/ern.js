@@ -14,8 +14,11 @@ import { escapeUrlForXml } from '../utils/urlUtils'
 // Import genre mapping service
 import genreMappingService from './genreMappings'
 
+// Import contributor validation
+import { validateContributors } from './contributorMapper'
+
 /**
- * Enhanced ERN Service with multi-version support and genre mapping
+ * Enhanced ERN Service with multi-version support, genre mapping, and contributor support
  */
 class ERNService {
   constructor() {
@@ -208,6 +211,14 @@ class ERNService {
         throw new Error(`Invalid UPC format: ${upc}. Must be 12-14 digits.`)
       }
 
+      // Validate contributors
+      const contributorErrors = validateContributors(release)
+      if (contributorErrors.length > 0) {
+        console.warn('Contributor validation warnings:', contributorErrors)
+        // Optionally throw an error if you want to enforce validation
+        // throw new Error(`Contributor validation failed: ${contributorErrors.join(', ')}`)
+      }
+
       // Map genres based on target configuration
       const mappedGenre = await this.mapGenreForTarget(release.metadata, targetConfig)
       
@@ -296,7 +307,7 @@ class ERNService {
         upc: upc // Add UPC at root level for compatibility
       }
 
-      // Prepare resource data with calculated MD5 hashes
+      // Prepare resource data with calculated MD5 hashes and contributors
       const resourceData = {
         tracks: mappedRelease.tracks?.map((track, index) => ({
           ...track,
@@ -307,7 +318,10 @@ class ERNService {
           duration: track.metadata?.duration || track.duration || 0,
           isrc: track.isrc,
           audio: track.audio,
-          metadata: track.metadata
+          metadata: track.metadata,
+          contributors: track.contributors || [], // Ensure contributors are passed
+          language: track.language || 'en',
+          label: track.label || mappedRelease.basic?.label
         })) || [],
         coverImage: coverAsset ? {
           ...coverAsset,
@@ -393,7 +407,8 @@ class ERNService {
           enabled: targetConfig.genreMapping?.enabled,
           original: release.metadata?.genreCode,
           mapped: mappedGenre.code
-        }
+        },
+        contributorCount: resourceData.tracks.reduce((acc, t) => acc + (t.contributors?.length || 0), 0)
       })
 
       // Get version-specific builder and generate ERN

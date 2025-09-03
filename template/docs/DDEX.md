@@ -816,6 +816,326 @@ class DDEXValidator {
 
 ---
 
+## **Contributors, Artists and Writers in DDEX**
+
+### **DDEX Contributor Role Mapping**
+
+The Stardust ecosystem implements comprehensive contributor tracking at both release and track levels, following DDEX best practices for communicating contributor information in ERN messages.
+
+#### **Key DDEX Terminology**
+
+**DisplayArtist**: The primary artist name shown to consumers. This is the marketing name and may differ from legal contributor names.
+
+**Contributor**: Individuals who contributed to the creation of a resource (track) or release but are not primary artists. Includes performers, producers, engineers, mixers, etc.
+
+**IndirectContributor**: Contributors to the musical work (composers, lyricists, publishers) rather than the sound recording.
+
+**ResourceContributor vs ReleaseContributor**: Contributors can be specified at the track level (ResourceContributor) or album level (ReleaseContributor).
+
+### **Contributor Categories and DDEX Mapping**
+
+#### **1. Performers (Direct Contributors)**
+
+Performers contribute directly to the sound recording and are mapped to ResourceContributor roles in ERN:
+
+```javascript
+const performerToDDEX = {
+  'Vocals': 'MainVocalist',
+  'Lead Vocals': 'LeadVocalist', 
+  'Background Vocals': 'BackgroundVocalist',
+  'Choir': 'Choir',
+  'Guitar': 'Guitar',
+  'Bass Guitar': 'BassGuitar',
+  'Drums': 'Drums',
+  'Keyboard': 'Keyboard',
+  'Piano': 'Piano',
+  'Saxophone': 'Saxophone',
+  'Violin': 'Violin',
+  'Orchestra': 'Orchestra',
+  'DJ': 'DJ',
+  'Rapper': 'Rapper'
+}
+```
+
+#### **2. Producers & Engineers (Direct Contributors)**
+
+Production roles are mapped to specific DDEX contributor roles:
+
+```javascript
+const productionToDDEX = {
+  'Producer': 'Producer',
+  'Co-Producer': 'CoProducer',
+  'Executive Producer': 'ExecutiveProducer',
+  'Mix Engineer': 'Mixer',
+  'Mastering Engineer': 'MasteringEngineer',
+  'Recording Engineer': 'RecordingEngineer',
+  'Remixer': 'Remixer',
+  'Arranger': 'Arranger',
+  'Orchestrator': 'Orchestrator',
+  'Conductor': 'Conductor',
+  'Programming': 'Programmer',
+  'A&R': 'AssociatedPerformer'
+}
+```
+
+#### **3. Composers & Lyricists (Indirect Contributors)**
+
+Writers and composers are handled separately as IndirectContributors:
+
+```javascript
+const writerToDDEX = {
+  'Composer': 'Composer',
+  'Lyricist': 'Lyricist', 
+  'Songwriter': 'ComposerLyricist',
+  'Arranger': 'MusicArranger',
+  'Adapter': 'Adapter',
+  'Translator': 'Translator',
+  'Author': 'Author'
+}
+```
+
+### **ERN Implementation Rules**
+
+#### **Rule 1: DisplayArtist is Required**
+Every Release and SoundRecording MUST have a DisplayArtist. This is the primary marketing name.
+
+```xml
+<SoundRecording>
+  <SoundRecordingId>
+    <ISRC>USRC12345678</ISRC>
+  </SoundRecordingId>
+  <DisplayArtist>Luna Eclipse</DisplayArtist>
+  <!-- Additional contributors follow -->
+</SoundRecording>
+```
+
+#### **Rule 2: Contributor Role Specificity**
+Use the most specific DDEX role available. If no exact match exists, use the closest parent role or "Unknown".
+
+```xml
+<ResourceContributor>
+  <PartyName>
+    <FullName>Sarah Johnson</FullName>
+  </PartyName>
+  <Role>Saxophone</Role> <!-- Specific instrument -->
+</ResourceContributor>
+```
+
+#### **Rule 3: Multiple Roles Per Contributor**
+A single person can have multiple roles. Each role should be listed separately.
+
+```xml
+<ResourceContributor>
+  <PartyName>
+    <FullName>Michael Davis</FullName>
+  </PartyName>
+  <Role>Producer</Role>
+</ResourceContributor>
+<ResourceContributor>
+  <PartyName>
+    <FullName>Michael Davis</FullName>
+  </PartyName>
+  <Role>Mixer</Role>
+</ResourceContributor>
+```
+
+#### **Rule 4: Track vs Release Level**
+- Track-specific contributors → ResourceContributor in SoundRecording
+- Album-wide contributors → ReleaseContributor in Release
+
+#### **Rule 5: Featured Artists**
+Featured artists are included in DisplayArtist with proper formatting, not as separate contributors.
+
+```xml
+<DisplayArtist>Luna Eclipse feat. John Legend</DisplayArtist>
+```
+
+### **Complete Contributor Example**
+
+```javascript
+// Track with multiple contributors
+const track = {
+  title: "Midnight Dreams",
+  displayArtist: "Luna Eclipse",
+  contributors: [
+    { name: "Luna Eclipse", role: "Vocals", category: "Performer" },
+    { name: "James Wilson", role: "Guitar", category: "Performer" },
+    { name: "Sarah Chen", role: "Producer", category: "Producer/Engineer" },
+    { name: "Sarah Chen", role: "Mix Engineer", category: "Producer/Engineer" },
+    { name: "Tom Anderson", role: "Composer", category: "Composer/Lyricist" },
+    { name: "Luna Eclipse", role: "Lyricist", category: "Composer/Lyricist" }
+  ]
+}
+```
+
+**ERN 4.3 Output:**
+```xml
+<ResourceList>
+  <SoundRecording>
+    <SoundRecordingReference>A1</SoundRecordingReference>
+    <SoundRecordingId>
+      <ISRC>USRC12345678</ISRC>
+    </SoundRecordingId>
+    <Title>Midnight Dreams</Title>
+    <DisplayArtist>Luna Eclipse</DisplayArtist>
+    
+    <!-- Direct Contributors (Performers & Production) -->
+    <ResourceContributor sequenceNumber="1">
+      <PartyName>
+        <FullName>Luna Eclipse</FullName>
+      </PartyName>
+      <Role>MainVocalist</Role>
+    </ResourceContributor>
+    
+    <ResourceContributor sequenceNumber="2">
+      <PartyName>
+        <FullName>James Wilson</FullName>
+      </PartyName>
+      <Role>Guitar</Role>
+    </ResourceContributor>
+    
+    <ResourceContributor sequenceNumber="3">
+      <PartyName>
+        <FullName>Sarah Chen</FullName>
+      </PartyName>
+      <Role>Producer</Role>
+    </ResourceContributor>
+    
+    <ResourceContributor sequenceNumber="4">
+      <PartyName>
+        <FullName>Sarah Chen</FullName>
+      </PartyName>
+      <Role>Mixer</Role>
+    </ResourceContributor>
+    
+    <!-- Indirect Contributors (Writers) -->
+    <IndirectResourceContributor sequenceNumber="1">
+      <PartyName>
+        <FullName>Tom Anderson</FullName>
+      </PartyName>
+      <Role>Composer</Role>
+    </IndirectResourceContributor>
+    
+    <IndirectResourceContributor sequenceNumber="2">
+      <PartyName>
+        <FullName>Luna Eclipse</FullName>
+      </PartyName>
+      <Role>Lyricist</Role>
+    </IndirectResourceContributor>
+    
+  </SoundRecording>
+</ResourceList>
+```
+
+### **Stardust Implementation Details**
+
+#### **Role Normalization Service**
+
+```javascript
+// services/contributorMapper.js
+export function mapContributorToDDEX(contributor) {
+  const { name, role, category } = contributor;
+  
+  // Determine DDEX element type
+  const elementType = category === 'Composer/Lyricist' 
+    ? 'IndirectResourceContributor' 
+    : 'ResourceContributor';
+  
+  // Map role to DDEX role
+  const ddexRole = getDDEXRole(role, category);
+  
+  return {
+    elementType,
+    partyName: name,
+    role: ddexRole
+  };
+}
+
+function getDDEXRole(role, category) {
+  // Check exact mappings first
+  const mappings = {
+    'Performer': performerToDDEX,
+    'Producer/Engineer': productionToDDEX,
+    'Composer/Lyricist': writerToDDEX
+  };
+  
+  const categoryMap = mappings[category];
+  if (categoryMap && categoryMap[role]) {
+    return categoryMap[role];
+  }
+  
+  // Fallback to role as-is if no mapping found
+  // DDEX allows custom roles when standard roles don't fit
+  return role;
+}
+```
+
+#### **Validation Rules**
+
+```javascript
+// Validate contributor data before ERN generation
+function validateContributors(release) {
+  const errors = [];
+  
+  // Check DisplayArtist exists
+  if (!release.basic.displayArtist) {
+    errors.push('DisplayArtist is required for the release');
+  }
+  
+  // Check each track has DisplayArtist
+  release.tracks.forEach((track, index) => {
+    if (!track.artist && !track.displayArtist) {
+      errors.push(`Track ${index + 1} missing DisplayArtist`);
+    }
+    
+    // Validate contributor names
+    if (track.contributors) {
+      track.contributors.forEach(contributor => {
+        if (!contributor.name || contributor.name.trim() === '') {
+          errors.push(`Track ${index + 1} has contributor with missing name`);
+        }
+        if (!contributor.role) {
+          errors.push(`Track ${index + 1} has contributor with missing role`);
+        }
+      });
+    }
+  });
+  
+  return errors;
+}
+```
+
+### **DSP-Specific Considerations**
+
+Different DSPs may have varying requirements for contributor data:
+
+- **Spotify**: Prefers detailed contributor roles for enhanced credits feature
+- **Apple Music**: Requires specific roles from their approved list
+- **YouTube Music**: Accepts custom roles but prefers standardized DDEX roles
+- **Amazon Music**: Requires producer and composer credits for certain territories
+
+### **Best Practices**
+
+1. **Always include DisplayArtist** at both release and track levels
+2. **Be specific with roles** - use "LeadVocalist" instead of generic "Performer"
+3. **Include songwriter/composer credits** for publishing and royalty purposes
+4. **Maintain consistency** - same contributor name spelling across all tracks
+5. **Use sequence numbers** to indicate importance/order of contributors
+6. **Validate against DDEX AVS** (Allowed Value Sets) when possible
+7. **Include ISNI/IPI identifiers** when available for unambiguous identification
+
+```xml
+<PartyName>
+  <FullName>Sarah Johnson</FullName>
+  <NameUsedInOriginalRelease>S. Johnson</NameUsedInOriginalRelease>
+</PartyName>
+<PartyId>
+  <ISNI>0000000123456789</ISNI>
+</PartyId>
+```
+
+---
+
 ## **Implementation Standards**
 
 ### **For Distributors (Stardust Distro)**

@@ -114,6 +114,7 @@ stardust-distro/
 │   │   │   ├── assets.js          # Asset upload service
 │   │   │   ├── assetMetadata.js   # Metadata extraction
 │   │   │   ├── catalog.js         # Release management
+│   │   │   ├── contributorMapping.js  # Map to DDEX AVS
 │   │   │   ├── delivery.js        # Delivery service
 │   │   │   ├── deliveryHistory.js # Delivery logging
 │   │   │   ├── deliveryTargets.js # Target management

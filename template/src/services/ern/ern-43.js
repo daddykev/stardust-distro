@@ -1,9 +1,10 @@
 // services/ern/ern-43.js
 import { create } from 'xmlbuilder2'
 import { escapeUrlForXml } from '../../utils/urlUtils'
+import { groupContributorsByType } from '../contributorMapper'
 
 /**
- * ERN 4.3 Builder - Simplified to match working XML structure
+ * ERN 4.3 Builder with full contributor support - Simplified to match working XML structure
  */
 export class ERN43Builder {
   constructor() {
@@ -71,7 +72,7 @@ export class ERN43Builder {
     if (config.senderPartyId) {
       sender.ele('PartyId').txt(config.senderPartyId)
     }
-    sender.ele('PartyName').ele('FullName').txt(config.messageSender || config.senderName || import.meta.env.VITE_ORGANIZATION_NAME || 'Music Distributor')
+    sender.ele('PartyName').ele('FullName').txt(config.messageSender || config.senderName || 'Music Distributor')
     
     // Recipient
     const recipient = header.ele('MessageRecipient')
@@ -106,7 +107,7 @@ export class ERN43Builder {
     
     // Use ResourceId instead of SoundRecordingId (matching working XML)
     const resourceId = recording.ele('ResourceId')
-    resourceId.ele('ISRC').txt(track.isrc)
+    resourceId.ele('ISRC').txt(track.isrc || '')
     
     // ReferenceTitle (not DisplayTitle)
     const referenceTitle = recording.ele('ReferenceTitle')
@@ -118,6 +119,29 @@ export class ERN43Builder {
     // DisplayArtist
     const displayArtist = recording.ele('DisplayArtist')
     displayArtist.ele('PartyName').ele('FullName').txt(track.metadata?.displayArtist || track.artist || 'Unknown Artist')
+    
+    // ADD CONTRIBUTORS HERE
+    if (track.contributors && track.contributors.length > 0) {
+      const grouped = groupContributorsByType(track.contributors)
+      
+      // Add ResourceContributors (performers, producers, engineers)
+      grouped.resourceContributors.forEach((contributor, index) => {
+        const contributorElem = recording.ele('ResourceContributor', {
+          'sequenceNumber': String(index + 1)
+        })
+        contributorElem.ele('PartyName').ele('FullName').txt(contributor.partyName)
+        contributorElem.ele('Role').txt(contributor.role)
+      })
+      
+      // Add IndirectResourceContributors (composers, lyricists)
+      grouped.indirectResourceContributors.forEach((contributor, index) => {
+        const contributorElem = recording.ele('IndirectResourceContributor', {
+          'sequenceNumber': String(index + 1)
+        })
+        contributorElem.ele('PartyName').ele('FullName').txt(contributor.partyName)
+        contributorElem.ele('Role').txt(contributor.role)
+      })
+    }
     
     // Duration
     const durationSeconds = track.metadata?.duration || track.duration || 0
