@@ -1134,6 +1134,222 @@ Different DSPs may have varying requirements for contributor data:
 </PartyId>
 ```
 
+### **Contributor Mapper Service Implementation**
+
+The Stardust ecosystem includes a dedicated `contributorMapper.js` service that handles all contributor role mapping between the internal system and DDEX standards. This service ensures consistent and compliant contributor data across all ERN versions.
+
+#### **Service Location and Architecture**
+
+```
+services/
+├── contributorMapper.js      # Main contributor mapping service
+├── ern.js                    # ERN service that uses contributor mapper
+└── ern/
+    ├── ern-382.js           # ERN 3.8.2 builder with contributor support
+    ├── ern-42.js            # ERN 4.2 builder with contributor support
+    └── ern-43.js            # ERN 4.3 builder with contributor support
+```
+
+#### **Core Service Functions**
+
+**1. mapContributorToDDEX(contributor)**
+Maps a single contributor object to DDEX format:
+
+```javascript
+import { mapContributorToDDEX } from './services/contributorMapper'
+
+const contributor = {
+  name: 'Sarah Johnson',
+  role: 'Producer',
+  category: 'Producer/Engineer'
+}
+
+const ddexContributor = mapContributorToDDEX(contributor)
+// Returns: {
+//   elementType: 'ResourceContributor',
+//   partyName: 'Sarah Johnson',
+//   role: 'Producer',
+//   sequenceNumber: 1
+// }
+```
+
+**2. validateContributors(release)**
+Validates all contributor data before ERN generation:
+
+```javascript
+const errors = validateContributors(release)
+if (errors.length > 0) {
+  console.warn('Contributor validation issues:', errors)
+}
+```
+
+**3. groupContributorsByType(contributors)**
+Groups contributors into ResourceContributors and IndirectResourceContributors:
+
+```javascript
+const grouped = groupContributorsByType(track.contributors)
+// Returns: {
+//   resourceContributors: [...],      // Performers, producers, engineers
+//   indirectResourceContributors: [...] // Composers, lyricists, writers
+// }
+```
+
+#### **Integration with ERN Builders**
+
+All ERN version builders (3.8.2, 4.2, 4.3) now include contributor support:
+
+```javascript
+// In ERN builders (ern-382.js, ern-42.js, ern-43.js)
+import { groupContributorsByType } from '../contributorMapper'
+
+// Within buildSoundRecording method:
+if (track.contributors && track.contributors.length > 0) {
+  const grouped = groupContributorsByType(track.contributors)
+  
+  // Add ResourceContributors
+  grouped.resourceContributors.forEach((contributor, index) => {
+    const contributorElem = recording.ele('ResourceContributor', {
+      'sequenceNumber': String(index + 1)
+    })
+    contributorElem.ele('PartyName').ele('FullName').txt(contributor.partyName)
+    contributorElem.ele('Role').txt(contributor.role)
+  })
+  
+  // Add IndirectResourceContributors
+  grouped.indirectResourceContributors.forEach((contributor, index) => {
+    const contributorElem = recording.ele('IndirectResourceContributor', {
+      'sequenceNumber': String(index + 1)
+    })
+    contributorElem.ele('PartyName').ele('FullName').txt(contributor.partyName)
+    contributorElem.ele('Role').txt(contributor.role)
+  })
+}
+```
+
+#### **Role Mapping Tables**
+
+The service maintains three mapping tables for accurate DDEX role conversion:
+
+**Performer Mappings:**
+| Internal Role | DDEX Role |
+|--------------|-----------|
+| Vocals | MainVocalist |
+| Lead Vocals | LeadVocalist |
+| Background Vocals | BackgroundVocalist |
+| Guitar | Guitar |
+| Bass Guitar | BassGuitar |
+| Drums | Drums |
+| Piano | Piano |
+| DJ | DJ |
+| Rapper | Rapper |
+
+**Production/Engineering Mappings:**
+| Internal Role | DDEX Role |
+|--------------|-----------|
+| Producer | Producer |
+| Co-Producer | CoProducer |
+| Executive Producer | ExecutiveProducer |
+| Mix Engineer | Mixer |
+| Mastering Engineer | MasteringEngineer |
+| Recording Engineer | RecordingEngineer |
+| Remixer | Remixer |
+| Programming | Programmer |
+
+**Composer/Lyricist Mappings:**
+| Internal Role | DDEX Role |
+|--------------|-----------|
+| Composer | Composer |
+| Lyricist | Lyricist |
+| Songwriter | ComposerLyricist |
+| Arranger | MusicArranger |
+| Writer | Writer |
+
+#### **Version-Specific Implementation**
+
+**ERN 3.8.2:** Contributors are placed within the `DetailsByTerritory` element:
+```xml
+<DetailsByTerritory>
+  <TerritoryCode>Worldwide</TerritoryCode>
+  <ResourceContributor sequenceNumber="1">
+    <PartyName><FullName>John Smith</FullName></PartyName>
+    <Role>Producer</Role>
+  </ResourceContributor>
+</DetailsByTerritory>
+```
+
+**ERN 4.2 & 4.3:** Contributors are direct children of the `SoundRecording` element:
+```xml
+<SoundRecording>
+  <ResourceContributor sequenceNumber="1">
+    <PartyName><FullName>John Smith</FullName></PartyName>
+    <Role>Producer</Role>
+  </ResourceContributor>
+</SoundRecording>
+```
+
+#### **Data Flow**
+
+1. **User Input** → Contributors added via EditRelease.vue interface
+2. **Storage** → Contributors stored in Firestore under `tracks[].contributors`
+3. **ERN Generation** → ERN service validates contributors with `validateContributors()`
+4. **Mapping** → contributorMapper.js converts to DDEX format
+5. **XML Output** → ERN builders include contributors in correct XML structure
+
+#### **Error Handling and Fallbacks**
+
+The service includes robust error handling:
+
+- **Unknown Roles:** If a role doesn't have a DDEX mapping, it's passed through as-is with a warning
+- **Missing Required Fields:** Validation catches missing names or roles before ERN generation
+- **Category Detection:** Automatic category inference if not explicitly provided
+- **Duplicate Prevention:** Checks for duplicate contributor entries
+
+```javascript
+// Example: Handling unknown roles
+function getDDEXRole(role, category) {
+  const mappings = {
+    'Performer': performerToDDEX,
+    'Producer/Engineer': productionToDDEX,
+    'Composer/Lyricist': writerToDDEX
+  }
+  
+  const categoryMap = mappings[category]
+  if (categoryMap && categoryMap[role]) {
+    return categoryMap[role]
+  }
+  
+  // Fallback: Use role as-is if no mapping found
+  console.warn(`No DDEX mapping for role "${role}" in category "${category}", using as-is`)
+  return role
+}
+```
+
+#### **Testing Contributor Data**
+
+To test contributor mapping:
+
+1. Add contributors to a track in EditRelease.vue
+2. Generate ERN message
+3. Verify XML contains correct contributor elements
+4. Check console for any mapping warnings
+
+Example test data:
+```javascript
+const testTrack = {
+  title: "Test Song",
+  contributors: [
+    { name: "Alice Artist", role: "Vocals", category: "Performer" },
+    { name: "Bob Producer", role: "Producer", category: "Producer/Engineer" },
+    { name: "Charlie Composer", role: "Composer", category: "Composer/Lyricist" }
+  ]
+}
+```
+
+Expected ERN output will include:
+- One ResourceContributor for Alice (MainVocalist)
+- One ResourceContributor for Bob (Producer)
+- One IndirectResourceContributor for Charlie (Composer)
+
 ---
 
 ## **Implementation Standards**
