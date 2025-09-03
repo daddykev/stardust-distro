@@ -34,6 +34,7 @@ const searchResults = ref([])
 const selectedParent = ref('')
 const parentGenres = ref([])
 const subgenres = ref([])
+const isLoading = ref(false)
 
 // Computed
 const selectedGenre = computed(() => {
@@ -43,17 +44,8 @@ const selectedGenre = computed(() => {
   return props.modelValue
 })
 
-const selectedGenrePath = computed(() => {
-  const code = selectedGenre.value
-  if (!code) return ''
-  return getGenrePath(code, props.dsp)
-})
-
-const selectedGenreInfo = computed(() => {
-  const code = selectedGenre.value
-  if (!code) return null
-  return getGenreByCode(code, props.dsp)
-})
+const selectedGenrePath = ref('')
+const selectedGenreInfo = ref(null)
 
 // Get mapped genre info for target DSP if specified
 const mappedGenreInfo = computed(() => {
@@ -68,20 +60,33 @@ const mappedGenreInfo = computed(() => {
   }
 })
 
-// Methods
-const loadParentGenres = () => {
-  parentGenres.value = getParentGenres(props.dsp)
+// Methods - now async
+const loadParentGenres = async () => {
+  isLoading.value = true
+  try {
+    parentGenres.value = await getParentGenres(props.dsp)
+  } catch (error) {
+    console.error('Error loading parent genres:', error)
+    parentGenres.value = []
+  } finally {
+    isLoading.value = false
+  }
 }
 
-const loadSubgenres = (parentCode) => {
-  subgenres.value = getSubgenres(parentCode, props.dsp)
+const loadSubgenres = async (parentCode) => {
+  try {
+    subgenres.value = await getSubgenres(parentCode, props.dsp)
+  } catch (error) {
+    console.error('Error loading subgenres:', error)
+    subgenres.value = []
+  }
 }
 
-const selectParentGenre = (genre) => {
+const selectParentGenre = async (genre) => {
   selectedParent.value = genre.code
   
   if (genre.hasChildren) {
-    loadSubgenres(genre.code)
+    await loadSubgenres(genre.code)
   } else {
     // If no children, select this as the genre
     emit('update:modelValue', genre.code)
@@ -90,13 +95,13 @@ const selectParentGenre = (genre) => {
   }
 }
 
-const selectSubgenre = (subgenre) => {
-  const parent = getGenreByCode(subgenre.parent, props.dsp)
+const selectSubgenre = async (subgenre) => {
+  const parent = await getGenreByCode(subgenre.parent, props.dsp)
   emit('update:modelValue', parent?.code || '')
   emit('update:subgenreValue', subgenre.code)
 }
 
-const selectGenreFromSearch = (result) => {
+const selectGenreFromSearch = async (result) => {
   // Determine if it's a parent or subgenre based on path length
   if (result.path.length === 2) {
     // It's a parent genre
@@ -107,7 +112,7 @@ const selectGenreFromSearch = (result) => {
     // Load subgenres if it has any
     const genre = parentGenres.value.find(g => g.code === result.code)
     if (genre?.hasChildren) {
-      loadSubgenres(result.code)
+      await loadSubgenres(result.code)
     }
   } else if (result.path.length === 3) {
     // It's a subgenre - find its parent
@@ -116,7 +121,7 @@ const selectGenreFromSearch = (result) => {
     
     if (parent) {
       selectedParent.value = parent.code
-      loadSubgenres(parent.code)
+      await loadSubgenres(parent.code)
       emit('update:modelValue', parent.code)
       emit('update:subgenreValue', result.code)
     }
@@ -125,9 +130,14 @@ const selectGenreFromSearch = (result) => {
   clearSearch()
 }
 
-const handleSearch = () => {
+const handleSearch = async () => {
   if (searchQuery.value.length >= 2) {
-    searchResults.value = searchGenres(searchQuery.value, props.dsp)
+    try {
+      searchResults.value = await searchGenres(searchQuery.value, props.dsp)
+    } catch (error) {
+      console.error('Error searching genres:', error)
+      searchResults.value = []
+    }
   } else {
     searchResults.value = []
   }
@@ -143,6 +153,8 @@ const clearSelection = () => {
   emit('update:subgenreValue', '')
   selectedParent.value = ''
   subgenres.value = []
+  selectedGenreInfo.value = null
+  selectedGenrePath.value = ''
 }
 
 const getParentName = (code) => {
@@ -151,54 +163,98 @@ const getParentName = (code) => {
 }
 
 // Initialize selected parent if a genre is already selected
-const initializeSelection = () => {
+const initializeSelection = async () => {
   if (props.subgenreValue) {
     // If we have a subgenre selected, find its parent
-    const subgenre = getGenreByCode(props.subgenreValue, props.dsp)
-    if (subgenre && subgenre.parent) {
-      selectedParent.value = subgenre.parent
-      loadSubgenres(subgenre.parent)
+    try {
+      const subgenre = await getGenreByCode(props.subgenreValue, props.dsp)
+      if (subgenre && subgenre.parent) {
+        selectedParent.value = subgenre.parent
+        await loadSubgenres(subgenre.parent)
+      }
+    } catch (error) {
+      console.error('Error initializing subgenre selection:', error)
     }
   } else if (props.modelValue) {
     // If we have a parent genre selected
-    const genre = getGenreByCode(props.modelValue, props.dsp)
-    if (genre) {
-      selectedParent.value = props.modelValue
-      
-      // Check if it has subgenres
-      const parentGenre = parentGenres.value.find(g => g.code === props.modelValue)
-      if (parentGenre?.hasChildren) {
-        loadSubgenres(props.modelValue)
+    try {
+      const genre = await getGenreByCode(props.modelValue, props.dsp)
+      if (genre) {
+        selectedParent.value = props.modelValue
+        
+        // Check if it has subgenres
+        const parentGenre = parentGenres.value.find(g => g.code === props.modelValue)
+        if (parentGenre?.hasChildren) {
+          await loadSubgenres(props.modelValue)
+        }
       }
+    } catch (error) {
+      console.error('Error initializing parent selection:', error)
     }
   }
 }
 
+// Update selected genre info and path when selection changes
+const updateSelectedGenreInfo = async () => {
+  const code = selectedGenre.value
+  if (!code) {
+    selectedGenreInfo.value = null
+    selectedGenrePath.value = ''
+    return
+  }
+  
+  try {
+    selectedGenreInfo.value = await getGenreByCode(code, props.dsp)
+    selectedGenrePath.value = await getGenrePath(code, props.dsp)
+  } catch (error) {
+    console.error('Error updating selected genre info:', error)
+    selectedGenreInfo.value = null
+    selectedGenrePath.value = ''
+  }
+}
+
 // Lifecycle
-onMounted(() => {
-  loadParentGenres()
-  // Wait for parent genres to load before initializing selection
-  setTimeout(initializeSelection, 100)
+onMounted(async () => {
+  await loadParentGenres()
+  // Wait a moment for parent genres to settle, then initialize selection
+  setTimeout(async () => {
+    await initializeSelection()
+    await updateSelectedGenreInfo()
+  }, 100)
 })
 
 // Watch for external changes
-watch(() => [props.modelValue, props.subgenreValue], () => {
+watch(() => [props.modelValue, props.subgenreValue], async () => {
   if (parentGenres.value.length > 0) {
-    initializeSelection()
+    await initializeSelection()
+    await updateSelectedGenreInfo()
   }
 }, { deep: true })
 
-watch(() => props.dsp, () => {
-  loadParentGenres()
+// Watch for DSP changes
+watch(() => props.dsp, async () => {
+  await loadParentGenres()
   clearSelection()
-  setTimeout(initializeSelection, 100)
+  setTimeout(async () => {
+    await initializeSelection()
+    await updateSelectedGenreInfo()
+  }, 100)
 })
+
+// Watch for selected genre changes to update info
+watch(selectedGenre, updateSelectedGenreInfo)
 </script>
 
 <template>
   <div class="genre-selector">
+    <!-- Loading indicator -->
+    <div v-if="isLoading" class="loading-indicator">
+      <font-awesome-icon icon="spinner" class="fa-spin" />
+      Loading genres...
+    </div>
+    
     <!-- Genre Source Info -->
-    <div v-if="dsp !== 'genre-truth'" class="genre-source-info">
+    <div v-if="!isLoading && dsp !== 'genre-truth'" class="genre-source-info">
       <div class="source-badge">
         <font-awesome-icon icon="info-circle" />
         Using {{ dsp.toUpperCase() }} genre taxonomy
@@ -206,7 +262,7 @@ watch(() => props.dsp, () => {
     </div>
 
     <!-- Search Input -->
-    <div class="genre-search">
+    <div v-if="!isLoading" class="genre-search">
       <input
         v-model="searchQuery"
         type="text"
@@ -223,7 +279,7 @@ watch(() => props.dsp, () => {
     </div>
     
     <!-- Search Results -->
-    <div v-if="searchQuery && searchResults.length > 0" class="search-results">
+    <div v-if="!isLoading && searchQuery && searchResults.length > 0" class="search-results">
       <div class="results-header">
         Search Results ({{ searchResults.length }})
       </div>
@@ -242,7 +298,7 @@ watch(() => props.dsp, () => {
     </div>
     
     <!-- Genre Tree Navigation -->
-    <div v-else class="genre-tree">
+    <div v-else-if="!isLoading" class="genre-tree">
       <!-- Selected Genre Display -->
       <div v-if="selectedGenre" class="selected-genre">
         <div class="selected-header">
@@ -340,14 +396,14 @@ watch(() => props.dsp, () => {
       </div>
 
       <!-- Helper Text -->
-      <div v-if="!selectedGenre" class="helper-text">
+      <div v-if="!selectedGenre && !isLoading" class="helper-text">
         <font-awesome-icon icon="hand-pointer" />
         Select a main genre to begin, or use the search above to find specific genres
       </div>
     </div>
     
     <!-- No Search Results -->
-    <div v-if="searchQuery && searchResults.length === 0" class="no-results">
+    <div v-if="!isLoading && searchQuery && searchResults.length === 0" class="no-results">
       <font-awesome-icon icon="search" />
       <div>No genres found matching "{{ searchQuery }}"</div>
       <div class="no-results-hint">Try a different search term or browse the categories below</div>
@@ -723,6 +779,26 @@ watch(() => props.dsp, () => {
 .genre-selector::-webkit-scrollbar-thumb:hover,
 .search-results::-webkit-scrollbar-thumb:hover {
   background: var(--color-border-dark);
+}
+
+/* Add loading indicator styles */
+.loading-indicator {
+  text-align: center;
+  padding: var(--space-xl);
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+}
+
+.fa-spin {
+  animation: fa-spin 1s linear infinite;
+}
+
+@keyframes fa-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* Responsive Design */

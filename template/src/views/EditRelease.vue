@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, watch, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useCatalog } from '../composables/useCatalog'
 import { useAuth } from '../composables/useAuth'
@@ -56,6 +56,23 @@ const expandedSections = ref({
 
 // Track which sections have been modified
 const modifiedSections = ref(new Set())
+
+// Scroll/Focus preservation refs
+const scrollPosition = ref({ x: 0, y: 0 })
+const activeElementSelector = ref(null)
+const activeElementValue = ref(null)
+const activeElementSelectionRange = ref(null)
+
+// Section classes for better targeting
+const sectionClasses = {
+  basic: 'section-basic',
+  tracks: 'section-tracks', 
+  assets: 'section-assets',
+  metadata: 'section-metadata',
+  mead: 'section-mead',
+  territories: 'section-territories',
+  ern: 'section-ern'
+}
 
 // Form data - will be populated from existing release
 const releaseData = ref({
@@ -277,6 +294,100 @@ const getMeadSummary = () => {
   return parts.length > 0 ? parts.join(' • ') : 'Rich metadata for DSP curation and discovery'
 }
 
+// Helper function to get a unique selector for an element
+const getElementSelector = (element) => {
+  if (!element) return null
+  
+  // Try to get a unique identifier
+  if (element.id) return `#${element.id}`
+  if (element.name) return `[name="${element.name}"]`
+  
+  // For inputs within specific sections, create a more specific selector
+  const section = element.closest('.collapsible-section')
+  if (section) {
+    const sectionClass = Array.from(section.classList).find(c => c.startsWith('section-'))
+    if (sectionClass) {
+      // Get index of element within section
+      const inputs = section.querySelectorAll('input, textarea, select')
+      const index = Array.from(inputs).indexOf(element)
+      if (index >= 0) {
+        return `.${sectionClass} input:nth-of-type(${index + 1}), .${sectionClass} textarea:nth-of-type(${index + 1}), .${sectionClass} select:nth-of-type(${index + 1})`
+      }
+    }
+  }
+  
+  return null
+}
+
+// Preserve state before any DOM-affecting operation
+const preserveUserState = () => {
+  // Save scroll position
+  scrollPosition.value = {
+    x: window.scrollX || window.pageXOffset || 0,
+    y: window.scrollY || window.pageYOffset || 0
+  }
+  
+  // Save active element (focused input)
+  const activeEl = document.activeElement
+  if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT')) {
+    activeElementSelector.value = getElementSelector(activeEl)
+    activeElementValue.value = activeEl.value
+    
+    // Save cursor position for text inputs
+    if (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') {
+      activeElementSelectionRange.value = {
+        start: activeEl.selectionStart,
+        end: activeEl.selectionEnd,
+        direction: activeEl.selectionDirection
+      }
+    }
+  } else {
+    activeElementSelector.value = null
+    activeElementValue.value = null
+    activeElementSelectionRange.value = null
+  }
+}
+
+// Restore state after DOM operations
+const restoreUserState = async () => {
+  // Use nextTick to ensure DOM is updated
+  await nextTick()
+  
+  // Restore scroll position
+  if (scrollPosition.value.y > 0 || scrollPosition.value.x > 0) {
+    window.scrollTo({
+      left: scrollPosition.value.x,
+      top: scrollPosition.value.y,
+      behavior: 'instant' // Use instant to avoid smooth scrolling delay
+    })
+  }
+  
+  // Restore focus and cursor position
+  if (activeElementSelector.value) {
+    try {
+      const element = document.querySelector(activeElementSelector.value)
+      if (element) {
+        // Re-focus the element
+        element.focus()
+        
+        // Restore cursor position if it's a text input
+        if (activeElementSelectionRange.value && (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA')) {
+          // Small delay to ensure focus is complete
+          setTimeout(() => {
+            element.setSelectionRange(
+              activeElementSelectionRange.value.start,
+              activeElementSelectionRange.value.end,
+              activeElementSelectionRange.value.direction
+            )
+          }, 0)
+        }
+      }
+    } catch (error) {
+      console.warn('Could not restore focus:', error)
+    }
+  }
+}
+
 // Watch for changes to enable auto-save
 watch(releaseData, (newValue) => {
   if (originalData.value && JSON.stringify(newValue) !== JSON.stringify(originalData.value)) {
@@ -405,6 +516,9 @@ const scheduleAutoSave = () => {
 const autoSave = async () => {
   if (!hasChanges.value || isSaving.value) return
   
+  // Preserve current user state before saving
+  preserveUserState()
+  
   try {
     isSaving.value = true
     saveError.value = null
@@ -416,9 +530,14 @@ const autoSave = async () => {
     originalData.value = JSON.parse(JSON.stringify(releaseData.value))
     lastSavedAt.value = new Date()
     modifiedSections.value.clear()
+    
+    // Restore user state after save completes
+    await restoreUserState()
   } catch (err) {
     console.error('Auto-save failed:', err)
     saveError.value = 'Auto-save failed. Your changes are preserved locally.'
+    // Still try to restore state even on error
+    await restoreUserState()
   } finally {
     isSaving.value = false
   }
@@ -426,6 +545,9 @@ const autoSave = async () => {
 
 const saveChanges = async () => {
   if (!canSave.value) return
+  
+  // Preserve state for manual saves too
+  preserveUserState()
   
   try {
     isSaving.value = true
@@ -447,10 +569,15 @@ const saveChanges = async () => {
     modifiedSections.value.clear()
     
     showToast('Changes saved successfully', 'success')
+    
+    // Restore state after manual save
+    await restoreUserState()
   } catch (err) {
     console.error('Error saving changes:', err)
     saveError.value = err.message || 'Failed to save changes'
     showToast('Failed to save changes', 'error')
+    // Still try to restore state
+    await restoreUserState()
   } finally {
     isSaving.value = false
   }
@@ -866,7 +993,7 @@ const validateERN = async () => {
   }
 }
 
-// Complete generateERN function with MEAD integration
+// Complete generateERN function with MEAD integration and state preservation
 const generateERN = async () => {
   // First validate
   const isValid = await validateERN()
@@ -875,10 +1002,13 @@ const generateERN = async () => {
   isGeneratingERN.value = true
   ernError.value = null
   
+  // Preserve state before potentially triggering saves
+  preserveUserState()
+  
   try {
     // Save any pending changes first
     if (hasChanges.value) {
-      await saveChanges()
+      await saveChanges() // This already preserves/restores state
     }
     
     // Generate ERN using the service
@@ -998,10 +1128,15 @@ const generateERN = async () => {
       hasMEAD: !!generatedMEAD.value
     })
     
+    // Restore state at the end
+    await restoreUserState()
+    
   } catch (err) {
     console.error('Error generating ERN:', err)
     ernError.value = err.message || 'Failed to generate ERN'
     showToast('Failed to generate ERN', 'error')
+    // Restore state on error too
+    await restoreUserState()
   } finally {
     isGeneratingERN.value = false
   }
@@ -1233,10 +1368,14 @@ const handleSubgenreUpdate = (value) => {
         </button>
       </div>
 
-      <!-- Edit sections -->
+      <!-- Edit sections with unique classes for targeting -->
       <div v-else class="flex flex-col gap-lg">
         <!-- Basic Information Section -->
-        <div class="card collapsible-section" :class="{ expanded: expandedSections.basic, modified: modifiedSections.has('basic') }">
+        <div class="card collapsible-section" 
+             :class="[
+               { expanded: expandedSections.basic, modified: modifiedSections.has('basic') },
+               sectionClasses.basic
+             ]">
           <div class="section-header p-lg" @click="toggleSection('basic')">
             <div class="flex items-center gap-md">
               <font-awesome-icon :icon="expandedSections.basic ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
@@ -1347,7 +1486,11 @@ const handleSubgenreUpdate = (value) => {
         </div>
 
         <!-- Tracks Section -->
-        <div class="card collapsible-section" :class="{ expanded: expandedSections.tracks, modified: modifiedSections.has('tracks') }">
+        <div class="card collapsible-section" 
+             :class="[
+               { expanded: expandedSections.tracks, modified: modifiedSections.has('tracks') },
+               sectionClasses.tracks
+             ]">
           <div class="section-header p-lg" @click="toggleSection('tracks')">
             <div class="flex items-center gap-md">
               <font-awesome-icon :icon="expandedSections.tracks ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
@@ -1489,7 +1632,11 @@ const handleSubgenreUpdate = (value) => {
         </div>
 
         <!-- Assets Section -->
-        <div class="card collapsible-section" :class="{ expanded: expandedSections.assets, modified: modifiedSections.has('assets') }">
+        <div class="card collapsible-section" 
+             :class="[
+               { expanded: expandedSections.assets, modified: modifiedSections.has('assets') },
+               sectionClasses.assets
+             ]">
           <div class="section-header p-lg" @click="toggleSection('assets')">
             <div class="flex items-center gap-md">
               <font-awesome-icon :icon="expandedSections.assets ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
@@ -1552,7 +1699,11 @@ const handleSubgenreUpdate = (value) => {
         </div>
 
         <!-- Metadata Section -->
-        <div class="card collapsible-section" :class="{ expanded: expandedSections.metadata, modified: modifiedSections.has('metadata') }">
+        <div class="card collapsible-section" 
+             :class="[
+               { expanded: expandedSections.metadata, modified: modifiedSections.has('metadata') },
+               sectionClasses.metadata
+             ]">
           <div class="section-header p-lg" @click="toggleSection('metadata')">
             <div class="flex items-center gap-md">
               <font-awesome-icon :icon="expandedSections.metadata ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
@@ -1623,7 +1774,11 @@ const handleSubgenreUpdate = (value) => {
         </div>
 
         <!-- MEAD Section (COMPLETE) -->
-        <div class="card collapsible-section" :class="{ expanded: expandedSections.mead, modified: modifiedSections.has('mead') }">
+        <div class="card collapsible-section" 
+             :class="[
+               { expanded: expandedSections.mead, modified: modifiedSections.has('mead') },
+               sectionClasses.mead
+             ]">
           <div class="section-header p-lg" @click="toggleSection('mead')">
             <div class="flex items-center gap-md">
               <font-awesome-icon :icon="expandedSections.mead ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
@@ -2023,7 +2178,11 @@ const handleSubgenreUpdate = (value) => {
         </div>
 
         <!-- Territories Section -->
-        <div class="card collapsible-section" :class="{ expanded: expandedSections.territories, modified: modifiedSections.has('territories') }">
+        <div class="card collapsible-section" 
+             :class="[
+               { expanded: expandedSections.territories, modified: modifiedSections.has('territories') },
+               sectionClasses.territories
+             ]">
           <div class="section-header p-lg" @click="toggleSection('territories')">
             <div class="flex items-center gap-md">
               <font-awesome-icon :icon="expandedSections.territories ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
@@ -2076,7 +2235,11 @@ const handleSubgenreUpdate = (value) => {
         </div>
 
         <!-- ERN & Delivery Section -->
-        <div class="card collapsible-section" :class="{ expanded: expandedSections.ern, modified: modifiedSections.has('ern') }">
+        <div class="card collapsible-section" 
+             :class="[
+               { expanded: expandedSections.ern, modified: modifiedSections.has('ern') },
+               sectionClasses.ern
+             ]">
           <div class="section-header p-lg" @click="toggleSection('ern')">
             <div class="flex items-center gap-md">
               <font-awesome-icon :icon="expandedSections.ern ? 'chevron-down' : 'chevron-right'" class="text-secondary section-icon" />
@@ -2471,6 +2634,8 @@ const handleSubgenreUpdate = (value) => {
   min-height: calc(100vh - 64px);
   padding-bottom: var(--space-3xl);
   background-color: var(--color-bg);
+  /* Add will-change to optimize for scroll preservation */
+  will-change: scroll-position;
 }
 
 /* Collapsible sections enhancement */
@@ -2514,6 +2679,24 @@ const handleSubgenreUpdate = (value) => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Add section-specific classes for better targeting */
+.section-basic,
+.section-tracks,
+.section-assets,
+.section-metadata,
+.section-mead,
+.section-territories,
+.section-ern {
+  scroll-margin-top: 80px; /* Provide some offset when scrolling to sections */
+}
+
+/* Ensure inputs maintain consistent height to prevent layout shifts */
+.form-input,
+.form-select,
+.form-textarea {
+  min-height: 40px; /* Consistent minimum height */
 }
 
 /* Status badges */
@@ -2663,6 +2846,17 @@ const handleSubgenreUpdate = (value) => {
 .mead-info-panel {
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
   border: 1px solid rgba(102, 126, 234, 0.2);
+}
+
+.mead-success {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  border-radius: var(--radius-lg);
+  color: var(--color-primary);
+  align-items: center;
 }
 
 .benefit-tag {
@@ -3084,6 +3278,10 @@ const handleSubgenreUpdate = (value) => {
     grid-template-columns: 1fr !important;
   }
   
+  .grid-cols-md-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+  
   .flex-col-sm {
     flex-direction: column !important;
   }
@@ -3122,4 +3320,86 @@ const handleSubgenreUpdate = (value) => {
     height: 200px;
   }
 }
-</style>
+
+/* Additional utility classes */
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+}
+
+.checkbox-option input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.form-error {
+  color: var(--color-error);
+  font-size: var(--text-sm);
+  margin-top: var(--space-xs);
+}
+
+.bg-success-light {
+  background-color: rgba(52, 168, 83, 0.1);
+}
+
+.text-success {
+  color: var(--color-success);
+}
+
+.text-warning {
+  color: var(--color-warning);
+}
+
+.text-error {
+  color: var(--color-error);
+}
+
+.text-info {
+  color: var(--color-info);
+}
+
+.bg-info {
+  background-color: var(--color-info);
+}
+
+.border {
+  border: 1px solid var(--color-border);
+}
+
+.border-t {
+  border-top: 1px solid var(--color-border);
+}
+
+.border-b {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.rounded-none {
+  border-radius: 0;
+}
+
+/* Dark mode adjustments */
+[data-theme="dark"] .upload-area {
+  background-color: var(--color-bg-tertiary);
+}
+
+[data-theme="dark"] .modal-content {
+  background-color: var(--color-bg-secondary);
+}
+
+[data-theme="dark"] .ern-preview-content {
+  background-color: var(--color-bg-tertiary);
+}
+
+[data-theme="dark"] .mead-info-panel {
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.1), rgba(118, 75, 162, 0.1));
+  border-color: rgba(66, 133, 244, 0.3);
+}
+
+[data-theme="dark"] .mead-success {
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.1), rgba(118, 75, 162, 0.1));
+  border-color: rgba(66, 133, 244, 0.4);
+  color: var(--color-primary);
+}
+</style>  

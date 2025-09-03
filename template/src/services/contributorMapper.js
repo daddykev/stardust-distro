@@ -5,7 +5,7 @@
  * Maps internal contributor roles to DDEX-compliant role names
  */
 
-// Performer role mappings to DDEX
+// Performer role mappings to DDEX (keep existing mappings)
 const performerToDDEX = {
   'Vocals': 'MainVocalist',
   'Lead Vocals': 'LeadVocalist',
@@ -21,14 +21,13 @@ const performerToDDEX = {
   'Orchestra': 'Orchestra',
   'DJ': 'DJ',
   'Rapper': 'Rapper',
-  // Add more mappings as needed
   'Percussion': 'Percussion',
   'Synthesizer': 'Synthesizer',
   'Trumpet': 'Trumpet',
   'Cello': 'Cello'
 }
 
-// Production/Engineering role mappings to DDEX
+// Production/Engineering role mappings to DDEX (keep existing mappings)
 const productionToDDEX = {
   'Producer': 'Producer',
   'Co-Producer': 'CoProducer',
@@ -48,7 +47,7 @@ const productionToDDEX = {
   'Sound Design': 'SoundDesigner'
 }
 
-// Composer/Lyricist role mappings to DDEX
+// Composer/Lyricist role mappings to DDEX (keep existing mappings)
 const writerToDDEX = {
   'Composer': 'Composer',
   'Lyricist': 'Lyricist',
@@ -67,7 +66,8 @@ export function mapContributorToDDEX(contributor) {
   const { name, role, category } = contributor
   
   // Determine DDEX element type based on category
-  const elementType = category === 'Composer/Lyricist' 
+  // Updated to match actual category values from ContributorCategories
+  const elementType = category === 'composer_lyricist' 
     ? 'IndirectResourceContributor' 
     : 'ResourceContributor'
   
@@ -86,11 +86,11 @@ export function mapContributorToDDEX(contributor) {
  * Get DDEX role from internal role and category
  */
 function getDDEXRole(role, category) {
-  // Check exact mappings first
+  // Updated mappings to match actual category values
   const mappings = {
-    'Performer': performerToDDEX,
-    'Producer/Engineer': productionToDDEX,
-    'Composer/Lyricist': writerToDDEX
+    'performer': performerToDDEX,
+    'producer_engineer': productionToDDEX,
+    'composer_lyricist': writerToDDEX
   }
   
   const categoryMap = mappings[category]
