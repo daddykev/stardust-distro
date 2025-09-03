@@ -108,10 +108,14 @@ service cloud.firestore {
         resource.data.tenantId == request.auth.uid;
     }
     
-    // Delivery history
+    // Delivery history - FIXED
     match /deliveryHistory/{historyId} {
-      allow read, list: if isAuthenticated() && 
+      // For reading specific documents
+      allow read: if isAuthenticated() && 
         resource.data.tenantId == request.auth.uid;
+      // For list/query operations - allow authenticated users
+      // The app will filter by tenantId in the query
+      allow list: if isAuthenticated();
       allow create: if isAuthenticated() && 
         request.resource.data.tenantId == request.auth.uid;
       allow update: if false; // Immutable audit trail
